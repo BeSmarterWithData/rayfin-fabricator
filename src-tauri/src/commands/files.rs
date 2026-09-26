@@ -22,7 +22,7 @@ const MAX_FILE_BYTES: u64 = 1024 * 1024;
 /// `files` holds exact ignored file paths; `dirs` holds wholly-ignored directory
 /// prefixes (git collapses those to `dir/`, so their contents inherit the flag).
 #[derive(Default)]
-struct Ignores {
+pub(crate) struct Ignores {
   files: HashSet<String>,
   dirs: Vec<String>,
 }
@@ -30,7 +30,7 @@ struct Ignores {
 impl Ignores {
   /// True if `path` (project-relative, POSIX) is ignored or sits under an
   /// ignored directory.
-  fn is_ignored(&self, path: &str) -> bool {
+  pub(crate) fn is_ignored(&self, path: &str) -> bool {
     if self.files.contains(path) {
       return true;
     }
@@ -44,7 +44,7 @@ impl Ignores {
 /// Ask git which paths are ignored (`git status --ignored`, NUL-delimited).
 /// Resilient to non-git projects: any failure yields an empty set, so the tree
 /// simply shows nothing as ignored rather than erroring.
-async fn compute_ignores(cwd: &str) -> Ignores {
+pub(crate) async fn compute_ignores(cwd: &str) -> Ignores {
   let opts = RunOptions {
     cwd: Some(PathBuf::from(cwd)),
     timeout_ms: Some(15_000),

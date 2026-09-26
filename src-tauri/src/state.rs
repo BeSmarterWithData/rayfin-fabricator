@@ -24,6 +24,8 @@ pub struct AppState {
   suggest_cancels: Mutex<HashMap<String, CancelToken>>,
   /// Active inline-explain cancel tokens, keyed by `projectId` (one explain per project).
   explain_cancels: Mutex<HashMap<String, CancelToken>>,
+  /// Active Advisor verify cancel tokens, keyed by `projectId` (one verify per project).
+  verify_cancels: Mutex<HashMap<String, CancelToken>>,
   /// Shared Copilot SDK client + per-thread session cache.
   pub copilot: CopilotManager,
   /// Bridges Plan-mode `exit_plan_mode` requests to the renderer's approval UI.
@@ -281,6 +283,7 @@ impl AppState {
       || !self.advisor_cancels.lock().unwrap().is_empty()
       || !self.suggest_cancels.lock().unwrap().is_empty()
       || !self.explain_cancels.lock().unwrap().is_empty()
+      || !self.verify_cancels.lock().unwrap().is_empty()
   }
 
   /// Register a fresh advisor-run cancel token for a project only if none is
@@ -295,9 +298,14 @@ impl AppState {
     Some(token)
   }
 
-  /// Remove an advisor run's cancel token (called when the run completes).
-  pub fn end_advisor(&self, project_id: &str) {
-    self.advisor_cancels.lock().unwrap().remove(project_id);
+  /// Remove an advisor run's cancel token (called when the run completes). Only
+  /// clears the slot when it still holds `token`, so a cancelled run that is
+  /// still winding down never evicts a newer run that already took the slot.
+  pub fn end_advisor(&self, project_id: &str, token: &CancelToken) {
+    let mut map = self.advisor_cancels.lock().unwrap();
+    if map.get(project_id).is_some_and(|t| t.same(token)) {
+      map.remove(project_id);
+    }
   }
 
   /// Cancel an in-flight advisor run, if one is running. Returns true when a
@@ -370,6 +378,37 @@ impl AppState {
   /// a token was found and signalled.
   pub fn cancel_explain(&self, project_id: &str) -> bool {
     if let Some(token) = self.explain_cancels.lock().unwrap().remove(project_id) {
+      token.cancel();
+      true
+    } else {
+      false
+    }
+  }
+
+  /// Register a fresh Advisor verify cancel token for a project only if none is
+  /// already running. Returns `None` when a verification is already in flight.
+  pub fn try_begin_verify(&self, project_id: &str) -> Option<CancelToken> {
+    let mut map = self.verify_cancels.lock().unwrap();
+    if map.contains_key(project_id) {
+      return None;
+    }
+    let token = CancelToken::new();
+    map.insert(project_id.to_string(), token.clone());
+    Some(token)
+  }
+
+  /// Remove a verify run's cancel token, only when the slot still holds `token`.
+  pub fn end_verify(&self, project_id: &str, token: &CancelToken) {
+    let mut map = self.verify_cancels.lock().unwrap();
+    if map.get(project_id).is_some_and(|t| t.same(token)) {
+      map.remove(project_id);
+    }
+  }
+
+  /// Cancel an in-flight verification, if one is running. Returns true when a
+  /// token was found and signalled.
+  pub fn cancel_verify(&self, project_id: &str) -> bool {
+    if let Some(token) = self.verify_cancels.lock().unwrap().remove(project_id) {
       token.cancel();
       true
     } else {

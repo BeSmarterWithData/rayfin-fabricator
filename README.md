@@ -43,7 +43,7 @@ Fabricator is the desktop shell that makes building those apps effortless.
 1. **Chat to build.** Describe what you want in plain English. The built-in GitHub Copilot agent writes and edits the project files for you — you never touch a command line. Git quietly snapshots every change, so you can diff and roll back anytime.
 2. **See it as it's built.** Inspect and edit any file in a built-in Monaco editor, and watch the app itself in a live inline preview — no separate browser, no copy-pasting URLs.
 3. **Deploy with a click.** Hit deploy and Fabricator runs `rayfin up` for you, shipping the app to Microsoft Fabric. Create, switch, and redeploy across workspaces from a single deployments panel — then share the app with teammates in your tenant straight from that panel.
-4. **Harden it.** The Advisor runs Copilot-driven security and policy checks — unprotected routes, over-permissive database policies, that kind of thing — and flags them when the project changes.
+4. **Harden it.** The Advisor grades your app's health and lists what needs attention. Instant checks run as you work, and an on-demand, read-only Copilot review digs deeper. Every finding shows the exact lines, why it matters, and a one-click fix.
 5. **Repeat** until it's exactly what you wanted.
 
 ## Download
@@ -126,7 +126,9 @@ Design Studio remains opt-in. The on-canvas editing and source-to-Fabric publish
 
 ### Validation and maintenance
 
-**Validate.** The Advisor runs AI security and policy checks, saves the results, and tells you when they've gone stale. The Model tab flags loose access on any entity and hands a one-click *harden* prompt to the agent.
+**Validate.** The Advisor is a health dashboard for your app. It shows a letter grade, a strip with one block for every check, an issues list whose rows open in place, and a checklist for each area: access and sign-in, data policies, secrets, data model, queries, configuration, Rayfin versions and platform, performance, and accessibility. Opening an area lists every rule it checks, with Copilot's note on why each one passed. Its 80-plus rules are written for Rayfin 1.35.1 and link to the matching rayfin.ai pages, and they include checks that the Rayfin CLI and SDK are on the latest release and in lockstep. Quick checks run on their own whenever the project changes and don't use Copilot. **Run deep review** starts a read-only Copilot review for the rules that need judgment. It can read your project and rayfin.ai, but it can't edit files, run commands, or open `.env` files. While it runs, a live line shows what Copilot is reading, the strip fills in as results arrive, and issues appear as soon as they're confirmed. Each issue shows the flagged lines, why it matters, and how to fix it.
+
+Send a finding, or a selection, to Copilot with **Fix**. Quick checks re-run when the fix lands; for review findings, **Verify** re-checks just that issue. Dismiss a false positive or an accepted risk, or mute a rule for the app. Findings marked New or Resolved show what changed since the last review. The grade stays provisional until a deep review is current, and the badge on the Advisor tab counts open high- and medium-severity issues. The Model tab flags loose access on any entity and hands a one-click *harden* prompt to the agent.
 
 **Stay current.** Fabricator tracks each project's pinned Rayfin version and can hand an upgrade straight to the agent, keeping the app building as it goes.
 
@@ -142,7 +144,7 @@ flowchart TD
     Editor["Monaco code editor"]
     Model["Data model view<br/>entities + access"]
     Preview["Native WebView2 preview<br/>deployed app or Fabric portal shell"]
-    Advisor["Advisor<br/>Copilot-driven checks"]
+    Advisor["Advisor<br/>quick checks + read-only Copilot review"]
   end
 
   subgraph Local["Local workspace"]
@@ -181,7 +183,7 @@ flowchart TD
 
 A React renderer drives the workbench, chat, editor, data model view, preview, deployments, advisor, settings, skills, and history. A Tauri v2 Rust core owns the IPC handlers in `src-tauri/src/commands/` and the services in `src-tauri/src/services/` for running external tools, persistence, preview hosting, telemetry, history, crash logs, auto-updates, and path management.
 
-The idea: Fabricator wraps the tools you'd otherwise run by hand. It shells out to the GitHub Copilot CLI to author and to the Rayfin CLI to deploy, tracks your project with git, and loads the running app — deployed to Microsoft Fabric — into the embedded preview. The Advisor closes the loop with AI validation that flags issues like unauthenticated routes or loose database policies and goes stale when the project moves on. You get the whole build-and-ship loop without leaving the window.
+The idea: Fabricator wraps the tools you'd otherwise run by hand. It shells out to the GitHub Copilot CLI to author and to the Rayfin CLI to deploy, tracks your project with git, and loads the running app — deployed to Microsoft Fabric — into the embedded preview. The Advisor closes the loop: instant rule checks plus an on-demand, read-only Copilot review flag issues like unguarded routes, loose database policies, or unbounded text columns, and it tells you when a review has gone stale. You get the whole build-and-ship loop without leaving the window.
 
 ## Build from source
 
@@ -243,6 +245,7 @@ rayfin-fabricator/
 │  ├─ screens/                SetupScreen onboarding and Workbench shell
 │  └─ components/             ChatPanel, PreviewPane, CodeViewer, DeploymentsControl, AdvisorView, GitControl, SettingsModal, …
 ├─ src/shared/ipc.ts          Shared TypeScript IPC types
+├─ src/shared/advisor/        Advisor rule catalog (rules.json), shared by the renderer and the Rust core
 ├─ docs/                      Maintainer deployment notes and the vendored wry patch write-up
 ├─ analytics/                 Application Insights KQL queries and notes
 ├─ resources/                 Runtime resources, including telemetry configuration placeholders

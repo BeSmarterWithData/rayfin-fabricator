@@ -40,7 +40,9 @@ import ProjectDependencyGuard from '../components/ProjectDependencyGuard'
 import WorkspaceStatus from '../components/WorkspaceStatus'
 import { SuppressPreview } from '../overlay'
 import RayfinVersionControl from '../components/RayfinVersionControl'
-import AdvisorView, { categoryMeta } from '../components/AdvisorView'
+import AdvisorView from '../components/advisor/AdvisorView'
+import { useAdvisor } from '../advisor/store'
+import { fixPrompt, isVersionFinding } from '../advisor/prompts'
 import ModelTab from '../components/ModelTab'
 import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
@@ -206,8 +208,8 @@ export default function Workbench({
   /** Project content view: the build loop (chat + preview) or the code browser. */
   const [viewMode, setViewMode] = useState<'build' | 'code' | 'model' | 'advisor'>('build')
   const [designProjectId, setDesignProjectId] = useState<string | null>(null)
-  /** A pending request to open a specific file in the Code tab (Model → file). */
-  const [codeOpen, setCodeOpen] = useState<{ path: string; nonce: number } | null>(null)
+  /** A pending request to open a specific file (and line) in the Code tab. */
+  const [codeOpen, setCodeOpen] = useState<{ path: string; line?: number; nonce: number } | null>(null)
   /** Build-view focus: expand a single pane to fill the area (null = split). */
   const [focusPane, setFocusPane] = useState<'chat' | 'preview' | null>(null)
   /** Project-load overlay state, reported by PreviewPane, rendered centered over
@@ -280,6 +282,16 @@ export default function Workbench({
   projectsRef.current = projects
   /** The currently active project (or null). Declared early — effects depend on it. */
   const active = projects?.projects.find((p) => p.id === projects.activeProjectId) ?? null
+  /** The Build chat for the active project is mid-turn. */
+  const activeChatBusy = Boolean(
+    active && (chats[active.id] ?? []).some((m) => m.role === 'assistant' && m.pending)
+  )
+  /** Advisor state for the active project — owned here so the tab badge stays current. */
+  const advisor = useAdvisor(active, {
+    refreshKey: gitRefresh,
+    versions: rayfinVer,
+    chatBusy: activeChatBusy
+  })
 
   const designOpen = Boolean(settings?.experiments?.designStudio && active?.id === designProjectId)
   const onDesignError = useCallback((reason: unknown): void => {
@@ -744,20 +756,28 @@ export default function Workbench({
 
   // Hand a Rayfin upgrade to the Copilot agent: build a precise "from X → to Y"
   // prompt and queue it into the chat (the agent edits package.json + installs).
-  const requestRayfinUpdate = useCallback((info: RayfinVersionInfo): void => {
+  // Returns false when there's nothing to upgrade.
+  const requestRayfinUpdate = useCallback((info: RayfinVersionInfo): boolean => {
     const id = activeIdRef.current
-    if (!id) return
-    const ups = info.packages.filter((p) => p.upgradable && p.installed && p.latest)
-    if (ups.length === 0) return
+    if (!id) return false
+    // Connector packages version with the CLI; npm's `latest` tag for them lags.
+    const ups = info.packages.filter(
+      (p) => p.upgradable && p.installed && p.latest && !/^@microsoft\/rayfin-connector/.test(p.name)
+    )
+    if (ups.length === 0) return false
     const lines = ups.map((p) => `- ${p.name}: ${p.installed} → ${p.latest}`).join('\n')
     const to = info.latest ?? ups[0].latest
     const prompt =
       "Please upgrade this app's Rayfin packages to the latest version.\n\n" +
       'Set these exact versions in package.json, then run `npm install`:\n' +
       `${lines}\n\n` +
-      'After installing, check for any breaking changes between these versions and update ' +
-      'the app code so it still builds and runs. Do not run `rayfin up` or deploy — Rayfin ' +
-      'Fabricator redeploys automatically.'
+      'Keep every Rayfin SDK package (`@microsoft/rayfin-core`, `-client`, `-data`, `-auth`, ' +
+      '`-auth-provider-fabric`, `-lib`, `-functions`) on the same version — they ship in lockstep. ' +
+      'If the app uses Rayfin connector packages (`@microsoft/rayfin-connector*`), pin them to the ' +
+      "new CLI version exactly (they ship in lockstep with the CLI; npm's `latest` tag lags).\n\n" +
+      'After installing, check `node_modules/@microsoft/rayfin-guide/assets/docs/deprecations.md` ' +
+      'and `known-limitations.md` for changes between these versions and update the app code so it ' +
+      'still builds and runs. Do not run `rayfin up` or deploy — Rayfin Fabricator redeploys automatically.'
     setViewMode('build')
     setFocusPane(null)
     setChatOutbound({
@@ -766,63 +786,28 @@ export default function Workbench({
       display: `Update Rayfin to ${to}`,
       prompt
     })
+    return true
   }, [])
 
-  // Hand an Advisor finding to the Build chat so Copilot can fix it.
-  const fixWithCopilot = useCallback((finding: AdvisorFinding): void => {
-    const id = activeIdRef.current
-    if (!id) return
-    const category = categoryMeta(finding.category).title
-    const location = finding.file ? `\nLocation: ${finding.file}` : ''
-    const prompt =
-      'The Advisor review flagged an issue in this app. Please fix it.\n\n' +
-      `Issue: ${finding.title}\n` +
-      `Severity: ${finding.severity}\n` +
-      `Category: ${category}${location}\n\n` +
-      `Details: ${finding.detail}\n\n` +
-      `Suggested fix: ${finding.recommendation}\n\n` +
-      'Apply the fix in the code, keeping the app building and following Rayfin conventions. ' +
-      'Do not run `rayfin up` or deploy — Fabricator redeploys automatically.'
-    setViewMode('build')
-    setFocusPane(null)
-    setChatOutbound({
-      id: `advisor-fix-${Date.now()}`,
-      projectId: id,
-      display: `Fix: ${finding.title}`,
-      prompt
-    })
-  }, [])
-
-  // Hand the whole Advisor findings list to the Build chat to fix in one task.
-  const fixAllFindings = useCallback((findings: AdvisorFinding[]): void => {
-    const id = activeIdRef.current
-    if (!id || findings.length === 0) return
-    const lines = findings
-      .map((f, i) => {
-        const category = categoryMeta(f.category).title
-        const location = f.file ? ` (${f.file})` : ''
-        return (
-          `${i + 1}. [${f.severity}] ${category}: ${f.title}${location}\n` +
-          `   Problem: ${f.detail}\n` +
-          `   Suggested fix: ${f.recommendation}`
-        )
-      })
-      .join('\n\n')
-    const prompt =
-      `The Advisor review found ${findings.length} issues in this app. Please fix all of ` +
-      'them, most severe first. Keep the app building and follow Rayfin conventions. ' +
-      'Do not run `rayfin up` or deploy — Fabricator redeploys automatically.\n\n' +
-      `${lines}`
-    setViewMode('build')
-    setFocusPane(null)
-    setChatOutbound({
-      id: `advisor-fixall-${Date.now()}`,
-      projectId: id,
-      display: `Fix all ${findings.length} Advisor issues`,
-      prompt
-    })
-  }, [])
-
+  // Hand Advisor findings to the Build chat so Copilot can fix them in one task.
+  // Rayfin version findings on their own go through the upgrade hand-off.
+  const handOffFindings = advisor.handOff
+  const fixFindings = useCallback(
+    (findings: AdvisorFinding[]): void => {
+      const id = activeIdRef.current
+      if (!id || findings.length === 0) return
+      if (findings.every(isVersionFinding) && rayfinVer && requestRayfinUpdate(rayfinVer)) {
+        handOffFindings(findings)
+        return
+      }
+      const { display, prompt } = fixPrompt(findings)
+      setViewMode('build')
+      setFocusPane(null)
+      setChatOutbound({ id: `advisor-fix-${Date.now()}`, projectId: id, display, prompt })
+      handOffFindings(findings)
+    },
+    [handOffFindings, rayfinVer, requestRayfinUpdate]
+  )
   // Hand a slice of git history (a commit, a file's change, or a comparison) to
   // the Build chat so Copilot can act on it. Mirrors `fixWithCopilot`'s handoff,
   // but stages the context in the composer so the user adds their own request.
@@ -840,9 +825,9 @@ export default function Workbench({
     })
   }, [])
 
-  // Open a project file in the Code tab (used by the Model tab's entity cards).
-  const openFileInCode = useCallback((path: string): void => {
-    setCodeOpen({ path, nonce: Date.now() })
+  // Open a project file (optionally at a line) in the Code tab.
+  const openFileInCode = useCallback((path: string, line?: number): void => {
+    setCodeOpen({ path, line, nonce: Date.now() })
     setViewMode('code')
   }, [])
 
@@ -1265,8 +1250,21 @@ export default function Workbench({
                         role="tab"
                         aria-selected={viewMode === 'advisor'}
                         onClick={() => setViewMode('advisor')}
+                        title={
+                          advisor.derived.badge
+                            ? `Advisor — ${advisor.derived.badge.count} open high or medium issue${advisor.derived.badge.count === 1 ? '' : 's'}`
+                            : 'Advisor'
+                        }
                       >
                         Advisor
+                        {advisor.derived.badge && (
+                          <span
+                            className={`project-tab-badge project-tab-badge--${advisor.derived.badge.severity}`}
+                            aria-label={`${advisor.derived.badge.count} open ${advisor.derived.badge.count === 1 ? 'issue' : 'issues'}`}
+                          >
+                            {advisor.derived.badge.count}
+                          </span>
+                        )}
                       </button>
                     </div>
                     <div className="project-meta">
@@ -1469,11 +1467,10 @@ export default function Workbench({
                     >
                       <AdvisorView
                         project={active}
-                        onFix={fixWithCopilot}
-                        onFixAll={fixAllFindings}
-                        chatBusy={(chats[active.id] ?? []).some(
-                          (m) => m.role === 'assistant' && m.pending
-                        )}
+                        advisor={advisor}
+                        chatBusy={activeChatBusy}
+                        onFix={fixFindings}
+                        onOpenFile={openFileInCode}
                       />
                     </div>
                   )}

@@ -8,6 +8,16 @@
  */
 
 import type { DesignStudioApi } from './design'
+import type {
+  AdvisorFinding,
+  AdvisorLoadResult,
+  AdvisorProjectSnapshot,
+  AdvisorRuleResult,
+  AdvisorRunRequest,
+  AdvisorSnapshot,
+  AdvisorUiState,
+  AdvisorVerdict
+} from './advisor/types'
 
 export interface AppVersions {
   app: string
@@ -1232,68 +1242,59 @@ export interface CustomSkillPreview {
   referenceCount: number
 }
 
-/**
- * One issue surfaced by the Advisor (a Copilot-driven, read-only review of the
- * app spanning security, data-model quality, performance, and accessibility).
- * Findings are grouped in the UI by {@link category}.
- */
-export interface AdvisorFinding {
-  /** Short slug; the UI falls back to the array index if empty. */
-  id: string
-  /**
-   * Check bucket: 'auth' (access/authentication), 'policy' (data policies),
-   * 'version' (stale Rayfin CLI/SDK), 'data-modeling' (data-model best
-   * practices), 'performance' (runtime/query performance), or 'accessibility'
-   * (frontend a11y). Unknown values fall back to an "Other" group.
-   */
-  category:
-    | 'auth'
-    | 'policy'
-    | 'version'
-    | 'data-modeling'
-    | 'performance'
-    | 'accessibility'
-    | string
-  severity: 'high' | 'medium' | 'low' | string
-  /** Short headline for the card. */
-  title: string
-  /** What's wrong and why it matters. */
-  detail: string
-  /** Project-relative path the issue lives in, when known. */
-  file?: string
-  /** A concrete suggested fix. */
-  recommendation: string
-}
+/* ------------------------------------------------------------------ *
+ * Advisor
+ * ------------------------------------------------------------------ */
 
-/** The full Advisor report (persisted and reloaded across runs). */
-export interface AdvisorReport {
-  /** True when Copilot completed and its JSON report parsed cleanly. */
-  ok: boolean
-  /** One-line overview (or a raw/error message when ok is false). */
-  summary: string
-  findings: AdvisorFinding[]
-}
+export type {
+  AdvisorCategoryId,
+  AdvisorCondition,
+  AdvisorDismissReason,
+  AdvisorDismissal,
+  AdvisorFacts,
+  AdvisorFinding,
+  AdvisorFindingRecord,
+  AdvisorFindingSet,
+  AdvisorHandoff,
+  AdvisorLoadResult,
+  AdvisorLocation,
+  AdvisorPackage,
+  AdvisorProjectFile,
+  AdvisorProjectSnapshot,
+  AdvisorQuickRef,
+  AdvisorReport,
+  AdvisorResolved,
+  AdvisorRuleDef,
+  AdvisorRuleResult,
+  AdvisorRuleStatus,
+  AdvisorRunRequest,
+  AdvisorSeverity,
+  AdvisorSnapshot,
+  AdvisorSource,
+  AdvisorUiState,
+  AdvisorVerdict,
+  AdvisorVerdictStatus
+} from './advisor/types'
 
-/** A saved review: the report plus when it ran, how long it took, and staleness. */
-export interface AdvisorSnapshot {
-  report: AdvisorReport
-  /** RFC3339 timestamp of when the review completed. */
-  analyzedAt: string
-  /** Wall-clock duration of the review, in milliseconds. */
-  durationMs: number
-  /** True when the project's code changed since this review (recomputed on load). */
-  stale: boolean
-}
-
-/** Streamed advisor events (main -> renderer) during a review run. */
+/** Streamed advisor events (main -> renderer). */
 export type AdvisorEvent =
-  | { type: 'progress'; text: string; tool?: string }
+  /** A tool call the deep review made (sent on start and again when it finishes). */
+  | { type: 'activity'; tool: ChatToolCall }
+  /** A finding reported (and evidence-checked) during the deep review. */
+  | { type: 'finding'; finding: AdvisorFinding }
+  /** Rule outcomes reported as the deep review works through categories. */
+  | { type: 'ruleStatus'; results: AdvisorRuleResult[] }
+  | { type: 'summary'; text: string }
   | { type: 'error'; text: string }
   | { type: 'done'; ok: boolean }
-  /** A chunk of a streamed inline "Explain this finding" answer, routed by explainId. */
-  | { type: 'explainDelta'; explainId: string; text: string }
+  /** A chunk of a streamed inline "Explain this finding" answer, routed by explainId. `reset` discards the text so far (narration before a tool call). */
+  | { type: 'explainDelta'; explainId: string; text: string; reset?: boolean }
   /** Terminal marker for an inline explanation (ok false carries error). */
   | { type: 'explainDone'; explainId: string; ok: boolean; error?: string }
+  /** One re-check outcome from a Verify run, routed by verifyId. */
+  | { type: 'verdict'; verifyId: string; verdict: AdvisorVerdict }
+  /** Terminal marker for a Verify run (ok false carries error). */
+  | { type: 'verifyDone'; verifyId: string; ok: boolean; error?: string }
 
 /** Envelope so the renderer can route advisor events to the right project. */
 export interface AdvisorEventEnvelope {
@@ -1913,23 +1914,34 @@ export interface RayfinStudioApi {
     remove: (id: string) => Promise<CustomSkillActionResult>
   }
 
-  /** Advisor: a Copilot-driven, read-only security review of the app. */
+  /**
+   * Advisor: instant quick checks (run in the renderer over a project snapshot)
+   * plus a read-only Copilot deep review on a throwaway session.
+   */
   advisor: {
     /**
-     * Run a security review of the project with the Copilot CLI and resolve the
-     * saved snapshot (report + timing). Streams `advisor:event` progress
-     * (subscribe via onAdvisorEvent). Uses an ephemeral Copilot session so the
-     * review never lands in the project's Build chat history. A successful review
-     * is persisted and can be reloaded with {@link load}.
+     * Gather everything the quick checks read in one round-trip: the file list
+     * (with git-ignored flags), capped contents of the relevant files, and the
+     * installed `@microsoft/rayfin-*` package versions.
      */
-    run: (projectId: string, model?: string) => Promise<AdvisorSnapshot>
+    collect: (projectId: string) => Promise<AdvisorProjectSnapshot>
+    /**
+     * Run the Copilot deep review and resolve the saved snapshot. Streams
+     * `advisor:event` activity, findings, and rule outcomes as it works. Uses an
+     * ephemeral, read-only session so the review never lands in the Build chat.
+     * A completed review is persisted and can be reloaded with {@link load}.
+     */
+    run: (projectId: string, request: AdvisorRunRequest) => Promise<AdvisorSnapshot>
     /** Cancel the in-flight review for a project. Resolves true if one was running. */
     cancel: (projectId: string) => Promise<boolean>
     /**
-     * Load the last saved review for a project (with `stale` recomputed against
-     * the current code), or null if it has never been analyzed.
+     * Load the last saved deep review (with `stale` recomputed against the
+     * current code) and the renderer-owned lifecycle state, either of which may
+     * be null.
      */
-    load: (projectId: string) => Promise<AdvisorSnapshot | null>
+    load: (projectId: string) => Promise<AdvisorLoadResult>
+    /** Persist the renderer-owned lifecycle state (dismissals, hand-offs, baseline). */
+    saveState: (projectId: string, state: AdvisorUiState) => Promise<void>
     /**
      * Explain a single finding inline. Runs a throwaway, read-only Copilot session
      * (so the answer never lands in the Build chat), streaming `advisor:event`
@@ -1940,10 +1952,25 @@ export interface RayfinStudioApi {
       projectId: string,
       explainId: string,
       finding: AdvisorFinding,
-      model?: string
+      model?: string,
+      effort?: string
     ) => Promise<string>
     /** Cancel the in-flight inline explanation for a project. Resolves true if one was running. */
     explainCancel: (projectId: string) => Promise<boolean>
+    /**
+     * Re-check deep-review findings after a fix, on a short read-only session.
+     * Streams a `verdict` per finding (routed by `verifyId`) and resolves with all
+     * verdicts; rejects (and emits `verifyDone` with ok=false) on failure.
+     */
+    verify: (
+      projectId: string,
+      verifyId: string,
+      findings: AdvisorFinding[],
+      model?: string,
+      effort?: string
+    ) => Promise<AdvisorVerdict[]>
+    /** Cancel the in-flight verification for a project. Resolves true if one was running. */
+    verifyCancel: (projectId: string) => Promise<boolean>
     /** Subscribe to streamed advisor events. Returns an unsubscribe function. */
     onEvent: (cb: (envelope: AdvisorEventEnvelope) => void) => () => void
   }

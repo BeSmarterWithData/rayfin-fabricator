@@ -16,6 +16,8 @@ import {
   type AppSettings,
   type AdvisorEventEnvelope,
   type AdvisorFinding,
+  type AdvisorRunRequest,
+  type AdvisorUiState,
   type ChatEventEnvelope,
   type ChatMessage,
   type ChatMode,
@@ -177,12 +179,29 @@ export const api: RayfinStudioApi = {
   },
 
   advisor: {
-    run: (projectId: string, model?: string) => invoke('advisor_run', { projectId, model }),
+    collect: (projectId: string) => invoke('advisor_collect', { projectId }),
+    run: (projectId: string, request: AdvisorRunRequest) =>
+      invoke('advisor_run', { projectId, request }),
     cancel: (projectId: string) => invoke('advisor_cancel', { projectId }),
     load: (projectId: string) => invoke('advisor_load', { projectId }),
-    explain: (projectId: string, explainId: string, finding: AdvisorFinding, model?: string) =>
-      invoke('advisor_explain', { projectId, explainId, finding, model }),
+    saveState: (projectId: string, state: AdvisorUiState) =>
+      invoke('advisor_save_state', { projectId, state }),
+    explain: (
+      projectId: string,
+      explainId: string,
+      finding: AdvisorFinding,
+      model?: string,
+      effort?: string
+    ) => invoke('advisor_explain', { projectId, explainId, finding, model, effort }),
     explainCancel: (projectId: string) => invoke('advisor_explain_cancel', { projectId }),
+    verify: (
+      projectId: string,
+      verifyId: string,
+      findings: AdvisorFinding[],
+      model?: string,
+      effort?: string
+    ) => invoke('advisor_verify', { projectId, verifyId, findings, model, effort }),
+    verifyCancel: (projectId: string) => invoke('advisor_verify_cancel', { projectId }),
     onEvent: (cb: (envelope: AdvisorEventEnvelope) => void) =>
       subscribe<AdvisorEventEnvelope>(IpcChannels.advisorEvent, cb)
   },

@@ -23,9 +23,9 @@ vi.mock('@tauri-apps/api/window', () => ({
 vi.mock('../chatEventStore', () => ({ useChatEventStore: () => {} }))
 vi.mock('../components/HomeView', () => ({ default: () => <div data-testid="home">Home</div> }))
 vi.mock('../components/ModelTab', () => ({ default: () => null }))
-vi.mock('../components/AdvisorView', () => ({
-  default: () => null,
-  categoryMeta: () => ({ title: 'Finding' })
+vi.mock('../components/advisor/AdvisorView', () => ({ default: () => null }))
+vi.mock('../advisor/store', () => ({
+  useAdvisor: () => ({ derived: { badge: null }, handOff: vi.fn() })
 }))
 vi.mock('../components/GitControl', () => ({ default: () => null }))
 vi.mock('../components/WorkspaceStatus', () => ({ default: () => null }))

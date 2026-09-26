@@ -96,11 +96,19 @@ pub fn advisor_dir() -> PathBuf {
 /// The saved-report file for one project. The id is sanitized so it is always a
 /// safe single path segment.
 pub fn advisor_file(project_id: &str) -> PathBuf {
-  let safe: String = project_id
-    .chars()
+  advisor_dir().join(format!("{}.json", safe_segment(project_id)))
+}
+
+/// The renderer-owned Advisor lifecycle state (dismissals, hand-offs, baseline)
+/// for one project, kept next to its saved review.
+pub fn advisor_state_file(project_id: &str) -> PathBuf {
+  advisor_dir().join(format!("{}.state.json", safe_segment(project_id)))
+}
+
+fn safe_segment(id: &str) -> String {
+  id.chars()
     .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-    .collect();
-  advisor_dir().join(format!("{safe}.json"))
+    .collect()
 }
 
 /// Directory holding cached starter-suggestion sets (one JSON file per project).

@@ -1,0 +1,341 @@
+import type { AdvisorSeverity } from '@shared/ipc'
+import { parseClasses } from '../../model/parseSchema'
+import type { QuickContext } from '../context'
+import type { QuickHit, QuickRuleImpl } from '../quick'
+import {
+  compareSemver,
+  importsOf,
+  importsValues,
+  jsonKeyLine,
+  lineOf,
+  parseJsonc,
+  resolveRelative,
+  semverCore,
+  yamlKeyLine,
+  type SemverCore
+} from '../source'
+import { CODE_FILE, code, lineContaining, packageLine, regexHits } from './util'
+
+const CLI = '@microsoft/rayfin-cli'
+const FABRIC_PROVIDER = '@microsoft/rayfin-auth-provider-fabric'
+/** The SDK packages that ship in lockstep. */
+export const SDK_FAMILY = [
+  '@microsoft/rayfin-core',
+  '@microsoft/rayfin-client',
+  '@microsoft/rayfin-data',
+  '@microsoft/rayfin-auth',
+  '@microsoft/rayfin-auth-provider-fabric',
+  '@microsoft/rayfin-lib',
+  '@microsoft/rayfin-functions'
+]
+const CONNECTOR_PACKAGE = /^@microsoft\/rayfin-connector(s|-.+)$/
+const CATEGORY_B = new Set(['fabric-semanticmodel', 'kusto'])
+
+type Obj = Record<string, unknown>
+
+function outdatedSeverity(installed: SemverCore, latest: SemverCore): AdvisorSeverity {
+  if (latest[0] > installed[0]) return 'high'
+  if (latest[1] > installed[1]) return 'medium'
+  return 'low'
+}
+
+function connectorsList(ctx: QuickContext): Obj[] {
+  const block = ctx.yml?.data.connectors
+  if (Array.isArray(block)) return block.filter((c): c is Obj => Boolean(c) && typeof c === 'object')
+  // Older CLIs wrote a map keyed by connector name, with the type under `connector`.
+  if (block && typeof block === 'object') {
+    return Object.entries(block as Obj)
+      .filter(([, v]) => Boolean(v) && typeof v === 'object')
+      .map(([name, v]) => ({ ...(v as Obj), name, type: (v as Obj).type ?? (v as Obj).connector }))
+  }
+  return []
+}
+
+function short(name: string): string {
+  return name.replace('@microsoft/', '')
+}
+
+export const platformRules: QuickRuleImpl[] = [
+  {
+    id: 'platform/cli-outdated',
+    run: (ctx) => {
+      const pkg = ctx.versions?.packages.find((p) => p.name === CLI)
+      if (!pkg) return ctx.hasDependency(CLI) ? 'skipped' : 'na'
+      const installed = semverCore(pkg.installed)
+      const latest = semverCore(pkg.latest)
+      if (!installed || !latest) return 'skipped'
+      if (compareSemver(latest, installed) <= 0) return []
+      return [
+        {
+          file: 'package.json',
+          line: packageLine(ctx, CLI),
+          label: `${pkg.installed} → ${pkg.latest}`,
+          severity: outdatedSeverity(installed, latest),
+          message: `The Rayfin CLI is on ${pkg.installed}; ${pkg.latest} is the latest release.`
+        }
+      ]
+    }
+  },
+  {
+    id: 'platform/sdk-outdated',
+    run: (ctx) => {
+      const family = (ctx.versions?.packages ?? []).filter((p) => SDK_FAMILY.includes(p.name))
+      if (family.length === 0) return SDK_FAMILY.some((n) => ctx.hasDependency(n)) ? 'skipped' : 'na'
+      let lowest: { name: string; version: string; core: SemverCore } | undefined
+      let newest: { version: string; core: SemverCore } | undefined
+      for (const p of family) {
+        const installed = semverCore(p.installed)
+        const latest = semverCore(p.latest)
+        if (installed && (!lowest || compareSemver(installed, lowest.core) < 0)) {
+          lowest = { name: p.name, version: p.installed as string, core: installed }
+        }
+        if (latest && (!newest || compareSemver(latest, newest.core) > 0)) {
+          newest = { version: p.latest as string, core: latest }
+        }
+      }
+      if (!lowest || !newest) return 'skipped'
+      if (compareSemver(newest.core, lowest.core) <= 0) return []
+      return [
+        {
+          file: 'package.json',
+          line: packageLine(ctx, lowest.name),
+          label: `${lowest.version} → ${newest.version}`,
+          severity: outdatedSeverity(lowest.core, newest.core),
+          message: `The Rayfin SDK is on ${lowest.version} (${short(lowest.name)}); ${newest.version} is the latest release.`
+        }
+      ]
+    }
+  },
+  {
+    id: 'platform/sdk-lockstep',
+    run: (ctx) => {
+      const installed = ctx.packages.filter((p) => SDK_FAMILY.includes(p.name) && p.installed)
+      if (installed.length === 0) return 'na'
+      const counts = new Map<string, number>()
+      for (const p of installed) counts.set(p.installed!, (counts.get(p.installed!) ?? 0) + 1)
+      if (counts.size <= 1) return []
+      const common = [...counts.entries()].sort((a, b) => b[1] - a[1])[0][0]
+      const odd = installed.filter((p) => p.installed !== common)
+      const list = installed.map((p) => `${short(p.name)} ${p.installed}`).join(', ')
+      return [
+        {
+          file: 'package.json',
+          line: packageLine(ctx, odd[0].name) ?? packageLine(ctx, installed[0].name),
+          label: odd.map((p) => short(p.name)).join(', '),
+          message: `Rayfin SDK packages are installed at different versions: ${list}.`
+        }
+      ]
+    }
+  },
+  {
+    id: 'platform/connector-version',
+    run: (ctx) => {
+      const cli = ctx.packages.find((p) => p.name === CLI)?.installed
+      const hits: QuickHit[] = []
+      for (const p of ctx.packages) {
+        if (!CONNECTOR_PACKAGE.test(p.name) || !p.declared) continue
+        const range = p.declared.trim()
+        let problem: string | undefined
+        if (/^[\^~><=*]|^(latest|preview|next|experimental)$|\.(x|\*)(\.|$)/i.test(range)) {
+          problem = `is declared as ${code(range)} instead of an exact version`
+        } else if (cli && p.installed && p.installed !== cli) {
+          problem = `is installed at ${p.installed} while the CLI is ${cli}`
+        }
+        if (!problem) continue
+        hits.push({
+          file: 'package.json',
+          line: packageLine(ctx, p.name),
+          label: short(p.name),
+          message: `${code(p.name)} ${problem}.`
+        })
+      }
+      return hits
+    }
+  },
+  {
+    id: 'platform/connector-schema-value-import',
+    run: (ctx) => {
+      const hits: QuickHit[] = []
+      for (const src of ctx.sources((p) => /^rayfin\/connectors\/[^/]+\/schema\.ts$/.test(p))) {
+        for (const stmt of importsOf(src.masked)) {
+          if (!stmt.from.startsWith('.') || !importsValues(stmt)) continue
+          const target = `${(resolveRelative(src.path, stmt.from) ?? '').replace(/\.(js|ts)$/, '')}.ts`
+          const targetSrc = ctx.file(target)
+          if (!targetSrc) continue
+          const classes = parseClasses(targetSrc.masked).map((c) => c.name)
+          const values = stmt.star ? classes : stmt.named.filter((n) => !n.type).map((n) => n.name)
+          const bad = values.filter((n) => classes.includes(n))
+          if (bad.length === 0) continue
+          const line = lineOf(src, stmt.index)
+          hits.push({
+            file: src.path,
+            line,
+            label: `${src.path} (${bad.join(', ')})`,
+            message: `${code(src.path)} ${stmt.reexport ? 're-exports' : 'imports'} ${code(bad.join(', '))} as values instead of with ${code(stmt.reexport ? 'export type' : 'import type')}.`
+          })
+        }
+      }
+      return hits
+    }
+  },
+  {
+    id: 'platform/connectors-stable-entry',
+    run: (ctx) => {
+      const hits: QuickHit[] = []
+      for (const src of ctx.frontend) {
+        for (const stmt of importsOf(src.masked)) {
+          if (stmt.from !== '@microsoft/rayfin-client') continue
+          if (!stmt.named.some((n) => n.name === 'ConnectorsRayfinClient')) continue
+          const line = lineOf(src, stmt.index)
+          hits.push({
+            file: src.path,
+            line,
+            label: `${src.path}:${line}`,
+            message: `${code(src.path)} imports ${code('ConnectorsRayfinClient')} from ${code('@microsoft/rayfin-client')} instead of ${code('/experimental')}.`
+          })
+        }
+      }
+      return hits
+    }
+  },
+  {
+    id: 'platform/connector-app-auth',
+    run: (ctx) => {
+      if (!ctx.yml) return []
+      const hits: QuickHit[] = []
+      for (const c of connectorsList(ctx)) {
+        const type = String(c.type ?? '')
+        const auth = c.auth && typeof c.auth === 'object' ? String((c.auth as Obj).type ?? '') : ''
+        if (!CATEGORY_B.has(type) || auth.toLowerCase() !== 'application') continue
+        const name = String(c.name ?? type)
+        hits.push({
+          file: ctx.yml.path,
+          line:
+            lineContaining(ctx.yml.text, `name: ${name}`) ??
+            lineContaining(ctx.yml.text, `${name}:`) ??
+            yamlKeyLine(ctx.yml.text, ['connectors']),
+          label: name,
+          message: `The ${code(type)} connector ${code(name)} uses ${code('auth.type: application')}, which isn't allowed for this connector type.`
+        })
+      }
+      return hits
+    }
+  },
+  {
+    id: 'platform/connector-orphaned-dir',
+    run: (ctx) => {
+      const names = new Set(connectorsList(ctx).map((c) => String(c.name ?? '')))
+      const dirs = new Map<string, string>()
+      for (const f of ctx.snapshot.files) {
+        const m = /^rayfin\/connectors\/([^/]+)\//.exec(f.path)
+        if (m && !dirs.has(m[1])) dirs.set(m[1], f.path)
+      }
+      return [...dirs.entries()]
+        .filter(([dir]) => !names.has(dir))
+        .map(([dir, file]) => ({
+          file,
+          label: dir,
+          message: `${code(`rayfin/connectors/${dir}/`)} has no matching connector in rayfin.yml.`
+        }))
+    }
+  },
+  {
+    id: 'platform/functions-context-import',
+    run: (ctx) => {
+      const hits: QuickHit[] = []
+      for (const src of ctx.sources((p) => p.startsWith('rayfin/functions/') && CODE_FILE.test(p))) {
+        for (const stmt of importsOf(src.masked)) {
+          if (stmt.from !== '@microsoft/rayfin-functions') continue
+          const wrong = stmt.named.filter((n) => n.name === 'RayfinContext' || n.name === 'AudienceType')
+          if (wrong.length === 0) continue
+          const line = lineOf(src, stmt.index)
+          hits.push({
+            file: src.path,
+            line,
+            label: `${src.path}:${line}`,
+            message: `${code(src.path)} imports ${code(wrong.map((n) => n.name).join(', '))} from ${code('@microsoft/rayfin-functions')}.`
+          })
+        }
+      }
+      return hits
+    }
+  },
+  {
+    id: 'platform/functions-mssql',
+    run: (ctx) => {
+      const hits: QuickHit[] = []
+      const pkg = ctx.file('rayfin/functions/package.json')
+      if (pkg) {
+        const json = parseJsonc(pkg.text) as Obj | null
+        const deps = { ...((json?.dependencies as Obj) ?? {}), ...((json?.devDependencies as Obj) ?? {}) }
+        const range = typeof deps.mssql === 'string' ? deps.mssql : undefined
+        const core = semverCore(range)
+        if (range && core && compareSemver(core, [12, 6, 0]) < 0) {
+          hits.push({
+            file: pkg.path,
+            line: jsonKeyLine(pkg.text, 'mssql'),
+            label: `mssql ${range}`,
+            message: `${code('rayfin/functions/package.json')} pins ${code(`mssql@${range}`)}, below 12.6.0.`
+          })
+        }
+      }
+      hits.push(
+        ...regexHits(
+          ctx.sources((p) => p.startsWith('rayfin/functions/') && CODE_FILE.test(p)),
+          /encrypt\s*:\s*['"]strict['"]/,
+          (src) => `${code(src.path)} connects with ${code("encrypt: 'strict'")} instead of ${code('encrypt: true')}.`
+        )
+      )
+      return hits
+    }
+  },
+  {
+    id: 'platform/experimental-services',
+    run: (ctx) => {
+      if (!ctx.yml) return []
+      return ['functions', 'storage']
+        .filter((s) => ctx.enabled(s))
+        .map((s) => ({
+          file: ctx.yml!.path,
+          line: yamlKeyLine(ctx.yml!.text, ['services', s]),
+          label: s,
+          message: `The experimental ${code(s)} service is enabled.`
+        }))
+    },
+    summarize: () => 'The experimental functions and storage services are both enabled.'
+  },
+  {
+    id: 'platform/deprecated-fabric-callback',
+    run: (ctx) => {
+      const hits = regexHits(
+        ctx.frontend,
+        /\bbridgeFabricCallback\s*\(/,
+        (src) => `${code(src.path)} calls the deprecated ${code('bridgeFabricCallback()')}.`
+      )
+      const usesProvider = ctx.frontend.filter((src) =>
+        importsOf(src.masked).some((s) => s.from === FABRIC_PROVIDER)
+      )
+      hits.push(
+        ...regexHits(
+          usesProvider,
+          /\bcallbackUrl\s*:/,
+          (src) => `${code(src.path)} passes the deprecated ${code('callbackUrl')} option.`
+        )
+      )
+      return hits
+    }
+  },
+  {
+    id: 'platform/ai-files-missing',
+    run: (ctx) => {
+      if (!ctx.hasDependency(CLI)) return 'na'
+      if (ctx.exists('.agents/skills/rayfin/SKILL.md')) return []
+      return [
+        {
+          label: '.agents/skills/rayfin/SKILL.md',
+          message: `${code('.agents/skills/rayfin/SKILL.md')} isn't installed, so coding agents don't get version-matched Rayfin guidance.`
+        }
+      ]
+    }
+  }
+]

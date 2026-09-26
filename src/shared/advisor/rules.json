@@ -1,0 +1,1270 @@
+{
+  "catalogVersion": "2026-09-26",
+  "rayfinBaseline": "1.35.1",
+  "categories": [
+    {
+      "id": "access",
+      "title": "Access & sign-in",
+      "description": "Who can reach the app's data and pages, and whether sign-in is wired correctly.",
+      "docs": [
+        { "title": "Auth overview", "url": "https://rayfin.ai/docs/auth" },
+        { "title": "React integration", "url": "https://rayfin.ai/docs/auth/react" }
+      ]
+    },
+    {
+      "id": "policy",
+      "title": "Data policies",
+      "description": "Row-level policies, field visibility, and how broad each role's grants are.",
+      "docs": [
+        { "title": "Permissions and row-level security", "url": "https://rayfin.ai/docs/data/permissions" }
+      ]
+    },
+    {
+      "id": "secrets",
+      "title": "Secrets & exposure",
+      "description": "Credentials, environment files, and origins that could leak or widen access.",
+      "docs": [
+        { "title": "Secrets", "url": "https://rayfin.ai/docs/deploy/secrets" },
+        { "title": "Redirect URIs", "url": "https://rayfin.ai/docs/hosting/redirect-uris" }
+      ]
+    },
+    {
+      "id": "data-model",
+      "title": "Data model",
+      "description": "Entity, field, and relationship definitions, including MSSQL limits.",
+      "docs": [
+        { "title": "Modeling entities", "url": "https://rayfin.ai/docs/data/modeling" },
+        { "title": "Field types", "url": "https://rayfin.ai/docs/data/field-types" }
+      ]
+    },
+    {
+      "id": "queries",
+      "title": "Queries",
+      "description": "How the app reads and writes data through the typed client.",
+      "docs": [
+        { "title": "Querying", "url": "https://rayfin.ai/docs/data/querying" },
+        { "title": "Aggregations", "url": "https://rayfin.ai/docs/data/aggregations" }
+      ]
+    },
+    {
+      "id": "config",
+      "title": "Configuration",
+      "description": "rayfin.yml, TypeScript and Vite settings, and static hosting.",
+      "docs": [
+        { "title": "rayfin.yml reference", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml" },
+        { "title": "Project structure", "url": "https://rayfin.ai/docs/start/project-structure" }
+      ]
+    },
+    {
+      "id": "platform",
+      "title": "Rayfin versions & platform",
+      "description": "CLI and SDK versions, connectors, functions, experimental services, and agent files.",
+      "docs": [
+        { "title": "SDK version notes", "url": "https://rayfin.ai/docs/reference/sdk#version-notes" },
+        { "title": "Known limitations", "url": "https://rayfin.ai/docs/reference/known-limitations" }
+      ]
+    },
+    {
+      "id": "performance",
+      "title": "Performance",
+      "description": "Work that gets slower or more expensive as data and usage grow.",
+      "docs": [
+        { "title": "Aggregations", "url": "https://rayfin.ai/docs/data/aggregations" },
+        { "title": "Paginate large lists", "url": "https://rayfin.ai/docs/data/querying#paginate-large-lists" }
+      ]
+    },
+    {
+      "id": "accessibility",
+      "title": "Accessibility",
+      "description": "Whether people using keyboards and assistive technology can use the app.",
+      "docs": [
+        { "title": "WAI tutorials", "url": "https://www.w3.org/WAI/tutorials/" }
+      ]
+    }
+  ],
+  "rules": [
+    {
+      "id": "access/entity-missing-permission",
+      "category": "access",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Entity has no permission decorator",
+      "summary": "Every entity declares `@authenticated`, `@anonymous`, or `@role` explicitly",
+      "why": "An entity without a permission decorator isn't locked down — it silently gets `authenticated: *`, so every signed-in user can create, read, update, and delete every row.",
+      "fix": "Add an explicit decorator: `@authenticated('*', { policy: (claims, item) => claims.sub.eq(item.user_id) })` for per-user data, or `@authenticated('read')` for shared reference data.",
+      "docs": [
+        { "title": "Entities without a permission decorator", "url": "https://rayfin.ai/docs/data/permissions#entities-without-a-permission-decorator" }
+      ]
+    },
+    {
+      "id": "access/route-without-auth-guard",
+      "category": "access",
+      "engine": "ai",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Protected page is reachable without signing in",
+      "summary": "Pages that use app data wait for the session and require sign-in",
+      "why": "Without a guard, signed-out visitors can open pages that call the data API — the calls fail or show UI meant for signed-in users — and apps that never wire up sign-in can't load authenticated data at all.",
+      "fix": "Wrap protected routes in a guard that waits for the auth context's `loading` state and redirects to the sign-in page when `!isAuthenticated`, and make sure the auth provider is set up before any data call.",
+      "check": "Read src/main.tsx, src/App.tsx (or the router config) and the pages. Flag routes or pages that call client.data (directly or through services) but render without a guard that checks isAuthenticated/loading from the auth context. Also flag an app whose data calls run while its auth provider/bootstrap is never wired (for example, auth scaffolding left commented out). Don't flag genuinely public pages that use no Rayfin data.",
+      "docs": [
+        { "title": "Guarding routes", "url": "https://rayfin.ai/docs/auth/react#guarding-routes" },
+        { "title": "Auth context and provider", "url": "https://rayfin.ai/docs/auth/react#an-auth-context-and-provider" }
+      ]
+    },
+    {
+      "id": "access/on-auth-state-change",
+      "category": "access",
+      "engine": "quick",
+      "severity": "high",
+      "title": "`onAuthStateChange` doesn't exist in Rayfin",
+      "summary": "Session changes are observed with `onSessionChange`",
+      "why": "The Rayfin auth client has no `onAuthStateChange` (a name from other auth SDKs), so code that calls it throws at runtime.",
+      "fix": "Subscribe with `client.auth.onSessionChange(callback)`, which returns an unsubscribe function.",
+      "docs": [
+        { "title": "The callback is onSessionChange", "url": "https://rayfin.ai/docs/reference/known-limitations#the-callback-is-onsessionchange-not-onauthstatechange" },
+        { "title": "Subscribing to session changes", "url": "https://rayfin.ai/docs/auth/sessions#subscribing-to-session-changes-onsessionchange" }
+      ]
+    },
+    {
+      "id": "access/fabric-provider-missing",
+      "category": "access",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["fabricSso"],
+      "title": "Fabric SSO is enabled but its provider package isn't installed",
+      "summary": "Apps with Fabric SSO depend on `@microsoft/rayfin-auth-provider-fabric`",
+      "why": "`services.auth.fabric.enabled` turns on the backend flow, but the frontend needs `@microsoft/rayfin-auth-provider-fabric` to actually sign users in.",
+      "fix": "Install `@microsoft/rayfin-auth-provider-fabric` at the same version as the rest of the Rayfin SDK and sign in with `ensureSignedInWithFabric`.",
+      "docs": [
+        { "title": "Install the provider package", "url": "https://rayfin.ai/docs/auth/fabric-sso#install-the-provider-package" }
+      ]
+    },
+    {
+      "id": "access/fabric-provider-dynamic-import",
+      "category": "access",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["fabricSso"],
+      "title": "Fabric auth provider is only imported lazily",
+      "summary": "The Fabric auth provider is imported statically at startup",
+      "why": "The provider captures the `?fabricEmbedded=true` flag when its module first loads. Loading it only through `import()` can miss the flag, so sign-in inside Fabric falls back to a popup.",
+      "fix": "Import `@microsoft/rayfin-auth-provider-fabric` statically from the app's entry module (or a module it imports at startup).",
+      "docs": [
+        { "title": "Fabric SSO client-side usage", "url": "https://rayfin.ai/docs/auth/fabric-sso#client-side-usage" }
+      ]
+    },
+    {
+      "id": "access/sign-in-outside-gesture",
+      "category": "access",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["fabricSso"],
+      "title": "Popup sign-in starts without a user click",
+      "summary": "Popup sign-in is started directly from a user gesture",
+      "why": "`ensureSignedInWithFabric` ends by calling `window.open()`, which browsers block unless it runs directly inside a click — so sign-in silently fails.",
+      "fix": "Call it from a button's `onClick` before any `await`. For automatic sign-in on page load inside Fabric, use `initEmbeddedAuth()` instead, which never opens a popup.",
+      "check": "Find calls to ensureSignedInWithFabric or initiateFabricLogin (and wrappers that call them, such as a signIn method). Flag calls made from useEffect, on module load, on a timer, or after an await rather than directly in a click handler. initEmbeddedAuth on startup is correct and must not be flagged.",
+      "docs": [
+        { "title": "Popup blocked", "url": "https://rayfin.ai/docs/reference/errors#popup-blocked" },
+        { "title": "Sign in from a button click", "url": "https://rayfin.ai/docs/auth/fabric-sso#popup-flow-sign-in-from-a-button-click" }
+      ]
+    },
+    {
+      "id": "access/mock-auth-credentials",
+      "category": "access",
+      "engine": "quick",
+      "severity": "medium",
+      "title": "Mock sign-in with hard-coded credentials ships in the app",
+      "summary": "No mock sign-in with hard-coded credentials is part of the app",
+      "why": "A leftover `MockAuthService` signs in with a fixed email and password through a local-backend flow that Fabric apps don't support, and it can take over when configuration is missing.",
+      "fix": "Delete `MockAuthService` and the local-dev branch that selects it, or replace it with an in-memory test double that only tests import.",
+      "docs": [
+        { "title": "What MockAuthService actually does", "url": "https://rayfin.ai/docs/recipes/testing#what-mockauthservice-actually-does" }
+      ]
+    },
+    {
+      "id": "access/session-introspection",
+      "category": "access",
+      "engine": "ai",
+      "severity": "low",
+      "title": "Code depends on undocumented session fields",
+      "summary": "Only documented session fields are read",
+      "why": "Rayfin sessions are intentionally opaque. Code that reads or decodes anything beyond `user`, `isAuthenticated`, `isAnonymous`, `role`, and `expiresAt` breaks when the SDK changes the session shape.",
+      "fix": "Gate UI on `session.isAuthenticated` or `session.user`, and use only the documented fields.",
+      "check": "Look at code that handles client.auth.getSession() or onSessionChange results. Flag reads of properties other than user, isAuthenticated, isAnonymous, role and expiresAt, or any decoding of tokens taken from the session.",
+      "docs": [
+        { "title": "Sessions are opaque", "url": "https://rayfin.ai/docs/auth/sessions#sessions-are-opaque" }
+      ]
+    },
+    {
+      "id": "policy/owner-field-without-policy",
+      "category": "policy",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Per-user data isn't restricted to its owner",
+      "summary": "Entities with an owner field only let owners change their rows",
+      "why": "The entity stores an owner (`user_id`, `owner_id`, `created_by`, …) but a signed-in grant that can create, update, or delete has no row-level `policy` — so any signed-in user can change everyone's rows.",
+      "fix": "Add `policy: (claims, item) => claims.sub.eq(item.user_id)` to each grant that should be owner-scoped. Use separate decorators per action when reads are shared but writes aren't.",
+      "docs": [
+        { "title": "Row-level policies", "url": "https://rayfin.ai/docs/data/permissions#row-level-policies-with-the-policy-dsl" },
+        { "title": "Per-user scoping", "url": "https://rayfin.ai/docs/data/permissions#per-user-scoping" }
+      ]
+    },
+    {
+      "id": "policy/anonymous-write",
+      "category": "policy",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Anyone can change this data without signing in",
+      "summary": "Anonymous (public) grants are read-only",
+      "why": "An `@anonymous` grant that includes create, update, or delete lets unauthenticated callers modify rows.",
+      "fix": "Limit `@anonymous` to `'read'` for genuinely public data, and move writes to `@authenticated` with an owner policy.",
+      "docs": [
+        { "title": "Public read, authenticated write", "url": "https://rayfin.ai/docs/data/permissions#public-read-authenticated-write" }
+      ]
+    },
+    {
+      "id": "policy/anonymous-grant",
+      "category": "policy",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Anonymous data access may be rejected on Fabric",
+      "summary": "Public (anonymous) data access is only used where the tenant allows it",
+      "why": "Anonymous data access on Fabric requires a tenant admin to enable it, and the CLI currently rejects configurations that grant the `anonymous` role at apply time — so the deploy or schema apply can fail.",
+      "fix": "Use `@authenticated('read')` for data only signed-in users need. Keep `@anonymous('read')` only for genuinely public data, and confirm your tenant allows anonymous data access.",
+      "docs": [
+        { "title": "@anonymous()", "url": "https://rayfin.ai/docs/reference/sdk/rayfin-core#anonymousactions-options" },
+        { "title": "Built-in roles", "url": "https://rayfin.ai/docs/data/permissions#built-in-roles" }
+      ]
+    },
+    {
+      "id": "policy/unsupported-claim",
+      "category": "policy",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Policy uses an unsupported claim",
+      "summary": "Policies only compare `claims.sub`, `claims.email`, or `claims.role`",
+      "why": "The policy DSL supports only `sub`, `email`, and `role`. Other claims (tenant, organization, custom) don't compile or never match.",
+      "fix": "Store the value on the row (for example `organization_id`) and scope with `claims.sub` plus a membership check in application code.",
+      "docs": [
+        { "title": "Supported claims", "url": "https://rayfin.ai/docs/data/permissions#supported-claims" },
+        { "title": "Per-organization scoping", "url": "https://rayfin.ai/docs/data/permissions#per-organization-scoping" }
+      ]
+    },
+    {
+      "id": "policy/blob-without-permission",
+      "category": "policy",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["storage"],
+      "title": "Storage folder has no permission decorator",
+      "summary": "Every `@blob()` storage class declares explicit permissions",
+      "why": "Storage folders are secured with the same `@authenticated` / `@anonymous` / `@role` decorators as entities; without one, who can read and write files isn't explicit.",
+      "fix": "Add a decorator such as `@authenticated('*', { policy: (claims, item) => claims.sub.eq(item.owner_id) })` to the `@blob()` class.",
+      "docs": [
+        { "title": "Storage permissions", "url": "https://rayfin.ai/docs/data/permissions#storage-permissions" }
+      ]
+    },
+    {
+      "id": "policy/prefer-shorthand",
+      "category": "policy",
+      "engine": "quick",
+      "severity": "note",
+      "appliesWhen": ["data"],
+      "title": "Use the `@authenticated` / `@anonymous` shorthand",
+      "summary": "Built-in roles use the `@authenticated` / `@anonymous` shorthands",
+      "why": "`@role('authenticated', …)` works, but the shorthands are the documented style and make intent clearer at the call site.",
+      "fix": "Replace `@role('authenticated', …)` with `@authenticated(…)` and `@role('anonymous', …)` with `@anonymous(…)`.",
+      "docs": [
+        { "title": "Prefer the shorthands", "url": "https://rayfin.ai/docs/reference/known-limitations#prefer-anonymous--authenticated-over-roleanonymous--authenticated-" }
+      ]
+    },
+    {
+      "id": "policy/sensitive-field-exposed",
+      "category": "policy",
+      "engine": "ai",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Sensitive field is readable through the data API",
+      "summary": "Sensitive fields are excluded from read grants",
+      "why": "Fields such as secrets, tokens, passwords, or sensitive personal data are returned to every caller allowed to read the entity unless they are excluded.",
+      "fix": "Add `exclude: ['field']` to the read grant (use separate decorators per action if writes still need it), or move the value out of the entity to a server-side secret.",
+      "check": "In the rayfin/data entities, find fields holding secrets, credentials, tokens, API keys, passwords or sensitive personal data (for example ssn, salary, date of birth). Flag them when a read grant for any role neither lists them in exclude nor omits them from include. Ordinary profile data such as display names isn't sensitive.",
+      "docs": [
+        { "title": "Field-level permissions", "url": "https://rayfin.ai/docs/data/permissions#field-level-permissions" }
+      ]
+    },
+    {
+      "id": "policy/overbroad-grant",
+      "category": "policy",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Grant is broader than the data needs",
+      "summary": "Each role gets only the actions it needs",
+      "why": "Granting `'*'` (or update and delete) to every signed-in user on shared data lets any user edit or delete it, and unscoped reads of per-user data expose everyone's rows.",
+      "fix": "Split grants per action — for example `@authenticated('read')` for everyone and owner-scoped policies (or no grant) for writes.",
+      "check": "For each entity, compare its grants with how the frontend uses it. Flag '*' or write actions granted to all signed-in (or anonymous) users on shared or reference data, and reads of per-user private data granted without a policy. Skip entities the quick checks already reported.",
+      "docs": [
+        { "title": "Action-specific permissions", "url": "https://rayfin.ai/docs/data/permissions#action-specific-permissions" },
+        { "title": "Best practices", "url": "https://rayfin.ai/docs/data/permissions#best-practices" }
+      ]
+    },
+    {
+      "id": "policy/policy-not-caller-scoped",
+      "category": "policy",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Row policy never checks who the caller is",
+      "summary": "Row policies on per-user data compare a claim",
+      "why": "A policy that only compares the row's own fields (never `claims`) filters rows but doesn't restrict them to the signed-in user.",
+      "fix": "Add a caller term such as `claims.sub.eq(item.user_id)`, combining it with `.and()` if the existing filter is still needed.",
+      "check": "Find policy callbacks whose body never uses the claims parameter. Flag them when the entity looks user-owned (an owner field, per-user UI), not when the filter is clearly intended for shared data.",
+      "docs": [
+        { "title": "Row-level policies", "url": "https://rayfin.ai/docs/data/permissions#row-level-policies-with-the-policy-dsl" }
+      ]
+    },
+    {
+      "id": "policy/org-scope-without-membership",
+      "category": "policy",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Team data isn't checked against membership",
+      "summary": "Team-scoped data checks membership before reads and writes",
+      "why": "Policies can't express \"the caller belongs to `item.organization_id`\", so without a membership check in the app a user can read or write another team's rows.",
+      "fix": "Look up the caller's memberships first and filter reads by `organization_id`, and verify membership before creating or updating rows for an organization.",
+      "check": "If entities carry organization_id, team_id or workspace_id values shared across users, check that reads filter by the caller's memberships and that writes verify membership first, following the documented per-organization pattern. Flag missing checks.",
+      "docs": [
+        { "title": "Per-organization scoping", "url": "https://rayfin.ai/docs/data/permissions#per-organization-scoping" }
+      ]
+    },
+    {
+      "id": "secrets/secret-in-public-env",
+      "category": "secrets",
+      "engine": "quick",
+      "severity": "high",
+      "title": "Secret exposed through a browser-visible variable",
+      "summary": "Browser-visible variables (`VITE_`, `RAYFIN_PUBLIC_`) hold no secrets",
+      "why": "`VITE_*` and `RAYFIN_PUBLIC_*` values are compiled into the browser bundle, so anyone using the app can read them.",
+      "fix": "Remove the value from frontend variables, store it with `rayfin secret set <NAME>`, and read it server-side from a Rayfin function. If the key is designed to be public (for example a browser-restricted maps key), dismiss this as an accepted risk.",
+      "docs": [
+        { "title": "Secrets", "url": "https://rayfin.ai/docs/deploy/secrets" },
+        { "title": "Environment file locations", "url": "https://rayfin.ai/docs/deploy/environments#file-locations" }
+      ]
+    },
+    {
+      "id": "secrets/env-file-not-ignored",
+      "category": "secrets",
+      "engine": "quick",
+      "severity": "high",
+      "title": "Environment file isn't git-ignored",
+      "summary": "Local environment files are git-ignored",
+      "why": "`rayfin/.env` and `.env.local` hold deployment values and sometimes secrets. If they aren't ignored they end up in git history.",
+      "fix": "Add the file to `.gitignore`, commit a placeholder `.env.example` instead, and rotate anything that was already committed.",
+      "docs": [
+        { "title": "Environment file locations", "url": "https://rayfin.ai/docs/deploy/environments#file-locations" }
+      ]
+    },
+    {
+      "id": "secrets/hardcoded-credential",
+      "category": "secrets",
+      "engine": "quick",
+      "severity": "high",
+      "title": "Credential hard-coded in the project",
+      "summary": "No credentials are hard-coded in source, scripts, or workflows",
+      "why": "Keys, tokens, and connection strings in committed files are visible to anyone with the code and stay in git history even after you delete them.",
+      "fix": "Move the value to a Rayfin secret (`rayfin secret set`) or your CI secret store, reference it by name, and rotate the exposed credential.",
+      "docs": [
+        { "title": "Secrets", "url": "https://rayfin.ai/docs/deploy/secrets" }
+      ]
+    },
+    {
+      "id": "secrets/redirect-uri-scope",
+      "category": "secrets",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["auth"],
+      "title": "Redirect URIs allow unexpected origins",
+      "summary": "`allowedRedirectUris` lists only the app's own origins",
+      "why": "Every listed origin can receive the Fabric SSO hand-off. Wildcards and plain-`http` non-local origins widen who can receive it.",
+      "fix": "Keep only your local dev origin (such as `http://localhost:5173`) and the app's own deployed origin, and remove wildcards and entries copied from other projects.",
+      "docs": [
+        { "title": "Keep the list tightly scoped", "url": "https://rayfin.ai/docs/hosting/redirect-uris#keep-the-list-tightly-scoped" }
+      ]
+    },
+    {
+      "id": "secrets/publishable-key-mismatch",
+      "category": "secrets",
+      "engine": "quick",
+      "severity": "medium",
+      "title": "Publishable-key variable holds something else",
+      "summary": "Publishable-key variables contain a publishable key (`pk-…`)",
+      "why": "Only publishable keys (`pk-…`) are safe in client code. Any other value in this variable ships to the browser.",
+      "fix": "Restore the value that `rayfin up` / `rayfin env` generate (it starts with `pk-`), and rotate the value that was pasted by mistake.",
+      "docs": [
+        { "title": "Secrets", "url": "https://rayfin.ai/docs/deploy/secrets" }
+      ]
+    },
+    {
+      "id": "secrets/deployments-file-tracked",
+      "category": "secrets",
+      "engine": "quick",
+      "severity": "low",
+      "title": "Deployment registry isn't git-ignored",
+      "summary": "`rayfin/.deployments.json` is git-ignored",
+      "why": "It holds workspace, tenant, and item IDs for your own deployments and is regenerated by `rayfin up`; it isn't meant to be shared.",
+      "fix": "Add `rayfin/.deployments.json` to `.gitignore` and untrack it with `git rm --cached rayfin/.deployments.json`.",
+      "docs": [
+        { "title": "rayfin/.deployments.json", "url": "https://rayfin.ai/docs/start/project-structure#rayfindeploymentsjson" }
+      ]
+    },
+    {
+      "id": "secrets/encryption-fallback-committed",
+      "category": "secrets",
+      "engine": "quick",
+      "severity": "medium",
+      "title": "Plaintext token cache enabled in a committed file",
+      "summary": "Plaintext CLI token caching isn't enabled in committed files",
+      "why": "`RAYFIN_ENCRYPTION_FALLBACK_ENABLED` stores the CLI token cache in plaintext and is meant for local development only.",
+      "fix": "Remove it from committed scripts, env files, and CI configuration; set it only in a local shell when you need it.",
+      "docs": [
+        { "title": "Sign-in or keychain failures", "url": "https://rayfin.ai/docs/reference/errors#sign-in-or-keychain-failures" }
+      ]
+    },
+    {
+      "id": "secrets/credential-in-browser",
+      "category": "secrets",
+      "engine": "ai",
+      "severity": "high",
+      "title": "Browser code calls a service with a secret credential",
+      "summary": "Credentials for other services stay server-side",
+      "why": "Anything the browser sends is visible to users, so calling paid or privileged APIs from frontend code exposes the credential.",
+      "fix": "Move the call into a Rayfin function that reads the key with `ctx.getSecret` (functions are experimental — confirm availability in your tenant) and call that function from the app.",
+      "check": "Look for frontend code that sends API keys, bearer tokens or other credentials to other services (fetch or axios headers, SDK constructors), or that embeds such values. Rayfin publishable keys (pk-…) and keys designed to be public are fine. Mask any value you quote.",
+      "docs": [
+        { "title": "Reading a secret from your code", "url": "https://rayfin.ai/docs/deploy/secrets#reading-a-secret-from-your-code" }
+      ]
+    },
+    {
+      "id": "data-model/text-without-max",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Text field has no maximum length",
+      "summary": "Every `@text` and `@email` field sets `max`",
+      "why": "On MSSQL, a `@text()` or `@email()` without `max` becomes `NVARCHAR(MAX)`, which can break GraphQL schema generation — the deploy reports success, then queries fail with an internal server error.",
+      "fix": "Set an explicit length, for example `@text({ max: 200 })`. Use `max: 128` for owner ids that come from `claims.sub`.",
+      "docs": [
+        { "title": "@text() without max", "url": "https://rayfin.ai/docs/reference/known-limitations#text-without-max-breaks-graphql-schema-generation-on-mssql" },
+        { "title": "Text length and MSSQL", "url": "https://rayfin.ai/docs/data/field-types#text-length-and-mssql" }
+      ]
+    },
+    {
+      "id": "data-model/fk-typed-text",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Foreign key is typed as text",
+      "summary": "Foreign keys to other entities use `@uuid`",
+      "why": "A `{property}_id` column that references another entity must match that entity's UUID primary key; declaring it `@text()` is a type mismatch.",
+      "fix": "Declare it `@uuid()`. Owner ids derived from sign-in (like `user_id` from `claims.sub`) aren't foreign keys and stay `@text({ max: 128 })`.",
+      "docs": [
+        { "title": "Foreign key columns", "url": "https://rayfin.ai/docs/data/relationships#foreign-key-columns" }
+      ]
+    },
+    {
+      "id": "data-model/relation-not-lazy",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Relationship target isn't wrapped in an arrow function",
+      "summary": "`@one` / `@many` targets use a lazy arrow function",
+      "why": "`@one(Target)` evaluates the class immediately, which breaks on circular imports between entity files.",
+      "fix": "Write `@one(() => Target)` and `@many(() => Target)`.",
+      "docs": [
+        { "title": "Lazy arrow functions", "url": "https://rayfin.ai/docs/data/relationships#lazy-arrow-functions" }
+      ]
+    },
+    {
+      "id": "data-model/relation-import-type",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Entity import won't work at runtime",
+      "summary": "Entity files import related classes as values, with `.js` paths",
+      "why": "Relationship decorators need the runtime class, but `import type` is erased at compile time. Relative imports under `rayfin/data` also need the `.js` extension to resolve as ESM.",
+      "fix": "Use `import { Target } from './Target.js'`.",
+      "docs": [
+        { "title": "Use import, not import type", "url": "https://rayfin.ai/docs/data/relationships#use-import-not-import-type" },
+        { "title": "Register the entity", "url": "https://rayfin.ai/docs/data/modeling#register-the-entity-in-schemats" }
+      ]
+    },
+    {
+      "id": "data-model/entity-not-registered",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Entity isn't fully registered in schema.ts",
+      "summary": "Every entity is in both the `schema` array and the schema type",
+      "why": "An entity missing from `schema.ts` isn't part of the typed client (`client.data.<Entity>` won't exist), and one listed in only the array or only the type is half-registered.",
+      "fix": "Import it with a `.js` path and add it to both the exported schema type and the `schema` array.",
+      "docs": [
+        { "title": "Register the entity in schema.ts", "url": "https://rayfin.ai/docs/data/modeling#register-the-entity-in-schemats" }
+      ]
+    },
+    {
+      "id": "data-model/field-missing-decorator",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Entity property has no field decorator",
+      "summary": "Every entity property has exactly one field decorator",
+      "why": "Properties without a type decorator (`@text`, `@int`, `@uuid`, …) aren't stored, and two type decorators on one property conflict — reads and writes won't behave as the class suggests.",
+      "fix": "Give each stored property exactly one field decorator (for example `@int()`), and move values that shouldn't be stored out of the entity class.",
+      "docs": [
+        { "title": "Rules for data modeling", "url": "https://rayfin.ai/docs/reference/agent-rules#data-modeling" },
+        { "title": "Field decorator reference", "url": "https://rayfin.ai/docs/data/field-types#decorator-reference" }
+      ]
+    },
+    {
+      "id": "data-model/decimal-precision",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Decimal precision or scale is incomplete",
+      "summary": "`@decimal` sets precision and scale together, with precision ≤ 28",
+      "why": "Data API Builder supports a precision of at most 28, and setting only one of `precision` / `scale` gives an unexpected column type.",
+      "fix": "Set both, for example `@decimal({ precision: 18, scale: 2 })`.",
+      "docs": [
+        { "title": "Decimal precision and scale", "url": "https://rayfin.ai/docs/data/field-types#decimal-precision-and-scale" }
+      ]
+    },
+    {
+      "id": "data-model/nullable-mismatch",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "low",
+      "appliesWhen": ["data"],
+      "title": "Optional field is only marked optional in one place",
+      "summary": "Nullable fields use `{ optional: true }` together with `?`",
+      "why": "Fields are required by default. `optional: true` without `?` (or `?` without the option) makes the database and the TypeScript type disagree.",
+      "fix": "Use both together, for example `@text({ optional: true, max: 200 }) note?: string`.",
+      "docs": [
+        { "title": "The nullable pattern", "url": "https://rayfin.ai/docs/data/field-types#the-nullable-pattern" }
+      ]
+    },
+    {
+      "id": "data-model/many-to-many",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Many-to-many relationship without a join entity",
+      "summary": "Many-to-many links go through an explicit join entity",
+      "why": "`@one` / `@many` only model one-to-many. Two entities pointing `@many` at each other doesn't create a working link.",
+      "fix": "Add a join entity with two `@one()` fields — one for each side — and query through it.",
+      "docs": [
+        { "title": "Use an explicit join entity", "url": "https://rayfin.ai/docs/data/relationships#many-to-many-use-an-explicit-join-entity" }
+      ]
+    },
+    {
+      "id": "data-model/weak-constraints",
+      "category": "data-model",
+      "engine": "ai",
+      "severity": "low",
+      "appliesWhen": ["data"],
+      "title": "Field accepts values the app never uses",
+      "summary": "Fields use the tightest documented type and limits",
+      "why": "Free text for a fixed set of choices, text for emails, or unbounded numbers let invalid data bypass the UI and break filters, charts, and totals.",
+      "fix": "Use documented options: `@set([...])` for fixed choices, `@email()` for emails, and `min` / `max` on numbers and text.",
+      "check": "Compare entity fields with how the UI uses them. Flag fields where the UI offers a fixed set of values but the field is free @text, emails stored as @text, or numbers with obvious bounds but no min/max. Recommend only decorators and options that exist in the installed @microsoft/rayfin-core (check its type definitions or the field-types guide); for example, there is no index option.",
+      "docs": [
+        { "title": "Field types", "url": "https://rayfin.ai/docs/data/field-types" },
+        { "title": "String enums with @set", "url": "https://rayfin.ai/docs/data/field-types#set-string-enums" }
+      ]
+    },
+    {
+      "id": "data-model/seed-authenticated-entity",
+      "category": "data-model",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Seed script writes to a sign-in-only entity",
+      "summary": "Seed scripts only target entities that allow scripted writes",
+      "why": "There is no supported way to script data into entities that require sign-in, so these seed scripts fail.",
+      "fix": "Seed only `@anonymous()` entities from scripts, and create signed-in data through the running app.",
+      "check": "If the project has seed scripts (for example scripts/seed*.ts that use RayfinServerClient), flag writes to entities whose relevant action is only granted to signed-in users.",
+      "docs": [
+        { "title": "No supported path for authenticated entities", "url": "https://rayfin.ai/docs/data/seeding#no-supported-path-for-authenticated-entities" }
+      ]
+    },
+    {
+      "id": "queries/unpaginated-list",
+      "category": "queries",
+      "engine": "ai",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "List query silently stops at 100 rows",
+      "summary": "Lists that can grow page through their results",
+      "why": "`.execute()` returns a single page — 100 rows by default — with no signal that more exist, so the app silently shows incomplete lists and totals as tables grow.",
+      "fix": "Use `.first(n).executePaginated()` and follow `.after(endCursor)` while `hasNextPage` is true, or load more pages on demand.",
+      "check": "Find client.data.<Entity> collection queries that end in .execute() (not findById) whose results are rendered as lists, used for totals or exports, or used in calculations, where the entity can plausibly exceed 100 rows and the query isn't bounded by a selective filter. Report the query location and mention where its result is used.",
+      "docs": [
+        { "title": "Paginate large lists", "url": "https://rayfin.ai/docs/data/querying#paginate-large-lists" },
+        { "title": "Collection queries return one page", "url": "https://rayfin.ai/docs/reference/known-limitations#collection-queries-return-only-one-page-unless-you-paginate" }
+      ]
+    },
+    {
+      "id": "queries/count-method",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "`.count()` doesn't exist on Rayfin queries",
+      "summary": "Row counts use result length or a numeric aggregation",
+      "why": "The fluent client has no `count()` method. `count` is an aggregation over a numeric field that counts non-null values, not rows.",
+      "fix": "For a row count, select minimal fields and use `results.length` (summing pages for large tables), or aggregate `count` over a non-nullable numeric field.",
+      "docs": [
+        { "title": "count() counts numeric values", "url": "https://rayfin.ai/docs/reference/known-limitations#count-counts-numeric-values-not-rows" },
+        { "title": "Counting records", "url": "https://rayfin.ai/docs/data/querying#counting-records" }
+      ]
+    },
+    {
+      "id": "queries/find-by-pk",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "`findByPk` doesn't exist — use `findById`",
+      "summary": "Single-record reads use `findById`",
+      "why": "Rayfin has no `findByPk` (a name from other ORMs), so these calls fail.",
+      "fix": "Use `client.data.<Entity>.findById(id)`.",
+      "docs": [
+        { "title": "Fetch a single record", "url": "https://rayfin.ai/docs/data/querying#fetch-a-single-record" }
+      ]
+    },
+    {
+      "id": "queries/total-count",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Code relies on `totalCount`, which is never set",
+      "summary": "No code relies on `totalCount`",
+      "why": "Data API Builder can't return total counts, so `totalCount` exists on the result type but is never populated.",
+      "fix": "Count the loaded items instead, or page with `.executePaginated()` and sum `items.length`.",
+      "docs": [
+        { "title": "Total record counts are unsupported", "url": "https://rayfin.ai/docs/reference/known-limitations#total-record-counts-are-unsupported" }
+      ]
+    },
+    {
+      "id": "queries/where-dot-path",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Filter uses a relationship dot-path",
+      "summary": "Filters use foreign-key columns, not dot-paths",
+      "why": "Dot-paths such as `'notebook.id'` only work in `.select()`. In `.where()` they fail or filter nothing.",
+      "fix": "Filter by the foreign-key column: `.where({ notebook_id: { eq: notebookId } })`.",
+      "docs": [
+        { "title": "Filter by foreign key, not by dot-path", "url": "https://rayfin.ai/docs/data/querying#filter-by-foreign-key-not-by-dot-path" }
+      ]
+    },
+    {
+      "id": "queries/select-nested-path",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Select reaches more than one relationship deep",
+      "summary": "Selects use at most one relationship level",
+      "why": "`.select()` supports one level of relationship dot-path (`'notebook.name'`), not two (`'notebook.owner.email'`).",
+      "fix": "Run a second query for the deeper data, or add a direct relationship on the entity that needs it.",
+      "docs": [
+        { "title": "Nested queries beyond two levels", "url": "https://rayfin.ai/docs/reference/known-limitations#nested-queries-beyond-two-levels-arent-supported" }
+      ]
+    },
+    {
+      "id": "queries/aggregate-with-row-methods",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Aggregation is combined with row selection",
+      "summary": "Aggregations aren't combined with `select` / `orderBy` / `first` / `after`",
+      "why": "Data API Builder rejects grouped aggregation together with row queries, so these chains fail.",
+      "fix": "Run the aggregation on its own, then sort or slice the returned groups in TypeScript.",
+      "docs": [
+        { "title": "What you cannot combine", "url": "https://rayfin.ai/docs/data/aggregations#what-you-cannot-combine" }
+      ]
+    },
+    {
+      "id": "queries/sort-direction-case",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "low",
+      "appliesWhen": ["data"],
+      "title": "Sort direction isn't lowercase",
+      "summary": "`orderBy` uses `'asc'` / `'desc'`",
+      "why": "Sort directions are the lowercase strings `'asc'` and `'desc'`, not capitalized constants.",
+      "fix": "Write `.orderBy({ createdAt: 'desc' })`.",
+      "docs": [
+        { "title": "Sort with orderBy", "url": "https://rayfin.ai/docs/data/querying#sort-with-orderby" }
+      ]
+    },
+    {
+      "id": "queries/raw-data-fetch",
+      "category": "queries",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Data is fetched with hand-built GraphQL",
+      "summary": "App data goes through the typed client (`client.data`)",
+      "why": "Hand-built `fetch()` or GraphQL calls to the Rayfin API skip the typed client's session handling and type safety.",
+      "fix": "Use `client.data.<Entity>` queries and mutations instead.",
+      "docs": [
+        { "title": "Anti-patterns", "url": "https://rayfin.ai/docs/reference/agent-rules#anti-patterns" }
+      ]
+    },
+    {
+      "id": "queries/n-plus-one",
+      "category": "queries",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "One query per item in a loop",
+      "summary": "Related data is loaded in batches, not one query per row",
+      "why": "Awaiting a query for each list item multiplies round-trips — and capacity usage — as data grows.",
+      "fix": "Load everything in one query with `.where({ id: { in: ids } })`, a one-level `.select()` dot-path, or an aggregation.",
+      "check": "Find loops (for, for...of, map, forEach, or Promise.all over an array) that await a client.data call once per element.",
+      "docs": [
+        { "title": "Operators by field type", "url": "https://rayfin.ai/docs/data/querying#operators-by-field-type" },
+        { "title": "Select nested fields", "url": "https://rayfin.ai/docs/data/querying#select-nested-fields-with-dot-paths" }
+      ]
+    },
+    {
+      "id": "queries/mutation-shape",
+      "category": "queries",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Mutation doesn't follow the documented shape",
+      "summary": "Mutations set relationships the documented way",
+      "why": "Setting a raw foreign-key column (`notebook_id`) in `create` / `update` isn't how relationships are written, and assigning arrays to `@many` fields does nothing.",
+      "fix": "Pass the related object instead — `notebook: { id: notebookId }` — and change a `@many` side by updating each child's `@one`.",
+      "check": "Review create, update and upsert calls against the installed rayfin-data types and the mutations guide. Flag raw {property}_id keys set where the entity declares a matching @one relationship, arrays written to @many properties, and update/delete calls targeting something other than the record id.",
+      "docs": [
+        { "title": "Setting @one() relationships", "url": "https://rayfin.ai/docs/data/mutations#setting-one-relationships-in-mutations" }
+      ]
+    },
+    {
+      "id": "config/missing-service-blocks",
+      "category": "config",
+      "engine": "quick",
+      "severity": "high",
+      "title": "rayfin.yml doesn't declare auth and data",
+      "summary": "rayfin.yml declares `services.auth` and `services.data`, even when disabled",
+      "why": "The CLI reads these keys without applying defaults, so leaving one out makes deploys fail.",
+      "fix": "Add both blocks — for example `data: { enabled: false }` when the app doesn't store data.",
+      "docs": [
+        { "title": "Configuration rules", "url": "https://rayfin.ai/docs/reference/agent-rules#configuration" },
+        { "title": "services.auth", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#servicesauth" }
+      ]
+    },
+    {
+      "id": "config/data-dialect",
+      "category": "config",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Data service needs `dialect: mssql`",
+      "summary": "The data service declares `dialect: mssql`",
+      "why": "With `services.data.enabled: true`, `dialect` is required and Fabric apps support only `mssql` — otherwise the deploy fails with \"Dialect is required when Data module is enabled\".",
+      "fix": "Set `dialect: mssql` under `services.data`.",
+      "docs": [
+        { "title": "dialect is required", "url": "https://rayfin.ai/docs/reference/known-limitations#dialect-is-required-when-the-data-module-is-enabled" },
+        { "title": "services.data", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#servicesdata" }
+      ]
+    },
+    {
+      "id": "config/experimental-decorators",
+      "category": "config",
+      "engine": "quick",
+      "severity": "high",
+      "title": "Legacy decorators are enabled in tsconfig",
+      "summary": "tsconfig doesn't enable `experimentalDecorators` or `emitDecoratorMetadata`",
+      "why": "Rayfin uses standard TC39 decorators. The legacy `experimentalDecorators` mode (and `emitDecoratorMetadata`, which requires it) breaks entity compilation.",
+      "fix": "Remove `experimentalDecorators` and `emitDecoratorMetadata` from every tsconfig.",
+      "docs": [
+        { "title": "The TC39 decorator requirement", "url": "https://rayfin.ai/docs/data/modeling#the-tc39-decorator-requirement" }
+      ]
+    },
+    {
+      "id": "config/decorators-lib",
+      "category": "config",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "tsconfig is missing `ESNext.Decorators`",
+      "summary": "The tsconfig used for entities includes `ESNext.Decorators`",
+      "why": "The `ESNext.Decorators` library is what enables type-checking of Rayfin's standard decorators.",
+      "fix": "Add `\"ESNext.Decorators\"` to `compilerOptions.lib` in the root tsconfig.json.",
+      "docs": [
+        { "title": "The TC39 decorator requirement", "url": "https://rayfin.ai/docs/data/modeling#the-tc39-decorator-requirement" }
+      ]
+    },
+    {
+      "id": "config/swc-with-runtime-entities",
+      "category": "config",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Build plugin can't compile the entity classes the app imports",
+      "summary": "Frontend code that imports entity classes builds with a decorator-capable plugin",
+      "why": "`@vitejs/plugin-react-swc` can't parse standard decorators. Importing entity classes as values (not `import type`) pulls them into the browser build, which then fails with \"Expression expected\".",
+      "fix": "Import entities with `import type`, or switch to `@vitejs/plugin-react`.",
+      "docs": [
+        { "title": "The TC39 decorator requirement", "url": "https://rayfin.ai/docs/data/modeling#the-tc39-decorator-requirement" }
+      ]
+    },
+    {
+      "id": "config/vite-target",
+      "category": "config",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Vite target is too old for the entity classes it bundles",
+      "summary": "Vite targets ES2022 or later when the bundle includes entity classes",
+      "why": "When the browser build includes decorated entity classes, esbuild must target ES2022 or later, or decorator syntax fails to parse.",
+      "fix": "Set `target: 'es2022'` under `build`, `esbuild`, and `optimizeDeps.esbuildOptions` in vite.config.ts.",
+      "docs": [
+        { "title": "Vite configuration", "url": "https://rayfin.ai/docs/start/project-structure#vite-configuration" }
+      ]
+    },
+    {
+      "id": "config/static-hosting-folder",
+      "category": "config",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["hosting"],
+      "title": "Static hosting folder doesn't match the build output",
+      "summary": "`staticHosting.folder` matches the frontend's build output directory",
+      "why": "`rayfin up` uploads `staticHosting.folder`. If it differs from where the bundler writes the build, the deploy fails or publishes stale files.",
+      "fix": "Make `services.staticHosting.folder` match Vite's `build.outDir` (default `dist`).",
+      "docs": [
+        { "title": "Static hosting troubleshooting", "url": "https://rayfin.ai/docs/hosting#troubleshooting" },
+        { "title": "services.staticHosting", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#servicesstatichosting" }
+      ]
+    },
+    {
+      "id": "config/deprecated-yml-keys",
+      "category": "config",
+      "engine": "quick",
+      "severity": "low",
+      "title": "rayfin.yml has deprecated keys",
+      "summary": "rayfin.yml uses no deprecated keys",
+      "why": "The top-level `frontend:` key (the framework is auto-detected now) and `publishable_key:` (managed in `rayfin/.env`) are legacy and only kept for backward compatibility.",
+      "fix": "Remove them from rayfin.yml.",
+      "docs": [
+        { "title": "Top-level keys", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#top-level-keys" }
+      ]
+    },
+    {
+      "id": "config/connectors-list-shape",
+      "category": "config",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["connectors"],
+      "title": "Connectors use the old map shape in rayfin.yml",
+      "summary": "`connectors:` in rayfin.yml is a list of entries",
+      "why": "Current Rayfin CLIs read `connectors:` as a list of `- name:` entries with a `type`; the older map keyed by connector name isn't the documented shape.",
+      "fix": "Rewrite each connector as a list item with `name` and `type` (for example by re-running `rayfin connector add`), keeping its `config`, `auth`, and `operations`.",
+      "docs": [
+        { "title": "rayfin.yml connectors", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#connectors" }
+      ]
+    },
+    {
+      "id": "platform/cli-outdated",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "medium",
+      "title": "Rayfin CLI is out of date",
+      "summary": "The Rayfin CLI is on the latest release",
+      "why": "Newer CLIs ship fixes and match the current documentation; behavior described on rayfin.ai may not apply to older versions.",
+      "fix": "Update `@microsoft/rayfin-cli` to the latest release — Fabricator can hand the upgrade to Copilot.",
+      "docs": [
+        { "title": "Update the CLI", "url": "https://rayfin.ai/docs/reference/cli/installation#update-the-cli" }
+      ]
+    },
+    {
+      "id": "platform/sdk-outdated",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "medium",
+      "title": "Rayfin SDK is out of date",
+      "summary": "The Rayfin SDK packages are on the latest release",
+      "why": "The SDK and CLI version independently, and newer SDK releases carry fixes and the APIs the current docs describe.",
+      "fix": "Update all Rayfin SDK packages together to the same latest version — Fabricator can hand the upgrade to Copilot.",
+      "docs": [
+        { "title": "SDK version notes", "url": "https://rayfin.ai/docs/reference/sdk#version-notes" }
+      ]
+    },
+    {
+      "id": "platform/sdk-lockstep",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "high",
+      "title": "Rayfin SDK packages are on different versions",
+      "summary": "The Rayfin SDK family is installed at one version",
+      "why": "`rayfin-core`, `-client`, `-data`, `-auth`, `-auth-provider-fabric`, `-lib`, and `-functions` ship in lockstep; mixing versions is untested and can break at runtime.",
+      "fix": "Pin every Rayfin SDK package to the same version (normally the latest) and reinstall.",
+      "docs": [
+        { "title": "SDK version notes", "url": "https://rayfin.ai/docs/reference/sdk#version-notes" }
+      ]
+    },
+    {
+      "id": "platform/connector-version",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["connectors"],
+      "title": "Connector package isn't pinned to the CLI's version",
+      "summary": "Connector packages are pinned to the version the CLI installs",
+      "why": "Connector packages ship in lockstep with the CLI, but their npm `latest` / `preview` tags lag behind. Unpinned installs can pull an older connector that brings its own `rayfin-data`, leaving two Rayfin versions in one app.",
+      "fix": "Install the exact version `rayfin connector add` prints (normally the CLI's version), without `^` or `~`.",
+      "docs": [
+        { "title": "Connectors are in private preview", "url": "https://rayfin.ai/docs/reference/known-limitations#connectors-are-in-private-preview" },
+        { "title": "Install the pinned packages", "url": "https://rayfin.ai/docs/connectors/adding#install-the-pinned-packages" }
+      ]
+    },
+    {
+      "id": "platform/connector-schema-value-import",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["connectors"],
+      "title": "Connector schema imports entity classes as values",
+      "summary": "Connector `schema.ts` files use `import type` / `export type` for entities",
+      "why": "A value import ships decorated classes into the browser bundle. The build and deploy succeed, but the deployed page renders blank.",
+      "fix": "Change the entity imports and re-exports in `rayfin/connectors/<name>/schema.ts` to `import type` / `export type`.",
+      "docs": [
+        { "title": "Keep entity classes out of browser bundles", "url": "https://rayfin.ai/docs/connectors/client-setup#keep-entity-classes-out-of-browser-bundles" }
+      ]
+    },
+    {
+      "id": "platform/connectors-stable-entry",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["connectors"],
+      "title": "`ConnectorsRayfinClient` is imported from the stable entry",
+      "summary": "`ConnectorsRayfinClient` comes from `@microsoft/rayfin-client/experimental`",
+      "why": "The preview connectors client is only exported from the `/experimental` subpath, so importing it from `@microsoft/rayfin-client` fails.",
+      "fix": "Write `import { ConnectorsRayfinClient } from '@microsoft/rayfin-client/experimental'`.",
+      "docs": [
+        { "title": "Import the experimental client", "url": "https://rayfin.ai/docs/connectors/client-setup#import-the-experimental-client" }
+      ]
+    },
+    {
+      "id": "platform/connector-app-auth",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["connectors"],
+      "title": "Semantic model or KQL connector uses application auth",
+      "summary": "Semantic model and KQL connectors use delegated auth",
+      "why": "`auth.type: application` isn't allowed for `fabric-semanticmodel` and `kusto` connectors, so `rayfin up` rejects the configuration.",
+      "fix": "Set `auth.type: delegated` for these connectors.",
+      "docs": [
+        { "title": "Allowed auth values per connector type", "url": "https://rayfin.ai/docs/connectors/auth#use-an-allowed-value-for-the-connector-type" }
+      ]
+    },
+    {
+      "id": "platform/connector-orphaned-dir",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "low",
+      "appliesWhen": ["connectors"],
+      "title": "Connector folder has no rayfin.yml entry",
+      "summary": "Every `rayfin/connectors` folder matches a connector in rayfin.yml",
+      "why": "A leftover connector folder is no longer deployed or refreshed, but app code may still import from it.",
+      "fix": "Delete the folder and its imports, or re-add the connector with `rayfin connector add`.",
+      "docs": [
+        { "title": "List and remove connectors", "url": "https://rayfin.ai/docs/connectors/adding#list-and-remove-connectors" }
+      ]
+    },
+    {
+      "id": "platform/connector-wiring",
+      "category": "platform",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["connectors"],
+      "title": "Connector isn't wired consistently",
+      "summary": "Connector names and runtimes match across rayfin.yml, schema, and client",
+      "why": "The connector key must be identical in rayfin.yml, the connector schema type, the client's `connectors` option, and — for semantic model and KQL connectors — the runtime map, or calls fail or return undecoded data.",
+      "fix": "Use one key everywhere, and pass the runtime map (`fabricSemanticModel()`, `kusto()`) as the client's second constructor argument.",
+      "check": "Cross-check connector names in rayfin.yml against the connector schema exports (for example AppConnectorsSchema), the ConnectorsRayfinClient connectors config, and the runtime map. Flag mismatches, and fabric-semanticmodel or kusto connectors without a runtime entry.",
+      "docs": [
+        { "title": "Keep connector keys identical", "url": "https://rayfin.ai/docs/connectors/client-setup#keep-connector-keys-identical" },
+        { "title": "Pass runtimes in the second argument", "url": "https://rayfin.ai/docs/connectors/client-setup#pass-category-b-runtimes-in-the-second-argument" }
+      ]
+    },
+    {
+      "id": "platform/functions-context-import",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["functions"],
+      "title": "`RayfinContext` is imported from the wrong package",
+      "summary": "Functions import `RayfinContext` and `AudienceType` from `@microsoft/fabric-user-data-functions`",
+      "why": "`RayfinContext` and `AudienceType` come from `@microsoft/fabric-user-data-functions`; importing them from `@microsoft/rayfin-functions` (the frontend client) fails.",
+      "fix": "Import them from `@microsoft/fabric-user-data-functions`.",
+      "docs": [
+        { "title": "Typed data access with RayfinContext", "url": "https://rayfin.ai/docs/functions/writing-functions#typed-data-access-with-rayfincontext" }
+      ]
+    },
+    {
+      "id": "platform/functions-mssql",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["functions"],
+      "title": "Function's SQL client has a known Fabric connection bug",
+      "summary": "Functions use `mssql@^12.6.0` with `encrypt: true`",
+      "why": "Older `mssql` versions pull in a `tedious` release with a login bug that causes \"socket hang up\" errors on Fabric SQL endpoints, and `encrypt: 'strict'` doesn't match what Fabric expects.",
+      "fix": "Use `mssql@^12.6.0` and `encrypt: true`.",
+      "docs": [
+        { "title": "SQL connections", "url": "https://rayfin.ai/docs/functions/connections#sql-connections" }
+      ]
+    },
+    {
+      "id": "platform/functions-unregistered",
+      "category": "platform",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["functions"],
+      "title": "Function handler isn't registered",
+      "summary": "Every function handler is registered with `udf.func`",
+      "why": "Only handlers registered with `udf.func(...)` are deployed and typed for the client. `types.ts` is generated, so hand edits are overwritten.",
+      "fix": "Register each handler with `udf.func(name, handler, …)`, and regenerate types instead of editing `types.ts`.",
+      "check": "In rayfin/functions, find exported handlers that are never passed to udf.func, and manual edits to the generated types.ts.",
+      "docs": [
+        { "title": "Registering a function", "url": "https://rayfin.ai/docs/functions/writing-functions#registering-a-function" },
+        { "title": "Generated types", "url": "https://rayfin.ai/docs/functions/writing-functions#generated-types" }
+      ]
+    },
+    {
+      "id": "platform/experimental-services",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "note",
+      "appliesWhen": ["functions", "storage"],
+      "title": "App uses experimental Rayfin services",
+      "summary": "Experimental services (functions, storage) are noted for availability",
+      "why": "Functions and storage are experimental: they aren't available in every Fabric region or tenant, and their packages may change substantially between releases.",
+      "fix": "Confirm the service deploys in your target workspace before depending on it, and keep data access in `client.data` where a function isn't required.",
+      "docs": [
+        { "title": "Functions and storage are experimental", "url": "https://rayfin.ai/docs/reference/known-limitations#functions-and-storage-are-experimental" }
+      ]
+    },
+    {
+      "id": "platform/deprecated-fabric-callback",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "low",
+      "appliesWhen": ["fabricSso"],
+      "title": "Uses the deprecated Fabric callback bridge",
+      "summary": "No deprecated Fabric sign-in APIs are used",
+      "why": "`bridgeFabricCallback()` and the `callbackUrl` option only exist for older Fabric portals and will be removed.",
+      "fix": "Remove them and rely on the standard `ensureSignedInWithFabric` / `initEmbeddedAuth` flow.",
+      "docs": [
+        { "title": "Legacy callback bridge", "url": "https://rayfin.ai/docs/auth/fabric-sso#legacy-callback-bridge" }
+      ]
+    },
+    {
+      "id": "platform/ai-files-missing",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "low",
+      "title": "Rayfin agent files are missing",
+      "summary": "The CLI-managed Rayfin skill is installed for coding agents",
+      "why": "`.agents/skills/rayfin/SKILL.md` gives Copilot version-matched Rayfin guidance; without it the agent relies on older general knowledge.",
+      "fix": "Run `npx rayfin init ai-files install`.",
+      "docs": [
+        { "title": "ai-files install", "url": "https://rayfin.ai/docs/reference/cli/ai-files#ai-files-install" }
+      ]
+    },
+    {
+      "id": "platform/latest-guidance",
+      "category": "platform",
+      "engine": "ai",
+      "severity": "medium",
+      "title": "Conflicts with current Rayfin guidance",
+      "summary": "The app follows the latest published Rayfin rules and known limitations",
+      "why": "Rayfin's rules for coding agents, known limitations, and deprecations change between releases, and the app may rely on behavior that is no longer recommended.",
+      "fix": "Follow the linked guidance for your installed Rayfin version.",
+      "check": "Fetch https://rayfin.ai/docs/reference/agent-rules.md, https://rayfin.ai/docs/reference/known-limitations.md and https://rayfin.ai/docs/reference/deprecations.md with web_fetch, and note each page's sdk_version. Report concrete violations in this app that no other listed rule covers, quoting the guidance and citing the page URL (with its #anchor) in docsUrl. If the pages can't be fetched, report this rule as skipped.",
+      "docs": [
+        { "title": "Rules for coding agents", "url": "https://rayfin.ai/docs/reference/agent-rules" },
+        { "title": "Known limitations", "url": "https://rayfin.ai/docs/reference/known-limitations" },
+        { "title": "Deprecation warnings", "url": "https://rayfin.ai/docs/reference/deprecations" }
+      ]
+    },
+    {
+      "id": "performance/client-side-aggregation",
+      "category": "performance",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Totals are computed by loading every row",
+      "summary": "Totals and summaries use server-side aggregation",
+      "why": "Fetching rows to sum, average, or count them in the browser is slow, uses capacity, and is capped by paging.",
+      "fix": "Use `.groupBy()` / `.aggregate()` and render the returned groups.",
+      "check": "Find code that loads lists and then reduces them (sum, average, min, max, count, group) for dashboards or totals where an aggregation would work. Don't flag small, bounded lists.",
+      "docs": [
+        { "title": "Aggregations", "url": "https://rayfin.ai/docs/data/aggregations" }
+      ]
+    },
+    {
+      "id": "performance/client-per-render",
+      "category": "performance",
+      "engine": "ai",
+      "severity": "medium",
+      "title": "Rayfin client is created repeatedly",
+      "summary": "One `RayfinClient` is created and reused",
+      "why": "Constructing a client inside components or per call repeats setup and can lose shared session state.",
+      "fix": "Create the client once in a module (such as `src/services/rayfinClient.ts`) and import it everywhere.",
+      "check": "Flag new RayfinClient(...) or new ConnectorsRayfinClient(...) inside React components, hook bodies without memoization, or functions called per request or per render.",
+      "docs": [
+        { "title": "Set up the client", "url": "https://rayfin.ai/docs/data#set-up-the-client" }
+      ]
+    },
+    {
+      "id": "performance/oversized-page",
+      "category": "performance",
+      "engine": "quick",
+      "severity": "low",
+      "appliesWhen": ["data"],
+      "title": "Page size is far larger than the view needs",
+      "summary": "Page sizes match what the UI shows",
+      "why": "Requesting thousands of rows per page (`.first(10000)`) defeats pagination and slows every load.",
+      "fix": "Match `.first(n)` to what the view shows and load more pages on demand.",
+      "docs": [
+        { "title": "Paginate large lists", "url": "https://rayfin.ai/docs/data/querying#paginate-large-lists" }
+      ]
+    },
+    {
+      "id": "performance/unvirtualized-list",
+      "category": "performance",
+      "engine": "ai",
+      "severity": "low",
+      "title": "Very long list renders every row",
+      "summary": "Very long lists render incrementally",
+      "why": "Rendering hundreds or thousands of rows at once makes the page slow to load and scroll.",
+      "fix": "Show a page at a time with \"Load more\", or virtualize the list.",
+      "check": "Flag lists or tables that map hundreds or more rows (for example results of large .first(n) pages or merged pages) straight into DOM elements with no paging or virtualization.",
+      "docs": [
+        { "title": "Virtualize long lists", "url": "https://web.dev/articles/virtualize-long-lists-react-window" }
+      ]
+    },
+    {
+      "id": "performance/expensive-render",
+      "category": "performance",
+      "engine": "ai",
+      "severity": "low",
+      "title": "Heavy work runs on every render",
+      "summary": "Expensive computations are memoized or moved off the render path",
+      "why": "Sorting, filtering, or reshaping large arrays directly in a component body reruns on every render and makes the UI sluggish.",
+      "fix": "Wrap the computation in `useMemo`, or move it next to where the data loads.",
+      "check": "Flag obviously expensive work (sorting or filtering large arrays, heavy parsing, chart data shaping) done directly in the render body of frequently re-rendered components without useMemo, and data fetching started during render.",
+      "docs": [
+        { "title": "useMemo", "url": "https://react.dev/reference/react/useMemo" }
+      ]
+    },
+    {
+      "id": "accessibility/img-alt",
+      "category": "accessibility",
+      "engine": "quick",
+      "severity": "medium",
+      "title": "Image has no alt text",
+      "summary": "Images have alt text (or `alt=\"\"` when decorative)",
+      "why": "Screen readers can't describe an image without `alt` — they read the file name or skip its meaning entirely.",
+      "fix": "Add a short description, or `alt=\"\"` for purely decorative images.",
+      "docs": [
+        { "title": "Images tutorial", "url": "https://www.w3.org/WAI/tutorials/images/" }
+      ]
+    },
+    {
+      "id": "accessibility/control-label",
+      "category": "accessibility",
+      "engine": "ai",
+      "severity": "medium",
+      "title": "Form control has no label",
+      "summary": "Inputs, selects, and text areas have an accessible label",
+      "why": "Without a label, screen-reader users hear an unnamed control and can't tell what to enter. Placeholders don't count as labels.",
+      "fix": "Associate a visible `<label htmlFor>` with the control, or add `aria-label` / `aria-labelledby`.",
+      "check": "Flag input, select and textarea elements (and custom input components that render them) with no associated label element, wrapping label, aria-label or aria-labelledby — placeholder alone doesn't count.",
+      "docs": [
+        { "title": "Labeling controls", "url": "https://www.w3.org/WAI/tutorials/forms/labels/" }
+      ]
+    },
+    {
+      "id": "accessibility/non-semantic-interactive",
+      "category": "accessibility",
+      "engine": "ai",
+      "severity": "medium",
+      "title": "Clickable element can't be used with a keyboard",
+      "summary": "Clickable elements are buttons or links (or fully keyboard-accessible)",
+      "why": "A `div` or `span` with `onClick` can't be focused or activated from the keyboard and isn't announced as a button.",
+      "fix": "Use a `<button>` (or a link), or add `role=\"button\"`, `tabIndex={0}`, and an Enter/Space key handler.",
+      "check": "Flag elements such as div, span or li with onClick but no role, tabIndex and key handler, where a button or link would be the right element.",
+      "docs": [
+        { "title": "Button pattern", "url": "https://www.w3.org/WAI/ARIA/apg/patterns/button/" }
+      ]
+    },
+    {
+      "id": "accessibility/icon-button-name",
+      "category": "accessibility",
+      "engine": "ai",
+      "severity": "medium",
+      "title": "Icon-only button has no accessible name",
+      "summary": "Icon-only buttons have an accessible name",
+      "why": "A button whose only content is an icon is announced as just \"button\", so screen-reader users can't tell what it does.",
+      "fix": "Add `aria-label` (for example `aria-label=\"Delete task\"`) or visually hidden text.",
+      "check": "Flag button elements (or button components) whose only child is an icon or SVG and that have no aria-label, aria-labelledby, title or visually hidden text.",
+      "docs": [
+        { "title": "Button pattern", "url": "https://www.w3.org/WAI/ARIA/apg/patterns/button/" }
+      ]
+    },
+    {
+      "id": "accessibility/color-only-state",
+      "category": "accessibility",
+      "engine": "ai",
+      "severity": "low",
+      "title": "Status is shown with color alone",
+      "summary": "Status and errors aren't conveyed by color alone",
+      "why": "People who can't distinguish the colors miss the status entirely.",
+      "fix": "Pair the color with text, an icon, or an accessible status message.",
+      "check": "Flag status, validation or error states where only the color changes (text or background), with no accompanying text, icon or role=\"alert\" / aria-live message.",
+      "docs": [
+        { "title": "Use of color", "url": "https://www.w3.org/WAI/WCAG22/Understanding/use-of-color.html" }
+      ]
+    }
+  ]
+}

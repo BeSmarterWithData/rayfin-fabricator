@@ -1,6 +1,6 @@
 import {
   entity,
-  role,
+  authenticated,
   text,
   boolean,
   date,
@@ -8,7 +8,7 @@ import {
 } from '@microsoft/rayfin-core';
 
 @entity()
-@role('authenticated', '*', {
+@authenticated('*', {
   policy: (claims, item) => claims.sub.eq(item.user_id),
 })
 export class Todo {
@@ -16,5 +16,5 @@ export class Todo {
   @text({ min: 1, max: 100 }) title!: string;
   @boolean() isCompleted!: boolean;
   @date() createdAt!: Date;
-  @text() user_id!: string;
+  @text({ max: 128 }) user_id!: string;
 }

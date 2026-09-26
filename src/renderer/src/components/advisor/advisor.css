@@ -1,0 +1,1943 @@
+/* ------------------------------------------------------------------ *
+ * Advisor tab
+ * ------------------------------------------------------------------ */
+
+.adv {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container: adv / inline-size;
+  background: var(--bg);
+  /* Neutral fill for anything not decided yet: waiting checks, ring tracks. */
+  --adv-idle: color-mix(in srgb, var(--text-faint) 24%, transparent);
+  /* Step rows reuse the chat's work-log styles, which read these. */
+  --stat-add: #4ac26b;
+  --stat-del: #ff7b72;
+  --diff-add-bg: rgba(46, 160, 67, 0.17);
+  --diff-del-bg: rgba(248, 81, 73, 0.15);
+  --diff-add-sign: #56d364;
+  --diff-del-sign: #ff7b72;
+}
+
+[data-theme='light'] .adv {
+  --adv-idle: color-mix(in srgb, var(--text-faint) 26%, transparent);
+  --stat-add: #1a7f37;
+  --stat-del: #cf222e;
+}
+
+/* ── Top bar (same band as the chat and preview toolbars) ── */
+.adv-bar {
+  min-height: 43px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.adv-bar-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.adv-bar-title .codicon {
+  font-size: 15px;
+  color: var(--accent);
+}
+
+.adv-bar-sub {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.adv-bar-spacer {
+  flex: 1;
+}
+
+.adv-bar .btn .codicon {
+  font-size: 13px;
+}
+
+/* The model picker opens downward from the top bar. */
+.adv-bar-model .composer-pop {
+  top: calc(100% + 8px);
+  bottom: auto;
+  left: auto;
+  right: 0;
+  max-width: min(320px, calc(100vw - 24px));
+  transform-origin: top right;
+}
+
+.adv-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.adv-inner {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 20px 28px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Hero: grade, headline, action, and the checks strip ── */
+.adv-hero {
+  --adv-tone: var(--ok);
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'ring text side'
+    'meter meter meter'
+    'log log log';
+  align-items: center;
+  column-gap: 20px;
+  padding: 20px 22px 18px;
+  overflow: hidden;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+  animation: advRise 0.24s ease both;
+}
+
+/* A soft wash in the grade's color behind the ring. */
+.adv-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    560px 240px at 0 0,
+    color-mix(in srgb, var(--adv-tone) 12%, transparent),
+    transparent 72%
+  );
+}
+
+.adv-hero--warn {
+  --adv-tone: var(--pending);
+}
+
+.adv-hero--bad {
+  --adv-tone: var(--danger);
+}
+
+.adv-hero--running,
+.adv-hero--loading {
+  --adv-tone: var(--accent);
+}
+
+.adv-hero > .adv-grade {
+  grid-area: ring;
+}
+
+.adv-hero-text {
+  grid-area: text;
+  min-width: 0;
+}
+
+.adv-hero-side {
+  grid-area: side;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.adv-hero > .adv-meter {
+  grid-area: meter;
+  margin-top: 18px;
+}
+
+.adv-hero > .adv-activity {
+  grid-area: log;
+  margin-top: 12px;
+}
+
+.adv-hero-title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: -0.015em;
+}
+
+.adv-hero-sub {
+  margin: 3px 0 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.adv-live {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 5px 0 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.adv-live-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.adv-hero-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.adv-hero-meta {
+  margin-left: 4px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.adv-hero-clock {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-hero-side .btn .codicon {
+  font-size: 13px;
+}
+
+.adv-fix-cta {
+  height: 36px;
+  padding: 0 16px;
+}
+
+/* ── Grade ring ── */
+.adv-grade {
+  --adv-grade-color: var(--ok);
+  position: relative;
+  flex: none;
+  width: 76px;
+  height: 76px;
+}
+
+.adv-grade--warn {
+  --adv-grade-color: var(--pending);
+}
+
+.adv-grade--bad {
+  --adv-grade-color: var(--danger);
+}
+
+.adv-grade svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.adv-grade-track {
+  fill: none;
+  stroke: var(--adv-idle);
+  stroke-width: 6;
+}
+
+.adv-grade-value {
+  fill: none;
+  stroke: var(--adv-grade-color);
+  stroke-width: 6;
+  stroke-linecap: round;
+  transition:
+    stroke-dasharray 0.6s ease,
+    opacity 0.3s ease;
+}
+
+.adv-grade.is-provisional .adv-grade-track {
+  stroke-dasharray: 3 5;
+}
+
+.adv-grade.is-provisional .adv-grade-value {
+  opacity: 0.6;
+}
+
+.adv-grade.is-updating .adv-grade-value {
+  opacity: 0.3;
+}
+
+.adv-grade-sweep {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 6;
+  stroke-linecap: round;
+  stroke-dasharray: 30 170;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: advSweep 1.4s linear infinite;
+}
+
+.adv-grade-letter {
+  position: absolute;
+  inset: 0 0 9px;
+  display: grid;
+  place-items: center;
+  font-size: 27px;
+  font-weight: 700;
+  color: var(--adv-grade-color);
+}
+
+.adv-grade.is-loading .adv-grade-letter {
+  color: var(--text-faint);
+}
+
+.adv-grade-score {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 15px;
+  text-align: center;
+  font-size: 10.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Checks strip ── */
+.adv-meter {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.adv-meter-strip {
+  position: relative;
+  height: 10px;
+  display: flex;
+  gap: 2px;
+  overflow: hidden;
+  border-radius: 3px;
+}
+
+.adv-meter.is-loading .adv-meter-strip {
+  background: var(--adv-idle);
+}
+
+.adv-meter-block {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 2px;
+  background: var(--adv-idle);
+  transition: background-color 0.4s ease;
+}
+
+.adv-meter-block--high {
+  background: var(--danger);
+}
+
+.adv-meter-block--medium {
+  background: var(--pending);
+}
+
+.adv-meter-block--low {
+  background: color-mix(in srgb, var(--pending) 50%, var(--text-faint));
+}
+
+.adv-meter-block--note {
+  background: color-mix(in srgb, var(--accent) 60%, var(--text-faint));
+}
+
+.adv-meter-block--passed {
+  background: color-mix(in srgb, var(--ok) 78%, var(--bg-elev));
+}
+
+.adv-meter-block--dismissed {
+  background: color-mix(in srgb, var(--text-faint) 55%, var(--bg-elev));
+}
+
+.adv-meter-block--skipped {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--adv-idle) 0 3px,
+    color-mix(in srgb, var(--text-faint) 50%, transparent) 3px 5px
+  );
+}
+
+/* While a review runs, light sweeps across the strip. */
+.adv-meter.is-running .adv-meter-strip::after,
+.adv-meter.is-loading .adv-meter-strip::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--accent) 40%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 34% 100%;
+  background-repeat: no-repeat;
+  animation: advShimmer 1.8s ease-in-out infinite;
+}
+
+.adv-meter-legend {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.adv-meter-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.adv-meter-total {
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.adv-meter-spacer {
+  flex: 1;
+}
+
+.adv-key {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--adv-idle);
+}
+
+.adv-key--high {
+  background: var(--danger);
+}
+
+.adv-key--medium {
+  background: var(--pending);
+}
+
+.adv-key--low {
+  background: color-mix(in srgb, var(--pending) 50%, var(--text-faint));
+}
+
+.adv-key--note {
+  background: color-mix(in srgb, var(--accent) 60%, var(--text-faint));
+}
+
+.adv-key--passed {
+  background: color-mix(in srgb, var(--ok) 78%, var(--bg-elev));
+}
+
+.adv-key--dismissed {
+  background: color-mix(in srgb, var(--text-faint) 55%, var(--bg-elev));
+}
+
+.adv-key--skipped {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--adv-idle) 0 2px,
+    color-mix(in srgb, var(--text-faint) 55%, transparent) 2px 4px
+  );
+}
+
+.adv-activity-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -3px -8px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.adv-activity-toggle:hover {
+  background: var(--accent-soft);
+}
+
+.adv-activity-caret {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.18s ease;
+}
+
+.adv-activity-toggle[aria-expanded='true'] .adv-activity-caret {
+  transform: rotate(90deg);
+}
+
+/* The review's step log, capped so it never pushes the page around. */
+.adv-activity {
+  max-height: 248px;
+  overflow-y: auto;
+  padding: 6px 10px 6px 16px;
+  background: color-mix(in srgb, var(--bg) 60%, var(--bg-elev));
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+  animation: advRise 0.2s ease both;
+}
+
+.adv-activity .worklog-body {
+  margin: 0;
+}
+
+/* ── Chips ── */
+.adv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  font-size: 11.5px;
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.adv-chip--high {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+}
+
+.adv-chip--medium {
+  color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 15%, transparent);
+}
+
+.adv-chip--low,
+.adv-chip--note {
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.adv-chip--note {
+  font-weight: 500;
+}
+
+.adv-chip--new {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.adv-chip--resolved {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+}
+
+/* ── Banners ── */
+.adv-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+
+.adv-banner > span:not(.step-spin) {
+  flex: 1;
+}
+
+.adv-banner > .codicon {
+  flex: none;
+  font-size: 14px;
+}
+
+.adv-banner--error {
+  color: color-mix(in srgb, var(--danger) 78%, var(--text));
+  background: color-mix(in srgb, var(--danger) 9%, var(--bg-elev));
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border));
+}
+
+.adv-banner--warn {
+  color: color-mix(in srgb, var(--pending) 70%, var(--text));
+  background: color-mix(in srgb, var(--pending) 9%, var(--bg-elev));
+  border-color: color-mix(in srgb, var(--pending) 32%, var(--border));
+}
+
+.adv-banner--applied {
+  color: var(--text);
+  background: color-mix(in srgb, var(--ok) 8%, var(--bg-elev));
+  border-color: color-mix(in srgb, var(--ok) 30%, var(--border));
+}
+
+.adv-banner--applied > .codicon {
+  color: var(--ok);
+}
+
+.adv-banner--busy {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-elev));
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--border));
+}
+
+/* ── Copilot's summary ── */
+.adv-summary {
+  padding: 14px 18px;
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border-soft));
+  border-radius: var(--radius-lg);
+  animation: advRise 0.24s ease both;
+}
+
+.adv-summary-body {
+  min-width: 0;
+}
+
+.adv-summary-label {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.adv-summary p {
+  max-width: 112ch;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+/* ── Workspace: issues beside the checks by area ── */
+.adv-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 14px;
+  align-items: start;
+}
+
+.adv-card {
+  min-width: 0;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-lg);
+}
+
+.adv-card-head {
+  min-height: 48px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 8px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.adv-card-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.adv-card-sub {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-issues-head {
+  padding-left: 10px;
+}
+
+.adv-seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.adv-seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.adv-seg-btn:hover {
+  color: var(--text);
+}
+
+.adv-seg-btn.is-on {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+
+.adv-seg-count {
+  padding: 0 6px;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  background: var(--bg-elev-3);
+  border-radius: 999px;
+}
+
+.adv-search {
+  flex: 1;
+  min-width: 150px;
+  max-width: 340px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 0 9px;
+  color: var(--text-faint);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.adv-search:focus-within {
+  border-color: var(--accent);
+}
+
+.adv-search input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.adv-selectall {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  border-bottom: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+
+.adv-selectall input,
+.adv-issue-check {
+  accent-color: var(--accent);
+}
+
+/* ── Issues ── */
+.adv-issues-body {
+  padding: 2px 6px 8px;
+}
+
+.adv-group-title {
+  padding: 12px 10px 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.adv-group-count {
+  margin-left: 4px;
+  font-weight: 500;
+}
+
+.adv-issues-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.adv-issue {
+  --adv-sev: var(--pending);
+  border-radius: 10px;
+  animation: advRise 0.2s ease both;
+  transition:
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.adv-issue--high {
+  --adv-sev: var(--danger);
+}
+
+.adv-issue--low,
+.adv-issue--note {
+  --adv-sev: var(--text-faint);
+}
+
+.adv-issue.is-open {
+  background: color-mix(in srgb, var(--bg-elev-2) 60%, transparent);
+  box-shadow: inset 2px 0 0 var(--adv-sev);
+}
+
+.adv-issue-head {
+  display: flex;
+  align-items: center;
+  border-radius: 10px;
+}
+
+.adv-issue:not(.is-open) > .adv-issue-head:hover {
+  background: var(--bg-elev-2);
+}
+
+.adv-issue-head--static {
+  gap: 10px;
+  padding: 9px 10px;
+}
+
+.adv-issue-check {
+  flex: none;
+  margin: 0 0 0 10px;
+}
+
+.adv-issue-btn {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.adv-issue-btn:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: -2px;
+}
+
+.adv-sev-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.adv-sev-dot--high {
+  background: var(--danger);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+}
+
+.adv-sev-dot--medium {
+  background: var(--pending);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--pending) 16%, transparent);
+}
+
+.adv-sev-dot--low {
+  background: var(--text-faint);
+}
+
+.adv-sev-dot--note {
+  border: 1.5px solid var(--text-faint);
+}
+
+.adv-issue-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.adv-issue-title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 550;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.adv-issue.is-open .adv-issue-title {
+  white-space: normal;
+}
+
+.adv-issue.is-hidden .adv-issue-title {
+  color: var(--text-dim);
+}
+
+.adv-issue-count {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-faint);
+}
+
+.adv-issue-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  font-size: 11.5px;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+
+.adv-issue-cat {
+  flex: none;
+  font-size: 12px;
+}
+
+.adv-issue-cat.adv-cat-svg {
+  width: 12px;
+  height: 12px;
+}
+
+.adv-issue-where {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.adv-issue-badges {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.adv-issue-caret {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-faint);
+  transition: transform 0.18s ease;
+}
+
+.adv-issue.is-open .adv-issue-caret {
+  transform: rotate(90deg);
+}
+
+/* The detail opens under the row, lined up with its title. */
+.adv-issue-body {
+  padding: 0 18px 18px 38px;
+  animation: advRise 0.18s ease both;
+}
+
+.adv-issue.has-check .adv-issue-body {
+  padding-left: 61px;
+}
+
+.adv-issues-foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 10px 2px;
+}
+
+.adv-badge {
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.adv-badge--new {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.adv-badge--copilot {
+  color: var(--text-dim);
+  background: var(--bg-elev-3);
+}
+
+.adv-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-elev-3);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.adv-status .step-spin {
+  width: 10px;
+  height: 10px;
+}
+
+.adv-status--busy {
+  color: var(--accent);
+}
+
+.adv-status--applied {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+
+.adv-status--still {
+  color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 13%, transparent);
+}
+
+.adv-status--muted {
+  color: var(--text-faint);
+}
+
+.adv-source {
+  display: inline-flex;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.adv-resolved-ico {
+  flex: none;
+  font-size: 14px;
+  color: var(--ok);
+}
+
+/* ── Empty states ── */
+.adv-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 20px;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--text-dim);
+}
+
+.adv-empty p {
+  max-width: 400px;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.adv-empty .adv-empty-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.adv-clear {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 24px 36px;
+  text-align: center;
+}
+
+.adv-clear-badge {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+  font-size: 24px;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 13%, transparent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 7px color-mix(in srgb, var(--ok) 6%, transparent);
+}
+
+.adv-clear-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.adv-clear-text {
+  max-width: 420px;
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.adv-clear .btn {
+  margin-top: 10px;
+}
+
+.adv-clear .btn .codicon {
+  font-size: 13px;
+}
+
+.adv-clear-resolved {
+  margin-top: 12px;
+}
+
+.adv-clear-resolved .codicon {
+  color: var(--ok);
+}
+
+/* ── Checks by area ── */
+.adv-areas-list {
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.adv-area {
+  --adv-area-color: var(--text-dim);
+  border-radius: 10px;
+  transition: background 0.15s ease;
+}
+
+.adv-area--high {
+  --adv-area-color: var(--danger);
+}
+
+.adv-area--medium {
+  --adv-area-color: var(--pending);
+}
+
+.adv-area--low {
+  --adv-area-color: color-mix(in srgb, var(--pending) 55%, var(--text-dim));
+}
+
+.adv-area--pass,
+.adv-area--note {
+  --adv-area-color: var(--ok);
+}
+
+.adv-area--running {
+  --adv-area-color: var(--accent);
+}
+
+.adv-area.is-open {
+  background: color-mix(in srgb, var(--bg-elev-2) 60%, transparent);
+}
+
+.adv-area-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.adv-area:not(.is-open) .adv-area-btn:hover {
+  background: var(--bg-elev-2);
+}
+
+.adv-area-btn:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: -2px;
+}
+
+.adv-area-icon {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  font-size: 15px;
+  color: var(--adv-area-color);
+  background: color-mix(in srgb, var(--adv-area-color) 12%, transparent);
+  border-radius: 8px;
+}
+
+.adv-area--pending .adv-area-icon,
+.adv-area--skipped .adv-area-icon,
+.adv-area--na .adv-area-icon,
+.adv-area--loading .adv-area-icon {
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+}
+
+.adv-cat-svg {
+  width: 15px;
+  height: 15px;
+}
+
+.adv-area-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.adv-area-title {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.adv-area-status {
+  overflow: hidden;
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-faint);
+}
+
+.adv-area--high .adv-area-status,
+.adv-area--medium .adv-area-status {
+  color: var(--adv-area-color);
+}
+
+.adv-area--na {
+  opacity: 0.7;
+}
+
+.adv-area-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.adv-area-pill {
+  min-width: 20px;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--adv-area-color);
+  background: color-mix(in srgb, var(--adv-area-color) 15%, transparent);
+  border-radius: 999px;
+}
+
+.adv-area-ok {
+  font-size: 15px;
+  color: var(--ok);
+}
+
+.adv-area--note .adv-area-ok {
+  color: color-mix(in srgb, var(--ok) 70%, var(--text-faint));
+}
+
+.adv-area-na {
+  font-size: 14px;
+  color: var(--text-faint);
+}
+
+.adv-mini-ring {
+  width: 17px;
+  height: 17px;
+}
+
+.adv-mini-ring-track {
+  fill: none;
+  stroke: var(--adv-idle);
+  stroke-width: 2.5;
+}
+
+.adv-mini-ring-value {
+  fill: none;
+  stroke: color-mix(in srgb, var(--ok) 80%, var(--bg-elev));
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.5s ease;
+}
+
+.adv-area--running .adv-mini-ring-value {
+  stroke: var(--accent);
+}
+
+.adv-area-caret {
+  flex: none;
+  width: 13px;
+  height: 13px;
+  color: var(--text-faint);
+  transition: transform 0.18s ease;
+}
+
+.adv-area.is-open .adv-area-caret {
+  transform: rotate(90deg);
+}
+
+.adv-checks {
+  padding: 0 10px 10px 16px;
+  animation: advRise 0.18s ease both;
+}
+
+.adv-checks-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.adv-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 6px 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.adv-check + .adv-check {
+  border-top: 1px solid color-mix(in srgb, var(--border-soft) 70%, transparent);
+}
+
+.adv-check-glyph {
+  flex: none;
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.adv-check--high .adv-check-glyph {
+  color: var(--danger);
+}
+
+.adv-check--medium .adv-check-glyph {
+  color: var(--pending);
+}
+
+.adv-check--low .adv-check-glyph {
+  color: color-mix(in srgb, var(--pending) 55%, var(--text-faint));
+}
+
+.adv-check--note .adv-check-glyph {
+  color: var(--accent);
+}
+
+.adv-check--passed .adv-check-glyph {
+  color: var(--ok);
+}
+
+.adv-check.is-running .adv-check-glyph {
+  color: var(--accent);
+  animation: advPulse 1.6s ease-in-out infinite;
+}
+
+.adv-check-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.adv-check-title {
+  color: var(--text);
+}
+
+.adv-check--passed .adv-check-title,
+.adv-check--dismissed .adv-check-title,
+.adv-check--na .adv-check-title {
+  color: var(--text-dim);
+}
+
+.adv-check-note {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-faint);
+}
+
+.adv-check-issue {
+  font-size: 11.5px;
+}
+
+.adv-check-issue .codicon {
+  font-size: 11px;
+}
+
+.adv-check-side {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 1px;
+}
+
+.adv-check-doc {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  font-size: 11px;
+  color: var(--text-faint);
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.adv-check:hover .adv-check-doc,
+.adv-check-doc:focus-visible {
+  opacity: 1;
+}
+
+.adv-check-doc:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.adv-checks-na {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+  padding: 3px 4px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.adv-checks-na:hover {
+  color: var(--text-dim);
+}
+
+.adv-checks-na-caret {
+  width: 11px;
+  height: 11px;
+  transition: transform 0.18s ease;
+}
+
+.adv-checks-na[aria-expanded='true'] .adv-checks-na-caret {
+  transform: rotate(90deg);
+}
+
+.adv-checks-list--na {
+  opacity: 0.8;
+}
+
+.adv-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.adv-link:hover {
+  text-decoration: underline;
+}
+
+/* Inline code inside catalog titles and summaries. */
+.adv-code {
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
+  border-radius: 4px;
+}
+
+/* ── Finding detail (opens inside its row) ── */
+.adv-detail {
+  --adv-sev: var(--pending);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.adv-detail--high {
+  --adv-sev: var(--danger);
+}
+
+.adv-detail--low,
+.adv-detail--note {
+  --adv-sev: var(--border);
+}
+
+.adv-detail-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.adv-detail-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.adv-verified {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ok);
+}
+
+.adv-rule-id {
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-faint);
+  background: var(--code-inline-bg);
+  border-radius: 6px;
+}
+
+.adv-notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-radius: 8px;
+}
+
+.adv-notice--busy {
+  color: var(--accent);
+}
+
+.adv-notice--applied {
+  color: color-mix(in srgb, var(--ok) 80%, var(--text));
+  background: color-mix(in srgb, var(--ok) 10%, var(--bg-elev));
+}
+
+.adv-notice--still {
+  color: color-mix(in srgb, var(--pending) 80%, var(--text));
+  background: color-mix(in srgb, var(--pending) 10%, var(--bg-elev));
+}
+
+.adv-notice .step-spin {
+  width: 12px;
+  height: 12px;
+}
+
+.adv-detail-body .md,
+.adv-detail-section .md,
+.adv-explain .md {
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.adv-detail-body .md > :first-child,
+.adv-detail-section .md > :first-child {
+  margin-top: 0;
+}
+
+.adv-detail-body .md > :last-child,
+.adv-detail-section .md > :last-child {
+  margin-bottom: 0;
+}
+
+.adv-where {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.adv-file .codicon {
+  font-size: 12px;
+}
+
+.adv-file--more {
+  color: var(--text-dim);
+}
+
+.adv-evidence {
+  max-height: 340px;
+  overflow: auto;
+  background: var(--code-surface);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-radius: 10px;
+}
+
+.adv-evidence-pre {
+  min-width: max-content;
+  margin: 0;
+  padding: 8px 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--code-text);
+}
+
+.adv-evidence-line {
+  display: flex;
+  padding-right: 14px;
+}
+
+.adv-evidence-line.is-flagged {
+  background: color-mix(in srgb, var(--adv-sev) 16%, transparent);
+  box-shadow: inset 2px 0 0 var(--adv-sev);
+}
+
+.adv-detail--low .adv-evidence-line.is-flagged,
+.adv-detail--note .adv-evidence-line.is-flagged {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.adv-evidence-num {
+  flex: none;
+  width: 46px;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--syn-comment);
+  user-select: none;
+}
+
+/* Beats highlight.js's `pre code.hljs` block padding, which would pad every line. */
+.adv-evidence-pre .adv-evidence-code.hljs {
+  display: block;
+  flex: 1;
+  padding: 0;
+  overflow: visible;
+  font: inherit;
+  white-space: pre;
+  color: inherit;
+  background: none;
+}
+
+/* Why it matters and how to fix sit side by side when there's room. */
+.adv-detail-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px 24px;
+}
+
+.adv-detail-section h4 {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.adv-docs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.adv-docs-label {
+  margin-right: 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.adv-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.adv-doc:hover {
+  background: var(--accent-soft);
+}
+
+.adv-doc .codicon {
+  font-size: 11px;
+}
+
+.adv-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.adv-detail-actions .btn .codicon {
+  font-size: 13px;
+}
+
+.adv-detail-actions .step-spin {
+  width: 11px;
+  height: 11px;
+}
+
+.adv-detail-actions-spacer {
+  flex: 1;
+}
+
+.adv-menu {
+  position: relative;
+}
+
+.adv-menu-caret {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.adv-menu-pop {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  width: 264px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  animation: advPop 0.14s ease both;
+}
+
+.adv-menu-pop button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding: 7px 9px;
+  font: inherit;
+  text-align: left;
+  color: var(--text);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.adv-menu-pop button:hover,
+.adv-menu-pop button:focus-visible {
+  background: var(--bg-elev-2);
+  outline: none;
+}
+
+.adv-menu-pop strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.adv-menu-pop span {
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.adv-explain {
+  padding: 12px 14px;
+  font-size: 13px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+}
+
+.adv-explain--error,
+.adv-explain--thinking {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.adv-explain--error {
+  color: color-mix(in srgb, var(--danger) 78%, var(--text));
+}
+
+.adv-explain-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+.adv-explain-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.adv-explain.is-streaming .md > :last-child::after {
+  content: '▍';
+  margin-left: 2px;
+  color: var(--accent);
+  animation: advBlink 1s steps(2) infinite;
+}
+
+@keyframes advRise {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes advPop {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes advBlink {
+  to {
+    visibility: hidden;
+  }
+}
+
+@keyframes advSweep {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes advShimmer {
+  from {
+    background-position: -40% 0;
+  }
+  to {
+    background-position: 140% 0;
+  }
+}
+
+@keyframes advPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Stack the checks under the issues when there isn't room for both. */
+@container adv (max-width: 1000px) {
+  .adv-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@container adv (max-width: 760px) {
+  .adv-inner {
+    padding: 16px 14px 36px;
+  }
+
+  .adv-hero {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'ring text'
+      'side side'
+      'meter meter'
+      'log log';
+    padding: 18px 16px 16px;
+  }
+
+  .adv-hero-side:not(:empty) {
+    margin-top: 14px;
+  }
+
+  .adv-bar-sub {
+    display: none;
+  }
+
+  .adv-search {
+    max-width: none;
+  }
+
+  .adv-issue-body,
+  .adv-issue.has-check .adv-issue-body {
+    padding-left: 16px;
+    padding-right: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .adv-hero,
+  .adv-summary,
+  .adv-issue,
+  .adv-issue-body,
+  .adv-checks,
+  .adv-activity,
+  .adv-menu-pop {
+    animation: none;
+  }
+
+  .adv-grade-sweep,
+  .adv-check.is-running .adv-check-glyph,
+  .adv-meter.is-running .adv-meter-strip::after,
+  .adv-meter.is-loading .adv-meter-strip::after {
+    animation: none;
+  }
+
+  .adv-grade-value,
+  .adv-meter-block,
+  .adv-mini-ring-value {
+    transition: none;
+  }
+
+  .adv-explain.is-streaming .md > :last-child::after {
+    animation: none;
+  }
+}

@@ -1331,52 +1331,115 @@ pub struct CustomSkillPreview {
 
 /* ----------------------------- advisor ----------------------------- */
 
-/// One issue the Advisor (Copilot-driven security review) surfaced. Parsed from
-/// Copilot's JSON output and forwarded to the renderer, so it is both
-/// `Deserialize` (tolerant of omitted fields) and `Serialize`.
-#[derive(Serialize, Deserialize, Clone)]
+/// One issue surfaced by a quick check or the Copilot deep review (mirrors
+/// `AdvisorFinding` in `src/shared/advisor/types.ts`). Persisted in saved
+/// reviews, so every field is `#[serde(default)]`: reviews saved before the rule
+/// catalog (v1) still load, and fields missing here would be dropped on save.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct AdvisorFinding {
-  /// Stable-ish id for the finding (the UI falls back to the array index).
+  /// Stable id: `quick:<rule>` or `ai:<rule>` (one grouped finding per rule);
+  /// legacy reviews carry a model slug.
   #[serde(default)]
   pub id: String,
-  /// Check bucket: `"auth"` (access/authentication) or `"policy"` (data policies).
+  /// Catalog rule id; empty for legacy reviews.
+  #[serde(default)]
+  pub rule_id: String,
   #[serde(default)]
   pub category: String,
-  /// `"high"` | `"medium"` | `"low"`.
+  /// `"high"` | `"medium"` | `"low"` | `"note"`.
   #[serde(default)]
   pub severity: String,
+  /// `"quick"` | `"ai"` (legacy reviews default to `"ai"`).
+  #[serde(default = "default_finding_source")]
+  pub source: String,
   #[serde(default)]
   pub title: String,
   #[serde(default)]
   pub detail: String,
+  #[serde(default)]
+  pub recommendation: String,
   /// Project-relative path the issue lives in, when known.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub file: Option<String>,
-  #[serde(default)]
-  pub recommendation: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub line: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub end_line: Option<u32>,
+  /// Code excerpt around the evidence (secret-looking values masked).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub excerpt: Option<String>,
+  /// 1-based line number of the excerpt's first line.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub excerpt_start: Option<u32>,
+  /// Evidence was checked against the file.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub verified: Option<bool>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub confidence: Option<String>,
+  /// A finding-specific doc link (e.g. the page a live-guidance finding cites).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub docs_url: Option<String>,
+  /// Further places the same issue occurs.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub locations: Vec<AdvisorLocation>,
 }
 
-/// The full Advisor report. Persisted to disk and reloaded, so it is both
+fn default_finding_source() -> String {
+  "ai".to_string()
+}
+
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorLocation {
+  #[serde(default)]
+  pub file: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub line: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub end_line: Option<u32>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub label: Option<String>,
+}
+
+/// Outcome of one deep-review rule: `pass` | `fail` | `na` | `skipped`.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorRuleResult {
+  #[serde(default)]
+  pub rule_id: String,
+  #[serde(default)]
+  pub status: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub note: Option<String>,
+}
+
+/// The deep-review report. Persisted to disk and reloaded, so it is both
 /// `Serialize` and `Deserialize` (tolerant of older/omitted fields).
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct AdvisorReport {
-  /// True when Copilot completed and its JSON report parsed cleanly.
+  /// True when the review completed.
   #[serde(default)]
   pub ok: bool,
-  /// One-line human summary (or a raw/error message when `ok` is false).
+  /// One or two sentence overview (or an error message when `ok` is false).
   #[serde(default)]
   pub summary: String,
   #[serde(default)]
   pub findings: Vec<AdvisorFinding>,
+  /// Outcome of each deep-review rule evaluated (absent for legacy reviews).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub rules: Option<Vec<AdvisorRuleResult>>,
 }
 
-/// A saved review: the report plus when it ran, how long it took, and whether the
-/// project's code has changed since (recomputed on load via the fingerprint).
+/// A saved deep review: the report plus when it ran, how long it took, and
+/// whether the project's code has changed since (recomputed on load).
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct AdvisorSnapshot {
+  /// 2 for catalog-based reviews; absent (legacy v1) otherwise.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub schema_version: Option<u32>,
   pub report: AdvisorReport,
   /// RFC3339 timestamp of when the review completed.
   #[serde(default)]
@@ -1390,10 +1453,20 @@ pub struct AdvisorSnapshot {
   /// Cheap signature of the reviewed source tree, used only for change detection.
   #[serde(default, skip_serializing_if = "String::is_empty")]
   pub fingerprint: String,
+  /// Rule catalog version the review ran with.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub catalog_version: Option<String>,
+  /// Copilot model used (absent for Auto).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+  /// Rayfin CLI version installed when the review ran.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub rayfin_version: Option<String>,
 }
 
-/// Shape of the JSON block Copilot is asked to emit. Kept separate from
-/// [`AdvisorReport`] so `ok` is set by us, not the model.
+/// Shape of the fenced JSON block a model may still emit instead of calling the
+/// reporting tools (legacy fallback). Kept separate from [`AdvisorReport`] so
+/// `ok` is set by us, not the model.
 #[derive(Deserialize, Default)]
 pub struct AdvisorRawReport {
   #[serde(default)]
@@ -1402,30 +1475,175 @@ pub struct AdvisorRawReport {
   pub findings: Vec<AdvisorFinding>,
 }
 
+/// Project facts the deep review is grounded on (computed by the quick checks).
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorFacts {
+  #[serde(default)]
+  pub services: Vec<String>,
+  #[serde(default)]
+  pub conditions: Vec<String>,
+  #[serde(default)]
+  pub entities: Vec<AdvisorFactEntity>,
+  #[serde(default)]
+  pub versions: Vec<AdvisorFactVersion>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub stack: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorFactEntity {
+  #[serde(default)]
+  pub name: String,
+  #[serde(default)]
+  pub file: String,
+  #[serde(default)]
+  pub access: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorFactVersion {
+  #[serde(default)]
+  pub name: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub installed: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub latest: Option<String>,
+}
+
+/// A quick-check finding the deep review should not repeat.
+#[derive(Serialize, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorQuickRef {
+  #[serde(default)]
+  pub rule_id: String,
+  #[serde(default)]
+  pub title: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub file: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub line: Option<u32>,
+}
+
+/// Arguments of `advisor_run`.
+#[derive(Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorRunRequest {
+  #[serde(default)]
+  pub model: Option<String>,
+  #[serde(default)]
+  pub effort: Option<String>,
+  #[serde(default)]
+  pub facts: AdvisorFacts,
+  #[serde(default)]
+  pub quick: Vec<AdvisorQuickRef>,
+  /// Open findings from the last deep review, to re-check rather than rediscover.
+  #[serde(default)]
+  pub previous: Vec<AdvisorQuickRef>,
+}
+
+/// One Verify outcome: `fixed` | `present` | `unclear`.
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorVerdict {
+  #[serde(default)]
+  pub finding_id: String,
+  #[serde(default)]
+  pub status: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub note: Option<String>,
+}
+
+/// One project file listed by `advisor_collect`.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorProjectFile {
+  pub path: String,
+  pub size: u64,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub ignored: Option<bool>,
+}
+
+/// An installed or declared `@microsoft/rayfin-*` package.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorPackage {
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub installed: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub declared: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub dev: Option<bool>,
+}
+
+/// Everything the quick checks read, gathered in one IPC round-trip.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorProjectSnapshot {
+  pub files: Vec<AdvisorProjectFile>,
+  pub contents: std::collections::BTreeMap<String, String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub truncated: Option<bool>,
+  pub is_git_repo: bool,
+  pub packages: Vec<AdvisorPackage>,
+}
+
+/// `advisor_load` result: the saved deep review and the renderer-owned
+/// lifecycle state (an opaque JSON document the Rust side only stores).
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AdvisorLoadResult {
+  pub snapshot: Option<AdvisorSnapshot>,
+  pub state: Option<serde_json::Value>,
+}
+
 /// Streamed advisor events (main -> renderer), tagged by `type`.
 #[derive(Serialize, Clone)]
 #[serde(tag = "type")]
 pub enum AdvisorEvent {
-  /// Live status line shown while Copilot scans (from tool activity).
-  #[serde(rename = "progress")]
-  Progress {
-    text: String,
-    /// The tool driving this step (for an icon), when known.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tool: Option<String>,
-  },
+  /// A tool call the deep review made (sent on start and again when it ends).
+  #[serde(rename = "activity")]
+  Activity { tool: ChatToolCall },
+  /// A finding reported (and evidence-checked) during the deep review.
+  #[serde(rename = "finding")]
+  Finding { finding: AdvisorFinding },
+  /// Rule outcomes reported as the review works through categories.
+  #[serde(rename = "ruleStatus")]
+  RuleStatus { results: Vec<AdvisorRuleResult> },
+  #[serde(rename = "summary")]
+  Summary { text: String },
   #[serde(rename = "error")]
   Error { text: String },
   #[serde(rename = "done")]
   Done { ok: bool },
-  /// A chunk of a streamed inline "Explain this finding" answer, routed to the
-  /// right card by `explainId` (a key the renderer owns; findings may lack an id).
+  /// A chunk of a streamed inline explanation, routed to the right card by
+  /// `explainId` (a key the renderer owns). `reset` discards the text streamed
+  /// so far — narration the model wrote before a tool call, not the answer.
   #[serde(rename = "explainDelta", rename_all = "camelCase")]
-  ExplainDelta { explain_id: String, text: String },
+  ExplainDelta {
+    explain_id: String,
+    text: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    reset: bool,
+  },
   /// Terminal marker for an inline explanation (`ok` false carries `error`).
   #[serde(rename = "explainDone", rename_all = "camelCase")]
   ExplainDone {
     explain_id: String,
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+  },
+  /// One re-check outcome from a Verify run, routed by `verifyId`.
+  #[serde(rename = "verdict", rename_all = "camelCase")]
+  Verdict { verify_id: String, verdict: AdvisorVerdict },
+  /// Terminal marker for a Verify run (`ok` false carries `error`).
+  #[serde(rename = "verifyDone", rename_all = "camelCase")]
+  VerifyDone {
+    verify_id: String,
     ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
@@ -1438,7 +1656,6 @@ pub struct AdvisorEventEnvelope {
   pub project_id: String,
   pub event: AdvisorEvent,
 }
-
 /* --------------------------- suggestions --------------------------- */
 
 /// One Copilot-generated starter suggestion shown on the empty Build chat: a

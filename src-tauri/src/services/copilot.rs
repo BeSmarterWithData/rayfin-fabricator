@@ -20,7 +20,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use github_copilot_sdk::handler::{
-  ApproveAllHandler, ExitPlanModeHandler, ExitPlanModeResult, UserInputHandler, UserInputResponse,
+  ApproveAllHandler, ExitPlanModeHandler, ExitPlanModeResult, PermissionHandler, UserInputHandler,
+  UserInputResponse,
 };
 use github_copilot_sdk::rpc::AccountLogoutRequest;
 use github_copilot_sdk::session::Session;
@@ -270,26 +271,39 @@ impl UserInputHandler for PlanModeHandler {
   }
 }
 
+/// Extras layered on top of the common session config (streaming, client name,
+/// working directory, model, effort).
+#[derive(Clone, Default)]
+pub struct SessionOptions {
+  /// Installed so Plan-mode turns surface their plan for approval (harmless for
+  /// non-plan turns).
+  pub exit_plan: Option<Arc<dyn ExitPlanModeHandler>>,
+  /// Answers `ask_user` questions.
+  pub user_input: Option<Arc<dyn UserInputHandler>>,
+  /// Client-defined tools (Fabricator's in-process `fabricator_*` capabilities).
+  pub tools: Vec<Tool>,
+  /// Register the product-scoped skill/instruction directories (materialized
+  /// under app-data, never in the repo) so Fabricator's build guidance only ever
+  /// appears in Fabricator-driven Build chat sessions.
+  pub guidance: bool,
+  /// Answers tool permission requests; `None` approves everything.
+  pub permission: Option<Arc<dyn PermissionHandler>>,
+  /// Built-in tools the agent must not use.
+  pub excluded_tools: Vec<String>,
+}
+
 /// Ask the runtime to resume, or create a session bound to `session_id`,
-/// streaming enabled, auto-approving tool permissions, scoped to `cwd`. When
-/// `exit_plan` is supplied it is installed so Plan-mode turns surface their plan
-/// for approval (harmless for non-plan turns); when `user_input` is supplied it
-/// answers `ask_user` questions the same way. `tools` are Fabricator's in-process
-/// `fabricator_*` capabilities; the product-scoped skill/instruction directories
-/// (materialized under app-data, never in the repo) are always registered so these
-/// only ever appear in Fabricator-driven sessions.
+/// streaming enabled, scoped to `cwd`, with the extras in `opts`.
 async fn open_session(
   client: &Client,
   cwd: &str,
   session_id: &str,
   model: &Option<String>,
   effort: &Option<String>,
-  exit_plan: Option<Arc<dyn ExitPlanModeHandler>>,
-  user_input: Option<Arc<dyn UserInputHandler>>,
-  tools: Vec<Tool>,
+  opts: &SessionOptions,
   resume: bool,
 ) -> Result<TurnSession, SdkError> {
-  let handler = Arc::new(ApproveAllHandler);
+  let handler: Arc<dyn PermissionHandler> = opts.permission.clone().unwrap_or_else(|| Arc::new(ApproveAllHandler));
   let sid = SessionId::new(session_id.to_string());
   let cwd_pb = PathBuf::from(cwd);
   let eff = norm_effort(effort);
@@ -302,17 +316,22 @@ async fn open_session(
       .with_client_name(CLIENT_NAME)
       .with_working_directory(cwd_pb.clone())
       .with_permission_handler(handler.clone());
-    if !tools.is_empty() {
+    if opts.guidance {
       cfg = cfg
         .with_enable_skills(true)
         .with_skill_directories([crate::services::agent_skills::skills_dir()])
-        .with_instruction_directories([crate::services::agent_skills::instructions_dir()])
-        .with_tools(tools.clone());
+        .with_instruction_directories([crate::services::agent_skills::instructions_dir()]);
     }
-    if let Some(h) = exit_plan.clone() {
+    if !opts.tools.is_empty() {
+      cfg = cfg.with_tools(opts.tools.clone());
+    }
+    if !opts.excluded_tools.is_empty() {
+      cfg = cfg.with_excluded_tools(opts.excluded_tools.clone());
+    }
+    if let Some(h) = opts.exit_plan.clone() {
       cfg = cfg.with_exit_plan_mode_handler(h);
     }
-    if let Some(h) = user_input.clone() {
+    if let Some(h) = opts.user_input.clone() {
       cfg = cfg.with_user_input_handler(h);
     }
     cfg.reasoning_effort = eff.clone();
@@ -341,17 +360,22 @@ async fn open_session(
     .with_client_name(CLIENT_NAME)
     .with_working_directory(cwd_pb)
     .with_permission_handler(handler);
-  if !tools.is_empty() {
+  if opts.guidance {
     cfg = cfg
       .with_enable_skills(true)
       .with_skill_directories([crate::services::agent_skills::skills_dir()])
-      .with_instruction_directories([crate::services::agent_skills::instructions_dir()])
-      .with_tools(tools);
+      .with_instruction_directories([crate::services::agent_skills::instructions_dir()]);
   }
-  if let Some(h) = exit_plan {
+  if !opts.tools.is_empty() {
+    cfg = cfg.with_tools(opts.tools.clone());
+  }
+  if !opts.excluded_tools.is_empty() {
+    cfg = cfg.with_excluded_tools(opts.excluded_tools.clone());
+  }
+  if let Some(h) = opts.exit_plan.clone() {
     cfg = cfg.with_exit_plan_mode_handler(h);
   }
-  if let Some(h) = user_input {
+  if let Some(h) = opts.user_input.clone() {
     cfg = cfg.with_user_input_handler(h);
   }
   cfg.reasoning_effort = eff;
@@ -361,7 +385,6 @@ async fn open_session(
   let session = client.create_session(cfg).await?;
   Ok(TurnSession { session: Arc::new(session), recreated })
 }
-
 /// Map an SDK [`Model`] to the renderer DTO, dropping models disabled by org
 /// policy. The policy state enum isn't re-exported by the SDK, so we compare its
 /// serialized wire string (`"disabled"`) instead of naming the variant.
@@ -707,25 +730,20 @@ impl CopilotManager {
       disconnect_session(&old.session).await;
     }
 
-    let opened = match open_session(
-      &client,
-      cwd,
-      session_id,
-      &model,
-      &effort,
-      exit_plan.clone(),
-      user_input.clone(),
-      tools.clone(),
-      true,
-    )
-    .await
-    {
+    let opts = SessionOptions {
+      exit_plan,
+      user_input,
+      guidance: !tools.is_empty(),
+      tools,
+      ..Default::default()
+    };
+    let opened = match open_session(&client, cwd, session_id, &model, &effort, &opts, true).await {
       Ok(s) => s,
       Err(e) if e.is_transport_failure() => {
         // The CLI server died — restart it and try once more.
         engine.reset_client().await;
         let client = Self::wait_for_auth(&mut engine).await?;
-        open_session(&client, cwd, session_id, &model, &effort, exit_plan, user_input, tools, true)
+        open_session(&client, cwd, session_id, &model, &effort, &opts, true)
           .await
           .map_err(|e| e.to_string())?
       }
@@ -744,24 +762,37 @@ impl CopilotManager {
     Ok(opened)
   }
 
-  /// Open a one-off, uncached session (used by the advisor). The caller is
-  /// responsible for [`Session::disconnect`]ing it when done.
+  /// Open a one-off, uncached session (used by starter suggestions). The caller
+  /// is responsible for [`Session::disconnect`]ing it when done.
   pub async fn transient_session(
     &self,
     cwd: &str,
     model: Option<String>,
     effort: Option<String>,
   ) -> Result<Arc<Session>, String> {
+    self.transient_session_with(cwd, model, effort, SessionOptions::default()).await
+  }
+
+  /// Open a one-off, uncached session with custom tools, permissions, and tool
+  /// restrictions (used by the Advisor). The caller is responsible for
+  /// [`Session::disconnect`]ing it when done.
+  pub async fn transient_session_with(
+    &self,
+    cwd: &str,
+    model: Option<String>,
+    effort: Option<String>,
+    opts: SessionOptions,
+  ) -> Result<Arc<Session>, String> {
     let mut engine = self.engine.lock().await;
     self.check_available()?;
     let client = Self::wait_for_auth(&mut engine).await?;
     let id = uuid::Uuid::new_v4().to_string();
-    let opened = match open_session(&client, cwd, &id, &model, &effort, None, None, Vec::new(), false).await {
+    let opened = match open_session(&client, cwd, &id, &model, &effort, &opts, false).await {
       Ok(s) => s,
       Err(e) if e.is_transport_failure() => {
         engine.reset_client().await;
         let client = Self::wait_for_auth(&mut engine).await?;
-        open_session(&client, cwd, &id, &model, &effort, None, None, Vec::new(), false)
+        open_session(&client, cwd, &id, &model, &effort, &opts, false)
           .await
           .map_err(|e| e.to_string())?
       }
@@ -1102,7 +1133,7 @@ mod tests {
       ("session.create", json!({ "result": { "sessionId": "saved-session" } })),
     ]);
     let opened = open_session(
-      &client, ".", "saved-session", &None, &None, None, None, Vec::new(), true,
+      &client, ".", "saved-session", &None, &None, &SessionOptions::default(), true,
     ).await.unwrap();
     assert!(opened.recreated);
     assert_eq!(opened.session.id().as_str(), "saved-session");
@@ -1169,7 +1200,7 @@ mod tests {
       ("session.resume", rpc_error("Not authenticated")),
     ]);
     let result = open_session(
-      &client, ".", "saved-session", &None, &None, None, None, Vec::new(), true,
+      &client, ".", "saved-session", &None, &None, &SessionOptions::default(), true,
     ).await;
     assert!(result.is_err());
     assert_eq!(server.await.unwrap().len(), 1);

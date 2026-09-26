@@ -60,6 +60,21 @@ export interface ModelField {
   relationKind?: 'one' | 'many'
   /** Target entity inferred from a `<x>_id` foreign-key-by-convention field. */
   fkTo?: string
+  /** 1-based line of the property in its file (when parsed from a file). */
+  line?: number
+  /** The property is declared with a `?` (as opposed to `optional: true`). */
+  markedOptional?: boolean
+  /** A field decorator sets `optional: true`. */
+  optionFlag?: boolean
+  /** Every decorator on the property, as written, with its line. */
+  decorators?: SourceDecorator[]
+}
+
+/** A decorator as written in the source: name, raw argument text, and 1-based line. */
+export interface SourceDecorator {
+  name: string
+  args: string
+  line: number
 }
 
 /** One role grant on an entity (from @role/@authenticated/@anonymous). */
@@ -95,6 +110,10 @@ export interface ModelEntity {
   fields: ModelField[]
   permissions: EntityPermission[]
   access: EntityAccess
+  /** 1-based line of the `class` declaration in {@link file}. */
+  line?: number
+  /** Class decorators as written (`@entity`, `@authenticated`, …), with lines. */
+  decorators?: SourceDecorator[]
 }
 
 export interface ModelRelation {
@@ -122,11 +141,16 @@ export interface DataModel {
  * Low-level scanning helpers
  * ------------------------------------------------------------------ */
 
-/** Remove `//` and block comments while preserving string-literal contents. */
-function stripComments(src: string): string {
+/**
+ * Blank out `//` and block comments while preserving string-literal contents.
+ * Comment characters become spaces (newlines are kept), so every offset in the
+ * result maps to the same offset — and line — in the original source.
+ */
+export function maskComments(src: string): string {
   let out = ''
   let i = 0
   const n = src.length
+  const blank = (from: number, to: number): string => src.slice(from, to).replace(/[^\n]/g, ' ')
   while (i < n) {
     const c = src[i]
     if (c === '"' || c === "'" || c === '`') {
@@ -136,13 +160,17 @@ function stripComments(src: string): string {
       continue
     }
     if (c === '/' && src[i + 1] === '/') {
+      const start = i
       while (i < n && src[i] !== '\n') i++
+      out += blank(start, i)
       continue
     }
     if (c === '/' && src[i + 1] === '*') {
+      const start = i
       i += 2
       while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++
-      i += 2
+      i = Math.min(n, i + 2)
+      out += blank(start, i)
       continue
     }
     out += c
@@ -151,8 +179,29 @@ function stripComments(src: string): string {
   return out
 }
 
+/** Maps string offsets to 1-based line numbers. */
+export class LineIndex {
+  private readonly starts: number[] = [0]
+
+  constructor(src: string) {
+    for (let i = 0; i < src.length; i++) if (src[i] === '\n') this.starts.push(i + 1)
+  }
+
+  /** 1-based line containing `offset`. */
+  lineAt(offset: number): number {
+    let lo = 0
+    let hi = this.starts.length - 1
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1
+      if (this.starts[mid] <= offset) lo = mid
+      else hi = mid - 1
+    }
+    return lo + 1
+  }
+}
+
 /** Given `src[i]` is a quote, return the index just past the closing quote. */
-function skipString(src: string, i: number): number {
+export function skipString(src: string, i: number): number {
   const quote = src[i]
   i++
   const n = src.length
@@ -177,7 +226,7 @@ function skipString(src: string, i: number): number {
  * Given `src[i]` is the opening delimiter, return the index just past the match,
  * honouring nesting and skipping over string literals.
  */
-function skipBalanced(src: string, i: number, open: string, close: string): number {
+export function skipBalanced(src: string, i: number, open: string, close: string): number {
   let depth = 0
   const n = src.length
   while (i < n) {
@@ -211,28 +260,35 @@ function skipWs(src: string, i: number): number {
   return i
 }
 
-interface RawDecorator {
+export interface RawDecorator {
   name: string
   /** Argument text inside the outer parens (without them); '' when no `()`. */
   args: string
+  /** True when the decorator is called (`@text()`), false for a bare `@text`. */
+  called?: boolean
+  /** Offset of the `@` in the (masked) source. */
+  offset: number
 }
 
 /** Read a decorator at `src[i] === '@'`; returns it and the next index. */
 function readDecorator(src: string, i: number): { deco: RawDecorator; next: number } {
+  const offset = i
   i++ // past '@'
   const { word, next } = readWord(src, i)
   i = skipWs(src, next)
   let args = ''
+  let called = false
   if (src[i] === '(') {
     const end = skipBalanced(src, i, '(', ')')
     args = src.slice(i + 1, end - 1)
+    called = true
     i = end
   }
-  return { deco: { name: word, args }, next: i }
+  return { deco: { name: word, args, called, offset }, next: i }
 }
 
 /** Split a comma-separated argument list at top level (depth 0). */
-function splitTopLevel(args: string): string[] {
+export function splitTopLevel(args: string): string[] {
   const parts: string[] = []
   let depth = 0
   let start = 0
@@ -258,7 +314,7 @@ function splitTopLevel(args: string): string[] {
 }
 
 /** Unwrap a leading/trailing quote pair from a string-literal argument. */
-function unquote(s: string): string {
+export function unquote(s: string): string {
   const t = s.trim()
   if (t.length >= 2 && (t[0] === '"' || t[0] === "'" || t[0] === '`')) {
     return t.slice(1, -1)
@@ -312,15 +368,26 @@ interface RawField {
   optional: boolean
   tsType?: string
   decorators: RawDecorator[]
+  /** Offset of the property name in the (masked) file source. */
+  offset: number
+}
+
+function toSourceDecorator(deco: RawDecorator, lines?: LineIndex): SourceDecorator {
+  return { name: deco.name, args: deco.args, line: lines ? lines.lineAt(deco.offset) : 0 }
 }
 
 /** Interpret a parsed field + its decorators into a typed {@link ModelField}. */
-function buildField(raw: RawField): ModelField {
+function buildField(raw: RawField, lines?: LineIndex): ModelField {
   const field: ModelField = {
     name: raw.name,
     type: 'unknown',
     optional: raw.optional,
-    tsType: raw.tsType
+    tsType: raw.tsType,
+    markedOptional: raw.optional
+  }
+  if (lines) {
+    field.line = lines.lineAt(raw.offset)
+    field.decorators = raw.decorators.map((d) => toSourceDecorator(d, lines))
   }
   for (const deco of raw.decorators) {
     const scalar = SCALAR_TYPES[deco.name]
@@ -328,7 +395,10 @@ function buildField(raw: RawField): ModelField {
       field.type = scalar
       field.decorator = deco.name
       if (deco.name === 'uuid') field.primaryKey = true
-      if (boolOption(deco.args, 'optional')) field.optional = true
+      if (boolOption(deco.args, 'optional')) {
+        field.optional = true
+        field.optionFlag = true
+      }
       if (boolOption(deco.args, 'unique')) field.unique = true
       const min = numOption(deco.args, 'min')
       const max = numOption(deco.args, 'max')
@@ -354,20 +424,27 @@ function buildField(raw: RawField): ModelField {
       field.relationKind = deco.name === 'one' ? 'one' : 'many'
       const m = /=>\s*([A-Za-z_$][\w$]*)/.exec(deco.args)
       if (m) field.relationTo = m[1]
-      if (boolOption(deco.args, 'optional')) field.optional = true
+      if (boolOption(deco.args, 'optional')) {
+        field.optional = true
+        field.optionFlag = true
+      }
     }
   }
   return field
 }
 
-interface RawClass {
+export interface RawClass {
   name: string
   decorators: RawDecorator[]
   body: string
+  /** Offset of the `class` keyword in the (masked) source. */
+  offset: number
+  /** Offset of the first character inside the class body braces. */
+  bodyOffset: number
 }
 
-/** Parse the property fields out of a class body. */
-function parseFields(body: string): ModelField[] {
+/** Parse the property fields out of a class body starting at `bodyOffset` in its file. */
+function parseFields(body: string, bodyOffset = 0, lines?: LineIndex): ModelField[] {
   const fields: ModelField[] = []
   let i = 0
   let pending: RawDecorator[] = []
@@ -383,7 +460,7 @@ function parseFields(body: string): ModelField[] {
     }
     if (c === '@') {
       const { deco, next } = readDecorator(body, i)
-      pending.push(deco)
+      pending.push({ ...deco, offset: bodyOffset + deco.offset })
       i = next
       continue
     }
@@ -441,7 +518,12 @@ function parseFields(body: string): ModelField[] {
       tsType = body.slice(startType, k).trim() || undefined
       j = k
     }
-    fields.push(buildField({ name: word, optional, tsType, decorators: pending }))
+    fields.push(
+      buildField(
+        { name: word, optional, tsType, decorators: pending, offset: bodyOffset + i },
+        lines
+      )
+    )
     pending = []
     while (j < n && body[j] !== ';' && body[j] !== '\n') j++
     i = j + 1
@@ -449,8 +531,8 @@ function parseFields(body: string): ModelField[] {
   return fields
 }
 
-/** Scan a source file for decorated `class` declarations. */
-function parseClasses(src: string): RawClass[] {
+/** Scan a (comment-masked) source file for decorated `class` declarations. */
+export function parseClasses(src: string): RawClass[] {
   const classes: RawClass[] = []
   let i = 0
   let pending: RawDecorator[] = []
@@ -479,16 +561,19 @@ function parseClasses(src: string): RawClass[] {
       continue
     }
     if (word === 'class') {
+      const classOffset = i
       const nameRead = readWord(src, skipWs(src, next))
       let j = nameRead.next
       while (j < n && src[j] !== '{') j++
       let body = ''
+      let bodyOffset = j
       if (src[j] === '{') {
         const end = skipBalanced(src, j, '{', '}')
         body = src.slice(j + 1, end - 1)
+        bodyOffset = j + 1
         j = end
       }
-      classes.push({ name: nameRead.word, decorators: pending, body })
+      classes.push({ name: nameRead.word, decorators: pending, body, offset: classOffset, bodyOffset })
       pending = []
       i = j
       continue
@@ -498,6 +583,27 @@ function parseClasses(src: string): RawClass[] {
     i = next
   }
   return classes
+}
+
+/**
+ * Interpret one class decorator as a role grant (`@role`, `@authenticated`,
+ * `@anonymous`), or null for any other decorator.
+ */
+export function permissionFromDecorator(name: string, args: string): EntityPermission | null {
+  if (!PERMISSION_DECORATORS.has(name)) return null
+  const parts = splitTopLevel(args)
+  let role = name
+  let actionsArg: string | undefined
+  if (name === 'role') {
+    role = unquote(parts[0] ?? 'authenticated')
+    actionsArg = parts[1]
+  } else {
+    // authenticated(actions?, opts?) / anonymous(actions?, opts?)
+    actionsArg = parts[0] && !parts[0].includes(':') ? parts[0] : undefined
+  }
+  const actions = parseActions(actionsArg)
+  const hasPolicy = /\bpolicy\s*:/.test(args)
+  return { role, actions, hasPolicy, decorator: name }
 }
 
 /** Interpret a class's decorators into role grants. */
@@ -513,21 +619,8 @@ function parsePermissions(decorators: RawDecorator[]): {
       if (arg) customName = unquote(arg)
       continue
     }
-    if (!PERMISSION_DECORATORS.has(deco.name)) continue
-    const parts = splitTopLevel(deco.args)
-    let role = deco.name
-    let actionsArg: string | undefined
-    if (deco.name === 'role') {
-      role = unquote(parts[0] ?? 'authenticated')
-      actionsArg = parts[1]
-    } else {
-      // authenticated(actions?, opts?) / anonymous(actions?, opts?)
-      role = deco.name
-      actionsArg = parts[0] && !parts[0].includes(':') ? parts[0] : undefined
-    }
-    const actions = parseActions(actionsArg)
-    const hasPolicy = /\bpolicy\s*:/.test(deco.args)
-    permissions.push({ role, actions, hasPolicy, decorator: deco.name })
+    const permission = permissionFromDecorator(deco.name, deco.args)
+    if (permission) permissions.push(permission)
   }
   return { permissions, customName }
 }
@@ -605,14 +698,17 @@ function classifyAccess(permissions: EntityPermission[]): EntityAccess {
 const DATA_DIR = 'rayfin/data'
 
 /** From `schema.ts`, read the `schema = [...]` entity names and their import files. */
-function readSchemaList(src: string): { names: string[]; imports: Map<string, string> } {
+export function readSchemaList(src: string): { names: string[]; imports: Map<string, string> } {
   const imports = new Map<string, string>()
   const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g
   let im: RegExpExecArray | null
   while ((im = importRe.exec(src))) {
     const mod = im[2]
     for (const raw of im[1].split(',')) {
-      const name = raw.split(/\s+as\s+/)[0].trim()
+      const name = raw
+        .replace(/^\s*type\s+/, '')
+        .split(/\s+as\s+/)[0]
+        .trim()
       if (name) imports.set(name, mod)
     }
   }
@@ -624,6 +720,37 @@ function readSchemaList(src: string): { names: string[]; imports: Map<string, st
       .filter(Boolean)
   }
   return { names, imports }
+}
+
+/**
+ * From `schema.ts`, read the entity names listed in the exported schema type
+ * (`export type AppSchema = { Todo: Todo; … }`), or null when no such type is
+ * found. When several object types are exported, the one sharing the most keys
+ * with `arrayNames` (the `schema` array) wins.
+ */
+export function readSchemaTypeNames(
+  src: string,
+  arrayNames: readonly string[] = []
+): { typeName: string; names: string[]; offset: number } | null {
+  const re = /export\s+(?:type\s+([A-Za-z_$][\w$]*)\s*=|interface\s+([A-Za-z_$][\w$]*))\s*\{/g
+  const keyRe = /(?:^|[;,\n{])\s*['"]?([A-Za-z_$][\w$]*)['"]?\s*\??\s*:/g
+  let best: { typeName: string; names: string[]; offset: number; score: number } | null = null
+  let m: RegExpExecArray | null
+  while ((m = re.exec(src))) {
+    const open = m.index + m[0].length - 1
+    const end = skipBalanced(src, open, '{', '}')
+    const body = src.slice(open + 1, end - 1)
+    const names: string[] = []
+    let k: RegExpExecArray | null
+    keyRe.lastIndex = 0
+    while ((k = keyRe.exec(body))) names.push(k[1])
+    const typeName = m[1] ?? m[2]
+    const score =
+      names.filter((n) => arrayNames.includes(n)).length * 10 + (/schema/i.test(typeName) ? 1 : 0)
+    if (!best || score > best.score) best = { typeName, names, offset: m.index, score }
+  }
+  if (!best) return null
+  return { typeName: best.typeName, names: best.names, offset: best.offset }
 }
 
 /** Resolve a module specifier from schema.ts to a project-relative `.ts` path. */
@@ -666,23 +793,24 @@ export async function parseDataModel(read: FileReader): Promise<DataModel> {
   if (schemaSrc == null) {
     return { entities: [], relations: [], warnings, hasSchema: false }
   }
-  const stripped = stripComments(schemaSrc)
-  const { names, imports } = readSchemaList(stripped)
+  const masked = maskComments(schemaSrc)
+  const schemaLines = new LineIndex(schemaSrc)
+  const { names, imports } = readSchemaList(masked)
 
   // Entities can be declared inline in schema.ts or imported from sibling files.
-  const inline = parseClasses(stripped)
+  const inline = parseClasses(masked)
   const inlineByName = new Map(inline.map((c) => [c.name, c]))
 
   const entities: ModelEntity[] = []
   const explicitRelations: ModelRelation[] = []
   const seen = new Set<string>()
 
-  const addClass = (cls: RawClass, file: string): void => {
+  const addClass = (cls: RawClass, file: string, lines: LineIndex): void => {
     const isEntity = cls.decorators.some((d) => d.name === 'entity')
     if (!isEntity || seen.has(cls.name)) return
     seen.add(cls.name)
     const { permissions, customName } = parsePermissions(cls.decorators)
-    const fields = parseFields(cls.body)
+    const fields = parseFields(cls.body, cls.bodyOffset, lines)
     for (const f of fields) {
       if (f.relationTo) {
         explicitRelations.push({
@@ -700,14 +828,16 @@ export async function parseDataModel(read: FileReader): Promise<DataModel> {
       file,
       fields,
       permissions,
-      access: classifyAccess(permissions)
+      access: classifyAccess(permissions),
+      line: lines.lineAt(cls.offset),
+      decorators: cls.decorators.map((d) => toSourceDecorator(d, lines))
     })
   }
 
   const order = names.length ? names : inline.map((c) => c.name)
   for (const name of order) {
     if (inlineByName.has(name)) {
-      addClass(inlineByName.get(name)!, `${DATA_DIR}/schema.ts`)
+      addClass(inlineByName.get(name)!, `${DATA_DIR}/schema.ts`, schemaLines)
       continue
     }
     const mod = imports.get(name)
@@ -721,11 +851,11 @@ export async function parseDataModel(read: FileReader): Promise<DataModel> {
       warnings.push(`Could not read entity file ${file} for "${name}".`)
       continue
     }
-    const classes = parseClasses(stripComments(src))
+    const classes = parseClasses(maskComments(src))
     const match =
       classes.find((c) => c.name === name) ??
       classes.find((c) => c.decorators.some((d) => d.name === 'entity'))
-    if (match) addClass(match, file)
+    if (match) addClass(match, file, new LineIndex(src))
     else warnings.push(`No @entity class found in ${file} for "${name}".`)
   }
 

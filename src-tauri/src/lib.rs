@@ -274,11 +274,15 @@ pub fn run() {
       commands::custom_skills::custom_skills_promote,
       commands::custom_skills::custom_skills_remove,
       // advisor
+      commands::advisor::advisor_collect,
       commands::advisor::advisor_run,
       commands::advisor::advisor_cancel,
       commands::advisor::advisor_load,
+      commands::advisor::advisor_save_state,
       commands::advisor::advisor_explain,
       commands::advisor::advisor_explain_cancel,
+      commands::advisor::advisor_verify,
+      commands::advisor::advisor_verify_cancel,
       // chat
       commands::chat::chat_send,
       commands::chat::chat_steer,

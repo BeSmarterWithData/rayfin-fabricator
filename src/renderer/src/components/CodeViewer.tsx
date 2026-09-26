@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import Editor from '@monaco-editor/react'
+import Editor, { type OnMount } from '@monaco-editor/react'
 import type { FileContent, FileNode, StudioProject } from '@shared/ipc'
 import { monacoLanguage } from '../monaco'
 import { Codicon, EditorIcon } from './icons'
@@ -14,8 +14,8 @@ interface Props {
   onRequestDeploy?: () => void
   /** Hand a slice of history (commit/file/comparison) to the Build chat. */
   onSendToChat?: (display: string, prompt: string) => void
-  /** Open a specific project file in the Files browser (e.g. from the Model tab). */
-  openRequest?: { path: string; nonce: number }
+  /** Open a specific project file (and optionally reveal a line), e.g. from the Model or Advisor tab. */
+  openRequest?: { path: string; line?: number; nonce: number }
   /** Called after a skill is toggled in the Skills sub-view (parent refreshes). */
   onSkillsChanged?: () => void
 }
@@ -181,6 +181,29 @@ function FilesView({
   const fileReadRef = useRef(0)
   const requestedPathRef = useRef(openRequest?.path)
   requestedPathRef.current = openRequest?.path
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null)
+  /** A line to reveal once `path` is loaded in the editor. */
+  const pendingLineRef = useRef<{ path: string; line: number } | null>(null)
+  const fileRef = useRef(file)
+  fileRef.current = file
+
+  const revealPending = useCallback((): void => {
+    const editor = editorRef.current
+    const pending = pendingLineRef.current
+    const model = editor?.getModel()
+    const loaded = fileRef.current
+    if (!editor || !pending || !model) return
+    if (!loaded || loaded.path !== pending.path || loaded.content == null) return
+    const line = Math.min(Math.max(1, pending.line), model.getLineCount())
+    pendingLineRef.current = null
+    editor.revealLineInCenter(line)
+    editor.setSelection({
+      startLineNumber: line,
+      startColumn: 1,
+      endLineNumber: line,
+      endColumn: model.getLineMaxColumn(line)
+    })
+  }, [])
 
   const loadTree = useCallback(async (): Promise<void> => {
     setTree(await window.api.projects.files.tree(project.id))
@@ -239,8 +262,15 @@ function FilesView({
   useLayoutEffect(() => {
     if (!openRequest?.path) return
     didDefaultRef.current = true
+    pendingLineRef.current = openRequest.line ? { path: openRequest.path, line: openRequest.line } : null
     setSelectedState({ projectId: project.id, path: openRequest.path })
   }, [openRequest?.nonce, openRequest?.path, project.id])
+
+  // Reveal a requested line once its file is showing (the editor updates its
+  // model in its own effect, which runs before this one).
+  useEffect(() => {
+    revealPending()
+  }, [file, revealPending])
 
   const onSelect = useCallback(
     (node: FileNode): void => {
@@ -329,6 +359,10 @@ function FilesView({
                 language={monacoLanguage(selected)}
                 value={file.content}
                 loading={<div className="code-empty">Loading editor…</div>}
+                onMount={(editor) => {
+                  editorRef.current = editor
+                  revealPending()
+                }}
                 options={{
                   readOnly: true,
                   domReadOnly: true,
