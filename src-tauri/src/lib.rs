@@ -141,7 +141,6 @@ pub fn run() {
     .plugin(tauri_plugin_updater::Builder::new().build())
     .manage(AppState::default())
     .manage(PreviewState::default())
-    .manage(services::preview_studio::StudioState::default())
     .manage(UpdaterState::default())
     .manage(DevServers::default())
     .setup(|app| {
@@ -180,6 +179,18 @@ pub fn run() {
       // Trim old chat-session diagnostics so the logs directory stays bounded.
       // Runs once at startup so per-turn capture adds no pruning I/O.
       services::diagnostics::prune();
+
+      // The retired Design Studio experiment kept drafts, receipts and imported
+      // assets under app-data. Nothing reads them anymore; remove them in the
+      // background (a no-op once they're gone).
+      std::thread::spawn(|| {
+        let dir = services::paths::retired_design_studio_dir();
+        if dir.is_dir() {
+          if let Err(e) = std::fs::remove_dir_all(&dir) {
+            log::warn!("failed to remove retired Design Studio data at {}: {e}", dir.display());
+          }
+        }
+      });
 
       Ok(())
     })
@@ -325,29 +336,12 @@ pub fn run() {
       services::preview::preview_capture,
       services::preview::preview_design_set,
       services::preview::preview_design_poll,
-      services::preview::preview_design_drain,
-      services::preview::preview_design_drain_ai,
-      services::preview::preview_design_drain_ai_edit,
-      services::preview::preview_design_apply_generated,
-      services::preview::preview_design_apply_restyle,
-      services::preview::preview_design_set_models,
+      services::preview::preview_design_snapshot,
+      services::preview::preview_design_command,
       services::preview::preview_design_set_theme,
-      services::preview_studio::preview_studio_connect,
-      services::preview_studio::preview_studio_poll,
-      services::preview_studio::preview_studio_command,
-      services::preview_studio::preview_studio_disconnect,
-      commands::design_studio::design_draft_load,
-      commands::design_studio::design_draft_save,
-      commands::design_studio::design_draft_clear,
-      commands::design_studio::design_source_revision,
-      commands::design_studio::design_assets,
-      commands::design_studio::design_import_asset,
-      commands::design_studio::design_asset_preview,
-      commands::design_studio::design_apply,
-      commands::design_studio::design_apply_receipt,
-      commands::design_studio::design_apply_finish,
-      commands::design::design_generate_html,
-      commands::design::design_restyle_element,
+      commands::design::design_variations,
+      commands::design::design_polish,
+      commands::design::design_locate,
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

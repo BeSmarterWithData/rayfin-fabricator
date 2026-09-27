@@ -115,25 +115,22 @@ const CONSOLE_INIT_JS: &str = r#";(function () {
 /// controller locally. Idempotent: defines `window.__rayfinDesign` once.
 const DESIGN_AGENT_JS: &str = include_str!("design_agent.js");
 
-/// JS that reads the design controller's lightweight status (returns an object or
-/// `null`). WebView2 serializes the completion value to JSON for the callback.
+/// Largest controller response the host relays. Snapshots carry the queued
+/// items (including chart specs before/after), so the cap is generous.
+const DESIGN_MAX_WIRE_BYTES: usize = 4 * 1024 * 1024;
+
+/// JS that reads the design controller's lightweight status (`peek()`), or
+/// `null`. WebView2 serializes the completion value to JSON for the callback.
 const DESIGN_POLL_JS: &str =
   "(function(){try{return window.__rayfinDesign?window.__rayfinDesign.peek():null}catch(e){return null}})()";
 
-/// JS that drains a pending "Send to chat" handoff (returns an object once, then
-/// clears the change-set), or `null` when nothing is pending.
-const DESIGN_DRAIN_JS: &str =
-  "(function(){try{return window.__rayfinDesign?window.__rayfinDesign.drain():null}catch(e){return null}})()";
+/// JS that reads the queued design items (`snapshot()`), or `null`.
+const DESIGN_SNAPSHOT_JS: &str =
+  "(function(){try{return window.__rayfinDesign?window.__rayfinDesign.snapshot():null}catch(e){return null}})()";
 
-/// JS that drains a pending "Generate with AI" request from a placeholder (returns
-/// `{id, description, width, height}` once, then clears it), or `null`.
-const DESIGN_DRAIN_AI_JS: &str =
-  "(function(){try{return window.__rayfinDesign?window.__rayfinDesign.drainAi():null}catch(e){return null}})()";
-
-/// JS that drains a pending "Edit with AI" restyle request for a selected element
-/// (returns `{id, description, model, context}` once, then clears it), or `null`.
-const DESIGN_DRAIN_AI_EDIT_JS: &str =
-  "(function(){try{return window.__rayfinDesign?window.__rayfinDesign.drainAiEdit():null}catch(e){return null}})()";
+/// JS that switches the design controller off.
+const DESIGN_DISABLE_JS: &str =
+  "try{window.__rayfinDesign&&window.__rayfinDesign.disable()}catch(e){}";
 
 /// Renderer visual-viewport CSS bounds plus its physical-pixel ratio. Legacy
 /// callers without a ratio use native logical coordinates.
@@ -230,7 +227,6 @@ struct Inner {
   /// top frame is then re-enabled as a `relay` for that origin on every finished
   /// page load; `None` means the direct view (top frame is the app itself).
   design_relay: Option<String>,
-  studio_active: bool,
 }
 
 impl Inner {
@@ -253,7 +249,6 @@ impl Inner {
     // controller isn't re-injected into it (see `on_page_load`).
     self.design_active = false;
     self.design_relay = None;
-    self.studio_active = false;
   }
 }
 
@@ -357,11 +352,8 @@ fn on_page_load(app: &AppHandle, event: PageLoadEvent, u: &Url) {
   // the postMessage handshake.
   if !loading && design_active {
     if let Some(wv) = app.get_webview(PREVIEW_LABEL) {
-      let _ = wv.eval(design_enable_js(design_relay.as_deref()));
+      let _ = wv.eval(design_enable_js(design_relay.as_deref(), None));
     }
-  }
-  if !loading && state.inner.lock().unwrap().studio_active {
-    crate::services::preview_studio::on_load(app.clone());
   }
   emit_nav(app, &u.to_string(), loading, can_back, can_fwd);
 }
@@ -632,97 +624,30 @@ fn navigate_to(app: &AppHandle, target: Option<String>) {
   }
 }
 
-/// Lightweight status of the in-preview design session, read by the renderer's
-/// poll while design mode is active. Mirrors `window.__rayfinDesign.peek()`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesignStatus {
-  pub enabled: bool,
-  pub version: u64,
-  pub change_count: u32,
-  /// True once the user hit "Send to chat" — the renderer then captures a
-  /// (highlighted) screenshot and drains the handoff.
-  pub handoff_ready: bool,
-  /// True once the user asked to "Generate with AI" on a placeholder — the
-  /// renderer then drains the request, generates the HTML, and applies it.
-  #[serde(default)]
-  pub ai_pending: bool,
-  /// Whether the controller currently has the AI model list (it's re-injected
-  /// empty on page reloads, so the renderer re-pushes when this is false).
-  #[serde(default)]
-  pub has_models: bool,
-  /// The placeholder AI picker's currently selected model id (the renderer
-  /// persists this so the choice survives across sessions). `None` when unset.
-  #[serde(default)]
-  pub ai_model: Option<String>,
-  /// True once the user hit "Apply" on an element's "Edit with AI" card — the
-  /// renderer then drains the request, restyles via the model, and applies it.
-  #[serde(default)]
-  pub ai_edit_pending: bool,
-}
-
-/// A drained "Send to chat" handoff: the composed instruction + change count.
-/// Mirrors `window.__rayfinDesign.drain()`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesignHandoff {
-  pub instruction: String,
-  pub change_count: u32,
-}
-
-/// A drained "Generate with AI" request from a placeholder. Mirrors
-/// `window.__rayfinDesign.drainAi()`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesignAiRequest {
-  /// Stable placeholder id (`data-rayfin-ph-id`) to target with the result.
-  pub id: String,
-  pub description: String,
-  pub width: u32,
-  pub height: u32,
-  /// Model id chosen in the picker (`None` → the fast model resolved by the host).
-  #[serde(default)]
-  pub model: Option<String>,
-}
-
-/// A drained "Edit with AI" restyle request for a selected element. Mirrors
-/// `window.__rayfinDesign.drainAiEdit()`. `context` is opaque here — the renderer
-/// forwards it straight to `design_restyle_element` (which decodes it into a
-/// `RestyleContext`); the resulting patch is applied back via
-/// [`preview_design_apply_restyle`] targeting `id`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesignAiEditRequest {
-  /// Stable element id (`data-rayfin-edit-id`) to target with the patch.
-  pub id: String,
-  /// All target element ids for a multi-selection — the one patch applies to each
-  /// (empty/absent for a single selection, which falls back to `id`).
-  #[serde(default)]
-  pub ids: Vec<String>,
-  pub description: String,
-  /// Model id chosen in the picker (`None` → the fast model resolved by the host).
-  #[serde(default)]
-  pub model: Option<String>,
-  /// Compact element context (tag/text/classes/component/styles/chart spec).
-  #[serde(default)]
-  pub context: serde_json::Value,
-}
-
 /// Build the JS that enables the (already document-start-injected) design
 /// controller in the top frame. In the direct view the top frame *is* the app and
-/// runs the controller locally (`enable('direct')`); in the Fabric-embedded view
-/// the top frame becomes a relay for the app iframe at `relay_origin`
-/// (`enable('relay', "<origin>")`), which bridges host calls over `postMessage`.
-fn design_enable_js(relay_origin: Option<&str>) -> String {
-  match relay_origin {
-    Some(origin) => format!(
-      "try{{window.__rayfinDesign&&window.__rayfinDesign.enable('relay',{})}}catch(e){{}}",
-      serde_json::to_string(origin).unwrap_or_else(|_| "\"\"".into())
-    ),
-    None => {
-      "try{window.__rayfinDesign&&window.__rayfinDesign.enable('direct')}catch(e){}".to_string()
-    }
-  }
+/// runs the controller locally (`enable('direct', null, options)`); in the
+/// Fabric-embedded view the top frame becomes a relay for the app iframe at
+/// `relay_origin` (`enable('relay', "<origin>", options)`), which bridges host
+/// calls over `postMessage`. `options` seeds the session (id, queued items, host
+/// theme). Without it — the re-arm after a page load — the controller comes back
+/// unseeded, reports `sessionId: null`, and the renderer re-seeds it from its own
+/// copy of the queue.
+fn design_enable_js(relay_origin: Option<&str>, options: Option<&serde_json::Value>) -> String {
+  let mode = if relay_origin.is_some() { "relay" } else { "direct" };
+  let origin = serde_json::to_string(&relay_origin).unwrap_or_else(|_| "null".into());
+  let opts = options
+    .and_then(|o| serde_json::to_string(o).ok())
+    .unwrap_or_else(|| "null".into());
+  format!("try{{window.__rayfinDesign&&window.__rayfinDesign.enable('{mode}',{origin},{opts})}}catch(e){{}}")
+}
+
+/// Build the JS that hands one JSON command to the design controller. Results of
+/// data-returning commands come back through `peek().results`, so this never
+/// needs a return value (and works the same through the Fabric relay).
+fn design_command_js(command: &serde_json::Value) -> String {
+  let json = serde_json::to_string(command).unwrap_or_else(|_| "null".into());
+  format!("try{{window.__rayfinDesign&&window.__rayfinDesign.command({json})}}catch(e){{}}")
 }
 
 /// The scheme://host:port origin of `url` (e.g. `https://app.example.com`), or
@@ -737,9 +662,10 @@ fn url_origin(url: &str) -> Option<String> {
 }
 
 /// Evaluate `js` on the preview webview and return its JSON completion value
-/// parsed into `T` (or `None` when the webview is gone / the value is `null`).
-/// WebView2 serializes the result to JSON for the callback; the whole round-trip
-/// is time-bounded so a stalled dispatch can never wedge the caller.
+/// parsed into `T` (or `None` when the webview is gone, the value is `null`, or
+/// it exceeds [`DESIGN_MAX_WIRE_BYTES`]). WebView2 serializes the result to JSON
+/// for the callback; the whole round-trip is time-bounded so a stalled dispatch
+/// can never wedge the caller.
 async fn design_eval<T: serde::de::DeserializeOwned>(app: &AppHandle, js: &str) -> AppResult<Option<T>> {
   let Some(wv) = app.get_webview(PREVIEW_LABEL) else {
     return Ok(None);
@@ -758,6 +684,10 @@ async fn design_eval<T: serde::de::DeserializeOwned>(app: &AppHandle, js: &str) 
     Ok(Ok(s)) => s,
     _ => return Ok(None),
   };
+  if res.len() > DESIGN_MAX_WIRE_BYTES {
+    log::warn!("design controller response exceeded {DESIGN_MAX_WIRE_BYTES} bytes; ignored");
+    return Ok(None);
+  }
   let trimmed = res.trim();
   if trimmed.is_empty() || trimmed == "null" {
     return Ok(None);
@@ -768,51 +698,14 @@ async fn design_eval<T: serde::de::DeserializeOwned>(app: &AppHandle, js: &str) 
   }
 }
 
-pub(crate) fn studio_active(app: &AppHandle, enabled: bool) {
-  let state = app.state::<PreviewState>();
-  let mut inner = state.inner.lock().unwrap();
-  inner.studio_active = enabled;
-  if enabled {
-    inner.design_active = false;
-    inner.design_relay = None;
-  }
-}
-
-pub(crate) fn studio_url(app: &AppHandle) -> Result<Url, String> {
-  app.get_webview(PREVIEW_LABEL).ok_or("The app preview is not open.")?
-    .url().map_err(|e| format!("Could not identify the app preview: {e}"))
-}
-
-/// Studio never treats a malformed, timed-out, or missing controller response
-/// as an empty successful snapshot. Legacy polling retains its old semantics.
-pub(crate) async fn studio_eval(app: &AppHandle, js: &str) -> Result<serde_json::Value, String> {
-  let wv = app.get_webview(PREVIEW_LABEL).ok_or("The app preview is not open.")?;
-  let (tx, rx) = oneshot::channel();
-  let tx = Mutex::new(Some(tx));
-  wv.eval_with_callback(js.to_string(), move |res| {
-    if let Some(tx) = tx.lock().unwrap().take() { let _ = tx.send(res); }
-  }).map_err(|e| format!("Design controller evaluation failed: {e}"))?;
-  let raw: String = tokio::time::timeout(Duration::from_secs(4), rx).await
-    .map_err(|_| "Design controller response timed out. Reload the app preview and retry.")?
-    .map_err(|_| "Design controller response was interrupted.")?;
-  if raw.len() > crate::services::design_contract::MAX_WIRE_BYTES {
-    return Err("Design controller response exceeded its byte budget.".into());
-  }
-  let value: serde_json::Value = serde_json::from_str(raw.trim())
-    .map_err(|e| format!("Design controller returned invalid JSON: {e}"))?;
-  if let Some(error) = value.get("__studioError").and_then(|v| v.as_str()) {
-    return Err(format!("Design controller: {error}"));
-  }
-  Ok(value)
-}
-
-/// Turn the in-preview "design mode" on/off. Enables (or disables) the design
+/// Turn the in-preview Design mode on/off. Enables (or disables) the design
 /// controller — which is already injected at document-start into every frame — and
 /// records the session so it is re-armed on subsequent page loads. `embedded` +
 /// `app_url` select the mode: when the app is shown embedded in the Fabric portal
 /// (`embedded == true`), the top (Fabric shell) frame runs as a relay for the app
 /// iframe at `app_url`'s origin; otherwise the top frame is the app and runs the
-/// controller directly.
+/// controller directly. `options` (see `DesignEnableOptions` in
+/// `src/shared/design.ts`) seeds the session.
 #[tauri::command]
 pub fn preview_design_set(
   app: AppHandle,
@@ -820,10 +713,8 @@ pub fn preview_design_set(
   enabled: bool,
   embedded: Option<bool>,
   app_url: Option<String>,
+  options: Option<serde_json::Value>,
 ) -> AppResult<()> {
-  if state.inner.lock().unwrap().studio_active {
-    return Ok(());
-  }
   // Relay mode only when enabling an embedded (Fabric) view for which we can
   // resolve the app's origin; anything else is the direct (top-frame) view.
   let relay_origin = if enabled && embedded.unwrap_or(false) {
@@ -838,107 +729,39 @@ pub fn preview_design_set(
   }
   if let Some(wv) = app.get_webview(PREVIEW_LABEL) {
     let js = if enabled {
-      design_enable_js(relay_origin.as_deref())
+      design_enable_js(relay_origin.as_deref(), options.as_ref())
     } else {
-      "try{window.__rayfinDesign&&window.__rayfinDesign.disable()}catch(e){}".to_string()
+      DESIGN_DISABLE_JS.to_string()
     };
     wv.eval(js).map_err(|e| AppError::Msg(e.to_string()))?;
   }
   Ok(())
 }
 
-/// Read the design controller's current status (changes count + whether a
-/// "Send to chat" handoff is ready). Polled by the renderer while design mode is
-/// on. Returns `None` if design mode isn't installed/active.
+/// Read the design controller's lightweight status (`DesignStatus`). Polled by
+/// the renderer while Design is on. Returns `None` when the controller isn't
+/// installed/active or didn't answer in time.
 #[tauri::command]
-pub async fn preview_design_poll(app: AppHandle) -> AppResult<Option<DesignStatus>> {
+pub async fn preview_design_poll(app: AppHandle) -> AppResult<Option<serde_json::Value>> {
   design_eval(&app, DESIGN_POLL_JS).await
 }
 
-/// Drain a pending "Send to chat" handoff (the composed instruction), clearing
-/// the in-preview change-set. The renderer captures the highlighted screenshot
-/// *before* calling this. Returns `None` when nothing is pending.
+/// Read the queued design items (`DesignSnapshot`). Fetched by the renderer when
+/// the polled `version` changes.
 #[tauri::command]
-pub async fn preview_design_drain(app: AppHandle) -> AppResult<Option<DesignHandoff>> {
-  design_eval(&app, DESIGN_DRAIN_JS).await
+pub async fn preview_design_snapshot(app: AppHandle) -> AppResult<Option<serde_json::Value>> {
+  design_eval(&app, DESIGN_SNAPSHOT_JS).await
 }
 
-/// Drain a pending "Generate with AI" request from a placeholder (clearing it).
-/// The renderer then generates HTML and applies it via [`preview_design_apply_generated`].
+/// Hand one `DesignCommand` to the controller (seed, remove/focus an item, show
+/// variations or suggestions, prepare a capture, …).
 #[tauri::command]
-pub async fn preview_design_drain_ai(app: AppHandle) -> AppResult<Option<DesignAiRequest>> {
-  design_eval(&app, DESIGN_DRAIN_AI_JS).await
-}
-
-/// Drain a pending "Edit with AI" restyle request for a selected element (clearing
-/// it). The renderer forwards `context` to `design_restyle_element` and applies the
-/// resulting patch via [`preview_design_apply_restyle`].
-#[tauri::command]
-pub async fn preview_design_drain_ai_edit(app: AppHandle) -> AppResult<Option<DesignAiEditRequest>> {
-  design_eval(&app, DESIGN_DRAIN_AI_EDIT_JS).await
-}
-
-/// Inject AI-generated HTML into the placeholder `id` (the controller sanitizes
-/// it before rendering and records it on the placeholder's `insert` change). Both
-/// arguments are JSON-encoded so arbitrary markup rides safely into the eval.
-#[tauri::command]
-pub fn preview_design_apply_generated(app: AppHandle, id: String, html: String) -> AppResult<()> {
-  if let Some(wv) = app.get_webview(PREVIEW_LABEL) {
-    let js = format!(
-      "try{{window.__rayfinDesign&&window.__rayfinDesign.applyGenerated({},{})}}catch(e){{}}",
-      serde_json::to_string(&id).unwrap_or_else(|_| "\"\"".into()),
-      serde_json::to_string(&html).unwrap_or_else(|_| "\"\"".into()),
-    );
-    wv.eval(js).map_err(|e| AppError::Msg(e.to_string()))?;
+pub fn preview_design_command(app: AppHandle, command: serde_json::Value) -> AppResult<()> {
+  if !command.get("op").is_some_and(|op| op.is_string()) {
+    return Err(AppError::Msg("A design command needs an `op`.".into()));
   }
-  Ok(())
-}
-
-/// Apply an AI restyle `patch` to the element tagged `id` (`data-rayfin-edit-id`).
-/// `patch` is the JSON `RestylePatch` from `design_restyle_element`; the controller
-/// applies each whitelisted style prop (and any Graphein spec patch) as revertable
-/// change-set entries. Both arguments are JSON-encoded into the eval.
-#[tauri::command]
-pub fn preview_design_apply_restyle(
-  app: AppHandle,
-  id: String,
-  patch: serde_json::Value,
-) -> AppResult<()> {
   if let Some(wv) = app.get_webview(PREVIEW_LABEL) {
-    let js = format!(
-      "try{{window.__rayfinDesign&&window.__rayfinDesign.applyRestyle({},{})}}catch(e){{}}",
-      serde_json::to_string(&id).unwrap_or_else(|_| "\"\"".into()),
-      serde_json::to_string(&patch).unwrap_or_else(|_| "null".into()),
-    );
-    wv.eval(js).map_err(|e| AppError::Msg(e.to_string()))?;
-  }
-  Ok(())
-}
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DesignModel {
-  pub id: String,
-  pub name: String,
-  pub fast: bool,
-}
-
-/// Supply the design controller's placeholder AI model picker with the available
-/// models (the renderer resolves + fast-flags them) plus the user's `preferred`
-/// (persisted) model id to preselect. Pushed on session start and re-pushed if a
-/// preview reload re-injects the controller empty.
-#[tauri::command]
-pub fn preview_design_set_models(
-  app: AppHandle,
-  models: Vec<DesignModel>,
-  preferred: Option<String>,
-) -> AppResult<()> {
-  if let Some(wv) = app.get_webview(PREVIEW_LABEL) {
-    let json = serde_json::to_string(&models).unwrap_or_else(|_| "[]".into());
-    let pref = serde_json::to_string(&preferred).unwrap_or_else(|_| "null".into());
-    let js = format!(
-      "try{{window.__rayfinDesign&&window.__rayfinDesign.setModels({json},{pref})}}catch(e){{}}"
-    );
-    wv.eval(js).map_err(|e| AppError::Msg(e.to_string()))?;
+    wv.eval(design_command_js(&command)).map_err(|e| AppError::Msg(e.to_string()))?;
   }
   Ok(())
 }
@@ -1248,7 +1071,7 @@ unsafe fn snapshot_image_to_png(
 
 #[cfg(test)]
 mod tests {
-  use super::{DesignAiEditRequest, PreviewBounds};
+  use super::{design_command_js, design_enable_js, PreviewBounds};
 
   fn bounds(pixel_ratio: Option<f64>) -> PreviewBounds {
     PreviewBounds { x: 100.0, y: 80.0, width: 900.0, height: 600.0, pixel_ratio }
@@ -1320,21 +1143,27 @@ mod tests {
     assert!(parked.to_rect().unwrap().position.to_physical::<i32>(1.25).x > 20_000);
   }
 
-  // Guards the multi-select bug: the controller's drained request carries `ids`
-  // (all selected element ids); it must survive deserialization so the renderer
-  // applies the one patch to every element (not just the primary).
   #[test]
-  fn design_ai_edit_request_roundtrips_ids() {
-    let json = r#"{"id":"a","ids":["a","b","c"],"description":"x","context":{}}"#;
-    let req: DesignAiEditRequest = serde_json::from_str(json).expect("parse");
-    assert_eq!(req.id, "a");
-    assert_eq!(req.ids, vec!["a", "b", "c"]);
+  fn design_enable_js_selects_direct_or_relay_and_embeds_options() {
+    assert_eq!(
+      design_enable_js(None, None),
+      "try{window.__rayfinDesign&&window.__rayfinDesign.enable('direct',null,null)}catch(e){}"
+    );
+    let opts = serde_json::json!({ "sessionId": "s1", "items": [] });
+    let relay = design_enable_js(Some("https://p1.example.app"), Some(&opts));
+    assert!(relay.contains("enable('relay',\"https://p1.example.app\",{"));
+    assert!(relay.contains("\"sessionId\":\"s1\""));
   }
 
   #[test]
-  fn design_ai_edit_request_ids_default_empty() {
-    let req: DesignAiEditRequest =
-      serde_json::from_str(r#"{"id":"a","description":"x"}"#).expect("parse");
-    assert!(req.ids.is_empty());
+  fn design_command_js_embeds_the_command_as_a_json_literal() {
+    // Quotes, backslashes and script-ish text stay inside a JSON string literal.
+    let cmd = serde_json::json!({ "op": "failRequest", "requestId": "r1", "message": "a \"quoted\" \\ </script>" });
+    let js = design_command_js(&cmd);
+    assert!(js.starts_with("try{window.__rayfinDesign&&window.__rayfinDesign.command({"));
+    let json = js
+      .trim_start_matches("try{window.__rayfinDesign&&window.__rayfinDesign.command(")
+      .trim_end_matches(")}catch(e){}");
+    assert_eq!(serde_json::from_str::<serde_json::Value>(json).unwrap(), cmd);
   }
 }

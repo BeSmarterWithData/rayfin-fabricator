@@ -34,7 +34,6 @@ describe('toolKind', () => {
       read_agent: 'agent',
       fabricator_locate_semantic_model: 'model',
       fabricator_search_semantic_models: 'model',
-      fabricator_design_report: 'design',
       fabricator_screenshot: 'screenshot',
       fabricator_navigate: 'navigate',
       fabricator_deploy_and_wait: 'deploy',

@@ -7,7 +7,20 @@
  * `RayfinStudioApi` interface and the `IpcChannels` map together.
  */
 
-import type { DesignStudioApi } from './design'
+import type {
+  ChatDesignSummary,
+  DesignCommand,
+  DesignEnableOptions,
+  DesignHostTheme,
+  DesignLocateResult,
+  DesignLocateTarget,
+  DesignPageOutline,
+  DesignRestyleContext,
+  DesignSnapshot,
+  DesignStatus,
+  DesignSuggestion,
+  DesignVariation
+} from './design'
 import type {
   AdvisorFinding,
   AdvisorLoadResult,
@@ -774,8 +787,6 @@ export interface ExperimentFlags {
    * Off by default; requires the project's locally installed Vite.
    */
   localDevPreview?: boolean
-  /** Canvas-first visual editing with locally saved drafts and explicit Apply. */
-  designStudio?: boolean
 }
 
 export interface CreateProjectInput {
@@ -1338,8 +1349,6 @@ export interface SuggestionSet {
  */
 export interface ChatMessage {
   id: string
-  /** Source-writing Design turns recover through their Apply receipt, not prompt replay. */
-  designApplyId?: string
   role: 'user' | 'assistant'
   text: string
   tools: ChatToolCall[]
@@ -1374,6 +1383,13 @@ export interface ChatMessage {
    * this assistant turn and answered via `chat_resolve_question`.
    */
   questions?: ChatPlanQuestion[]
+  /** The Design changes a (user) message carried, shown as a card in the transcript. */
+  design?: ChatDesignSummary
+  /**
+   * The prompt Copilot received when it differs from `text` (a Design turn's
+   * structured changes); re-sent by Retry / Try again / Resume.
+   */
+  prompt?: string
 }
 
 /* ------------------------------------------------------------------ *
@@ -1414,114 +1430,6 @@ export interface PreviewAgentEvent {
   action: 'show'
   /** The live URL the agent is pointing the preview at, when known. */
   url?: string
-}
-
-/**
- * Lightweight status of the in-preview "design mode" session (experiment),
- * polled by the renderer while design mode is on. Mirrors the injected
- * controller's `peek()` (see the native `DesignStatus`).
- */
-export interface PreviewDesignStatus {
-  enabled: boolean
-  /** Bumped on every recorded change — lets the poll detect activity cheaply. */
-  version: number
-  /** Number of tweaks recorded so far. */
-  changeCount: number
-  /** True once the user hit "Send to chat"; the renderer then captures + drains. */
-  handoffReady: boolean
-  /** True once the user asked to "Generate with AI" on a placeholder. */
-  aiPending?: boolean
-  /** Whether the controller currently holds the AI model list (re-pushed if not). */
-  hasModels?: boolean
-  /** The AI picker's currently selected model id — persisted by the renderer. */
-  aiModel?: string | null
-  /** True once the user hit "Apply" on an element's "Edit with AI" card. */
-  aiEditPending?: boolean
-  /** Whether the controller currently holds the Fabricator theme (re-pushed if not). */
-  hasTheme?: boolean
-}
-
-/**
- * A drained "Generate with AI" request from an inserted placeholder: the target
- * placeholder id and the natural-language description + box size the renderer
- * feeds to the fast model.
- */
-export interface PreviewDesignAiRequest {
-  id: string
-  description: string
-  width: number
-  height: number
-  /** Model id chosen in the picker (undefined → host default / fast model). */
-  model?: string
-}
-
-/**
- * A drained design-mode "Send to chat" hand-off: the composed natural-language
- * instruction describing every tweak, plus the change count.
- */
-export interface PreviewDesignHandoff {
-  instruction: string
-  changeCount: number
-}
-
-/**
- * Compact element context the controller sends with an "Edit with AI" restyle
- * request; forwarded verbatim to `design.restyleElement`.
- */
-export interface PreviewDesignRestyleContext {
-  tag: string
-  text?: string
-  classes?: string
-  component?: string
-  /** Current (relevant) computed styles, keyed by CSS property. */
-  styles: Record<string, string>
-  isChart: boolean
-  chartType?: string
-  /** Current Graphein spec (data omitted) for charts. */
-  spec?: unknown
-  /** Notable descendants the model can target via `rules`. */
-  children?: { tag: string; classes?: string; text?: string }[]
-}
-
-/**
- * A drained "Edit with AI" restyle request for a selected element: the target
- * element id (`data-rayfin-edit-id`), the natural-language change, the chosen
- * model, and the element context the renderer forwards to the model.
- */
-export interface PreviewDesignAiEditRequest {
-  id: string
-  /** All target element ids (multi-select) — the one patch applies to each. */
-  ids?: string[]
-  description: string
-  model?: string
-  context: PreviewDesignRestyleContext
-}
-
-/**
- * Fabricator's own theme pushed into the design controller so the tools match
- * the host app's look + zoom (built by the renderer from its CSS tokens +
- * `uiScale`). Colors are CSS color strings; `scale` is the UI zoom (1 = 100%).
- */
-export interface PreviewDesignTheme {
-  accent: string
-  accentHi?: string
-  panel: string
-  panel2?: string
-  border?: string
-  txt: string
-  txtDim?: string
-  scale?: number
-}
-
-/**
- * The structured restyle patch returned by `design.restyleElement`: whitelisted
- * inline CSS property→value pairs, plus an optional Graphein spec patch (charts).
- */
-export interface PreviewDesignRestylePatch {
-  styles: Record<string, string>
-  graphein?: unknown
-  /** Descendant rules: whitelisted CSS applied to elements matching `selector`. */
-  rules?: { selector: string; styles: Record<string, string> }[]
 }
 
 /* ------------------------------------------------------------------ *
@@ -2052,7 +1960,7 @@ export interface RayfinStudioApi {
      * `workspace` optionally targets a Fabric workspace by display name (first
      * deploy); subsequent deploys reuse the recorded active deployment.
      */
-    run: (projectId: string, workspace?: string, applyId?: string) => Promise<DeployResult>
+    run: (projectId: string, workspace?: string) => Promise<DeployResult>
     /** Read the persisted deployment status (`rayfin up status --json`). */
     status: (projectId: string) => Promise<DeployStatus>
     /**
@@ -2094,14 +2002,36 @@ export interface RayfinStudioApi {
      * serving with its `localhost` URL, or with `unsupported` / `error`. The
      * process keeps running until {@link stop}.
      */
-    start: (projectId: string, owner?: 'chat' | 'design') => Promise<DevServerResult>
-    /** Release this consumer; stop only when no owner still needs the server. */
-    stop: (projectId: string, owner?: 'chat' | 'design') => Promise<void>
+    start: (projectId: string) => Promise<DevServerResult>
+    /** Stop the project's dev server (no-op when none is running). */
+    stop: (projectId: string) => Promise<void>
     /** True when the project has a locally installed Vite. */
     supported: (projectId: string) => Promise<boolean>
   }
 
-  designStudio: DesignStudioApi
+  /**
+   * Design mode's model-backed and source-aware helpers. The model calls run on
+   * transient, read-only Copilot sessions (never in chat history).
+   */
+  design: {
+    /** Ask a fast model for `count` named alternative looks for one element. */
+    variations: (
+      projectId: string,
+      context: DesignRestyleContext,
+      hint?: string,
+      count?: number,
+      model?: string
+    ) => Promise<DesignVariation[]>
+    /** Review a page outline (+ optional screenshot) and suggest improvements. */
+    polish: (
+      projectId: string,
+      page: DesignPageOutline,
+      screenshotPath?: string,
+      model?: string
+    ) => Promise<DesignSuggestion[]>
+    /** Find the likely source lines behind picked elements (heuristic hints). */
+    locate: (projectId: string, targets: DesignLocateTarget[]) => Promise<DesignLocateResult>
+  }
 
   /** App-wide settings (theme, telemetry opt-in). */
   settings: {
@@ -2146,9 +2076,9 @@ export interface RayfinStudioApi {
     forward: () => Promise<void>
     /**
      * Capture the current preview content as a PNG `data:` URL (via WebView2's
-     * `CapturePreview`). Used by the annotate-and-attach flow: the renderer freezes
-     * this image, lets the user draw on it, then stages the result as a chat
-     * attachment. Rejects when no preview is open or capture fails.
+     * `CapturePreview`). Used for the still frame shown while an overlay hides the
+     * native preview, and by Design to attach the previewed changes (full view +
+     * element crops) to a chat turn. Rejects when no preview is open or capture fails.
      */
     capture: () => Promise<string>
     /** Subscribe to preview navigation state. Returns an unsubscribe function. */
@@ -2160,66 +2090,37 @@ export interface RayfinStudioApi {
      */
     onAgentPreview: (cb: (event: PreviewAgentEvent) => void) => () => void
     /**
-     * In-preview "design mode". Injects a click-to-edit controller into the
-     * preview webview so the user can tweak live elements (move / resize /
-     * recolor / text + a Graphein spec editor), then hand the collected changes
-     * to the chat composer. Works in both the direct and Fabric-embedded views.
+     * In-preview Design mode ("visual chat"). The controller injected into every
+     * preview frame lets the user point at elements, preview tweaks, and queue
+     * changes that are later sent to Copilot as one turn. Works in both the
+     * direct and Fabric-embedded views. The host only relays the JSON documents
+     * described in `@shared/design`.
      */
     design: {
       /**
-       * Turn design mode on/off (enables/disables the controller). `embedded`
-       * marks the Fabric-embedded view, where the app is a cross-origin iframe;
-       * `appUrl` (the direct app URL) supplies the origin the top-frame relay
-       * uses to find and drive that iframe.
+       * Turn Design on/off. `embedded` marks the Fabric-embedded view, where the
+       * app is a cross-origin iframe; `appUrl` (the direct app URL) supplies the
+       * origin the top-frame relay uses to find and drive that iframe. `options`
+       * seeds the session (id, queued items, host theme).
        */
-      setEnabled: (enabled: boolean, embedded?: boolean, appUrl?: string) => Promise<void>
-      /** Read the controller status (change count + handoff-ready). Polled while on. */
-      poll: () => Promise<PreviewDesignStatus | null>
-      /** Drain a pending "Send to chat" hand-off (call after capturing a shot). */
-      drain: () => Promise<PreviewDesignHandoff | null>
-      /** Drain a pending "Generate with AI" request from a placeholder. */
-      drainAi: () => Promise<PreviewDesignAiRequest | null>
-      /** Inject AI-generated HTML into the placeholder `id` (controller sanitizes it). */
-      applyGenerated: (id: string, html: string) => Promise<void>
-      /** Supply the placeholder AI model picker with the available models. */
-      setModels: (
-        models: { id: string; name: string; fast: boolean }[],
-        preferred?: string
+      setEnabled: (
+        enabled: boolean,
+        embedded?: boolean,
+        appUrl?: string,
+        options?: DesignEnableOptions
       ) => Promise<void>
+      /** Read the controller's lightweight status. Polled while Design is on. */
+      poll: () => Promise<DesignStatus | null>
+      /** Read the queued items (fetched when `poll().version` changes). */
+      snapshot: () => Promise<DesignSnapshot | null>
+      /** Send a command to the controller; results arrive via `poll().results`. */
+      command: (command: DesignCommand) => Promise<void>
       /**
        * Push Fabricator's own theme (accent/surfaces/text/border + UI scale) so
        * the design tools match the host app's look and zoom. Re-sent after a
        * preview reload (when `poll().hasTheme` is false) and on theme/scale change.
        */
-      setTheme: (theme: PreviewDesignTheme) => Promise<void>
-      /**
-       * Generate a self-contained HTML/CSS snippet for a placeholder from a
-       * description, on a transient fast-model session. Returns the raw HTML
-       * (the controller sanitizes before injecting). `model` defaults to a fast
-       * model; omit for the engine default.
-       */
-      generateHtml: (
-        projectId: string,
-        description: string,
-        width: number,
-        height: number,
-        model?: string
-      ) => Promise<string>
-      /** Drain a pending "Edit with AI" restyle request for a selected element. */
-      drainAiEdit: () => Promise<PreviewDesignAiEditRequest | null>
-      /** Apply a restyle patch to the element tagged `id` (controller records it). */
-      applyRestyle: (id: string, patch: PreviewDesignRestylePatch) => Promise<void>
-      /**
-       * Restyle an existing element from a natural-language change, on a transient
-       * fast-model session. Returns a structured patch (whitelisted inline CSS +
-       * optional Graphein spec patch) the controller applies via `applyRestyle`.
-       */
-      restyleElement: (
-        projectId: string,
-        description: string,
-        context: PreviewDesignRestyleContext,
-        model?: string
-      ) => Promise<PreviewDesignRestylePatch>
+      setTheme: (theme: DesignHostTheme) => Promise<void>
     }
   }
 

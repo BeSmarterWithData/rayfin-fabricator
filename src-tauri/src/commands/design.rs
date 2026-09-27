@@ -1,33 +1,46 @@
-//! One-shot HTML/CSS generation for the preview "design mode" Insert tool.
+//! Model-backed and source-aware helpers for Design mode ("visual chat").
 //!
-//! When the user drops a placeholder and describes it, the renderer calls
-//! [`design_generate_html`] to turn that description into a small, self-contained
-//! HTML/CSS snippet that renders inside the placeholder's box and seeds the chat
-//! hand-off. Like [`crate::commands::suggest`], this runs on a **transient**
-//! throwaway Copilot session (defaulting to a fast model) so it never touches the
-//! project's chat history; the prompt is constrained to HTML + CSS only (no JS,
-//! no external resources) so any model can satisfy it and the output is safe to
-//! inject after the renderer's DOM-level sanitize.
+//! * [`design_variations`] asks a fast model for a few named alternative looks
+//!   for one element — whitelisted inline-CSS patches (or Graphein spec patches
+//!   for charts) that the in-page controller previews live.
+//! * [`design_polish`] reviews a compact outline of the page (plus a screenshot)
+//!   and proposes a handful of concrete, previewable improvements.
+//! * [`design_locate`] finds the likely source lines behind picked elements.
+//!
+//! The model calls run on **transient, read-only** Copilot sessions: they never
+//! land in the project's chat history, can't write files or run commands, and
+//! must answer with JSON only. Nothing here edits the project — Copilot applies
+//! the chosen changes later, in one ordinary chat turn.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::time::Duration;
 
 use github_copilot_sdk::subscription::RecvErrorKind;
-use github_copilot_sdk::MessageOptions;
+use github_copilot_sdk::{Attachment, MessageOptions};
 use serde_json::Value;
 use tauri::State;
 
+use crate::commands::screenshot;
+use crate::services::design_locate::{self, LocateResult, LocateTarget};
 use crate::services::store;
 use crate::state::AppState;
 
-/// Ceiling for a single generation run (the UI shows a "Generating…" state and
-/// falls back gracefully on timeout).
+/// Ceiling for a single model run (the UI shows a busy state and recovers on
+/// timeout).
 const RUN_TIMEOUT_MS: u64 = 60_000;
+/// Variations offered per request (and the most a caller may ask for).
+const DEFAULT_VARIATIONS: usize = 3;
+const MAX_VARIATIONS: usize = 4;
+/// Polish suggestions returned at most.
+const MAX_SUGGESTIONS: usize = 6;
+/// Outline elements and findings a Polish prompt includes at most.
+const MAX_OUTLINE_ELEMENTS: usize = 80;
+const MAX_FINDINGS: usize = 24;
 
-/// CSS properties the "Edit with AI" restyle path is allowed to set on a live
-/// element. Deliberately a safe, layout/typography/appearance-only subset — the
-/// model can only return values for these (anything else is dropped), and the
-/// in-page controller applies them as ordinary inline-style change-set entries.
+/// CSS properties a model-proposed preview may set on a live element.
+/// Deliberately a safe, layout/typography/appearance-only subset — anything else
+/// is dropped, and the in-page controller re-checks the same list.
 const ALLOWED_RESTYLE_PROPS: &[&str] = &[
     "color",
     "background",
@@ -71,8 +84,8 @@ const ALLOWED_RESTYLE_PROPS: &[&str] = &[
     "flex-direction",
 ];
 
-/// Compact element context the renderer sends with a restyle request: enough for
-/// the model to make a good local edit without shipping the whole DOM.
+/// Compact element context the renderer sends with a variations request:
+/// enough for the model to make a good local proposal without the whole DOM.
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct RestyleContext {
@@ -100,48 +113,96 @@ pub struct RestyleContext {
     pub children: Option<Value>,
 }
 
-/// The structured patch returned to the renderer: whitelisted CSS property→value
-/// pairs applied inline, plus an optional Graphein spec patch (for charts) merged
-/// over the current spec. The controller applies each as a revertable change-set
-/// entry (see `applyRestyle` in `design_agent.js`).
-#[derive(serde::Serialize, Default, PartialEq, Debug)]
-pub struct RestylePatch {
-    pub styles: HashMap<String, String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub graphein: Option<Value>,
-    /// Descendant rules: each applies whitelisted CSS to elements matching
-    /// `selector` inside the selected element (so an edit can reach children).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub rules: Vec<RestyleRule>,
+/// Whitelisted CSS for the element, descendant rules, and an optional Graphein
+/// spec patch (charts).
+#[derive(Default, PartialEq, Debug)]
+struct RestylePatch {
+    styles: HashMap<String, String>,
+    graphein: Option<Value>,
+    rules: Vec<RestyleRule>,
 }
 
-/// A restyle rule targeting descendants of the selected element.
-#[derive(serde::Serialize, Default, PartialEq, Debug)]
+impl RestylePatch {
+    fn is_empty(&self) -> bool {
+        self.styles.is_empty() && self.graphein.is_none() && self.rules.is_empty()
+    }
+}
+
+/// A restyle rule targeting descendants of the element.
+#[derive(serde::Serialize, Default, PartialEq, Debug, Clone)]
 pub struct RestyleRule {
     pub selector: String,
     pub styles: HashMap<String, String>,
 }
 
-/// Build the constrained instruction. Deliberately narrow: one self-contained
-/// HTML snippet, inline CSS only, no JavaScript and no external resources — so
-/// any model can produce it and the result is safe to drop into the live page.
-fn build_prompt(description: &str, width: u32, height: u32) -> String {
-    let desc = description.trim();
-    format!(
-        "Generate ONE small, self-contained HTML snippet for a UI component described as:\n\
-\"{desc}\"\n\n\
-It will be placed inside a box roughly {width}x{height} px. Requirements:\n\
-- HTML + CSS ONLY. Put styles in a single <style> block or inline `style` attributes.\n\
-- NO JavaScript, NO <script>, NO event handlers (onclick, onload, ...).\n\
-- NO external resources: no external images, fonts, stylesheets, CDNs, or URLs. \
-Use CSS gradients/shapes/emoji or inline SVG for any visuals, and placeholder text for content.\n\
-- Make it look polished and fill the box responsively (width:100%; height:100%; box-sizing:border-box).\n\
-- Keep it compact.\n\n\
-Return ONLY a single fenced ```html code block containing the snippet, and nothing else."
-    )
+/// One proposed alternative look (see `DesignVariation` in `src/shared/design.ts`).
+#[derive(serde::Serialize, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Variation {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub styles: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<RestyleRule>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub graphein: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub classes: Option<String>,
 }
 
-/// Streaming accumulator (mirrors the suggest command).
+/// One proposed page improvement (see `DesignSuggestion` in `src/shared/design.ts`).
+#[derive(serde::Serialize, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Suggestion {
+    pub id: String,
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub title: String,
+    pub why: String,
+    pub instruction: String,
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub styles: HashMap<String, String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<RestyleRule>,
+}
+
+/// The page outline the renderer collects for a Polish pass.
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct PageOutline {
+    pub route: String,
+    pub title: String,
+    pub viewport: Value,
+    pub elements: Vec<OutlineElement>,
+    pub findings: Vec<Finding>,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct OutlineElement {
+    #[serde(rename = "ref")]
+    pub reference: String,
+    pub label: String,
+    pub role: String,
+    pub tag: String,
+    pub text: Option<String>,
+    pub classes: Option<String>,
+    pub styles: HashMap<String, String>,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Finding {
+    #[serde(rename = "ref")]
+    pub reference: Option<String>,
+    pub kind: String,
+    pub message: String,
+}
+
+/* ----------------------------- model plumbing ----------------------------- */
+
+/// Streaming accumulator for one transient run.
 #[derive(Default)]
 struct GenState {
     assistant: String,
@@ -177,40 +238,65 @@ fn map_event(event_type: &str, data: &Value, st: &mut GenState) -> bool {
     false
 }
 
-/// Pull the body of the last fenced code block (stripping a short language tag
-/// like ```html), falling back to the widest plausible HTML slice.
-fn extract_html(text: &str) -> String {
-    let parts: Vec<&str> = text.split("```").collect();
-    let mut blocks: Vec<String> = Vec::new();
-    let mut i = 1;
-    while i < parts.len() {
-        let mut block = parts[i];
-        if let Some(nl) = block.find('\n') {
-            let first = block[..nl].trim();
-            if !first.contains('<') && first.len() <= 12 {
-                block = &block[nl + 1..];
+/// Run `prompt` once on a transient, read-only session rooted at `cwd` and
+/// return the assistant's full reply. Never touches the project's chat.
+async fn run_transient(
+    state: &AppState,
+    cwd: &str,
+    model: Option<String>,
+    prompt: String,
+    attachments: &[PathBuf],
+) -> Result<String, String> {
+    let session = state
+        .copilot
+        .transient_session_with(cwd, model, None, crate::commands::advisor::read_only_options(cwd))
+        .await
+        .map_err(|_| "Couldn't reach the model.".to_string())?;
+
+    let mut st = GenState::default();
+    let mut sub = session.subscribe();
+    let mut opts = MessageOptions::new(prompt);
+    if !attachments.is_empty() {
+        opts = opts.with_attachments(
+            attachments
+                .iter()
+                .map(|p| Attachment::File { path: p.clone(), display_name: None, line_range: None })
+                .collect(),
+        );
+    }
+    let sent = session.send(opts).await.is_ok();
+    if sent {
+        let drain = async {
+            loop {
+                match sub.recv().await {
+                    Ok(ev) => {
+                        if map_event(&ev.event_type, &ev.data, &mut st) {
+                            break;
+                        }
+                    }
+                    Err(err) => match err.kind() {
+                        RecvErrorKind::Lagged(_) => {}
+                        _ => break,
+                    },
+                }
             }
-        }
-        blocks.push(block.trim().to_string());
-        i += 2;
-    }
-    if let Some(last) = blocks.into_iter().rev().find(|b| !b.is_empty()) {
-        return last;
-    }
-    // No fenced block — fall back to the widest tag span.
-    if let (Some(start), Some(end)) = (text.find('<'), text.rfind('>')) {
-        if end > start {
-            return text[start..=end].trim().to_string();
+        };
+        if tokio::time::timeout(Duration::from_millis(RUN_TIMEOUT_MS), drain).await.is_err() {
+            let _ = session.abort().await;
         }
     }
-    String::new()
+    let _ = session.disconnect().await;
+    if !sent {
+        return Err("Couldn't send the request to the model.".into());
+    }
+    Ok(st.assistant)
 }
 
-/// Pull the last fenced code block (or widest `{…}` span) and parse it as JSON.
-/// Mirrors [`extract_html`] but for the restyle path's JSON object output.
+/* ----------------------------- JSON extraction ----------------------------- */
+
+/// Parse the model's JSON answer: the last fenced block that parses, else the
+/// widest `[…]` or `{…}` span.
 fn extract_json(text: &str) -> Option<Value> {
-    // Prefer the body of the last non-empty fenced block (strip a short language
-    // tag like ```json).
     let parts: Vec<&str> = text.split("```").collect();
     let mut blocks: Vec<String> = Vec::new();
     let mut i = 1;
@@ -218,7 +304,7 @@ fn extract_json(text: &str) -> Option<Value> {
         let mut block = parts[i];
         if let Some(nl) = block.find('\n') {
             let first = block[..nl].trim();
-            if !first.contains('{') && first.len() <= 12 {
+            if !first.contains(['{', '[']) && first.len() <= 12 {
                 block = &block[nl + 1..];
             }
         }
@@ -233,15 +319,32 @@ fn extract_json(text: &str) -> Option<Value> {
             return Some(v);
         }
     }
-    // No usable fenced block — fall back to the widest `{ … }` span.
-    if let (Some(start), Some(end)) = (text.find('{'), text.rfind('}')) {
-        if end > start {
-            if let Ok(v) = serde_json::from_str::<Value>(&text[start..=end]) {
-                return Some(v);
+    for (open, close) in [('[', ']'), ('{', '}')] {
+        if let (Some(start), Some(end)) = (text.find(open), text.rfind(close)) {
+            if end > start {
+                if let Ok(v) = serde_json::from_str::<Value>(&text[start..=end]) {
+                    return Some(v);
+                }
             }
         }
     }
     None
+}
+
+/// The list of entries in a model answer: a bare array, or the first array
+/// under one of `keys` in an object.
+fn entries(val: Value, keys: &[&str]) -> Vec<Value> {
+    match val {
+        Value::Array(items) => items,
+        Value::Object(mut map) => keys
+            .iter()
+            .find_map(|k| match map.remove(*k) {
+                Some(Value::Array(items)) => Some(items),
+                _ => None,
+            })
+            .unwrap_or_default(),
+        _ => vec![],
+    }
 }
 
 /// Collect whitelisted CSS property→value pairs from a JSON object, dropping any
@@ -258,7 +361,7 @@ fn collect_styles(map: &serde_json::Map<String, Value>, out: &mut HashMap<String
             Value::Number(n) => n.to_string(),
             _ => continue,
         };
-        if val.is_empty() {
+        if val.is_empty() || val.len() > 200 {
             continue;
         }
         let low = val.to_lowercase();
@@ -266,6 +369,7 @@ fn collect_styles(map: &serde_json::Map<String, Value>, out: &mut HashMap<String
             || low.contains("expression(")
             || low.contains("javascript:")
             || low.contains("@import")
+            || low.contains(['<', '>', '{', '}', ';'])
         {
             continue;
         }
@@ -273,10 +377,36 @@ fn collect_styles(map: &serde_json::Map<String, Value>, out: &mut HashMap<String
     }
 }
 
-/// Turn the model's JSON into a [`RestylePatch`]. Accepts either a flat object of
-/// CSS props, a `{ "styles": {…} }` wrapper, and/or a `{ "graphein"/"spec": {…} }`
-/// chart patch. `allow_chart` gates the Graphein patch.
-fn to_patch(val: Value, allow_chart: bool) -> RestylePatch {
+/// Descendant rules (`[{ selector, styles }]`) with plain, element-relative
+/// selectors only.
+fn collect_rules(map: &serde_json::Map<String, Value>) -> Vec<RestyleRule> {
+    let Some(Value::Array(arr)) = map.get("rules") else {
+        return vec![];
+    };
+    arr.iter()
+        .filter_map(|r| {
+            let Value::Object(ro) = r else { return None };
+            let sel = ro.get("selector").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if sel.is_empty() || sel.len() > 100 || sel.contains(['{', '}', '<', '@', '"', ';']) {
+                return None;
+            }
+            let mut styles = HashMap::new();
+            if let Some(Value::Object(s)) = ro.get("styles") {
+                collect_styles(s, &mut styles);
+            }
+            (!styles.is_empty()).then(|| RestyleRule { selector: sel.to_string(), styles })
+        })
+        .take(12)
+        .collect()
+}
+
+/// Keys of a variation/suggestion entry that describe it rather than style it.
+const META_KEYS: &[&str] = &["name", "description", "classes", "title", "why", "instruction", "ref", "id"];
+
+/// Turn one model entry into a patch. Accepts `{ "styles": {…}, "rules": […] }`,
+/// a flat object of CSS props, and — for charts — a `graphein`/`spec` object or
+/// the bare object itself (minus descriptive keys and any `data`).
+fn to_patch(val: &Value, allow_chart: bool) -> RestylePatch {
     let mut patch = RestylePatch::default();
     let Value::Object(map) = val else {
         return patch;
@@ -285,56 +415,114 @@ fn to_patch(val: Value, allow_chart: bool) -> RestylePatch {
         collect_styles(styles, &mut patch.styles);
     }
     if allow_chart {
-        let g = map
-            .get("graphein")
-            .or_else(|| map.get("spec"))
-            .cloned()
-            .unwrap_or_else(|| {
-                // A bare object with no wrapper keys is treated as the spec patch
-                // itself (minus a `styles` sibling / a forbidden `data` key).
-                let mut m = map.clone();
-                m.remove("styles");
-                m.remove("data");
-                Value::Object(m)
-            });
-        if let Value::Object(obj) = &g {
+        let g = map.get("graphein").or_else(|| map.get("spec")).cloned().unwrap_or_else(|| {
+            let mut m = map.clone();
+            for k in META_KEYS.iter().chain(["styles", "rules"].iter()) {
+                m.remove(*k);
+            }
+            Value::Object(m)
+        });
+        if let Value::Object(mut obj) = g {
+            obj.remove("data");
             if !obj.is_empty() {
-                patch.graphein = Some(g);
+                patch.graphein = Some(Value::Object(obj));
             }
         }
-    } else if patch.styles.is_empty() && !map.contains_key("styles") {
-        // Flat object of CSS props (no wrapper).
-        collect_styles(&map, &mut patch.styles);
-    }
-    // Descendant rules (non-chart): [{ selector, styles }]. The selector is a
-    // plain CSS selector; reject anything that could break out of a selector.
-    if !allow_chart {
-        if let Some(Value::Array(arr)) = map.get("rules") {
-            for r in arr {
-                let Value::Object(ro) = r else { continue };
-                let sel = ro.get("selector").and_then(|v| v.as_str()).unwrap_or("").trim();
-                if sel.is_empty()
-                    || sel.len() > 100
-                    || sel.contains(['{', '}', '<', '@', '"'])
-                {
-                    continue;
-                }
-                let mut styles = HashMap::new();
-                if let Some(Value::Object(s)) = ro.get("styles") {
-                    collect_styles(s, &mut styles);
-                }
-                if !styles.is_empty() {
-                    patch.rules.push(RestyleRule { selector: sel.to_string(), styles });
-                }
-            }
+    } else {
+        if patch.styles.is_empty() && !map.contains_key("styles") {
+            collect_styles(map, &mut patch.styles);
         }
+        patch.rules = collect_rules(map);
     }
     patch
 }
 
+fn clipped(val: Option<&Value>, max: usize) -> Option<String> {
+    let s = val?.as_str()?.split_whitespace().collect::<Vec<_>>().join(" ");
+    if s.is_empty() {
+        return None;
+    }
+    Some(if s.chars().count() > max { format!("{}…", s.chars().take(max).collect::<String>()) } else { s })
+}
+
+/// Tailwind utilities are plain tokens: keep only those, capped.
+fn class_hint(val: Option<&Value>) -> Option<String> {
+    let s = val?.as_str()?;
+    let tokens: Vec<&str> = s
+        .split_whitespace()
+        .filter(|t| {
+            t.len() <= 60
+                && t.chars().all(|c| c.is_ascii_alphanumeric() || "-_:/[]().%#!".contains(c))
+        })
+        .take(24)
+        .collect();
+    (!tokens.is_empty()).then(|| tokens.join(" "))
+}
+
+/// Parse up to `count` distinct, non-empty variations from a model answer.
+fn parse_variations(text: &str, is_chart: bool, count: usize) -> Vec<Variation> {
+    let Some(val) = extract_json(text) else { return vec![] };
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out = Vec::new();
+    for (i, entry) in entries(val, &["variations", "options"]).iter().enumerate() {
+        let patch = to_patch(entry, is_chart);
+        if patch.is_empty() {
+            continue;
+        }
+        let name = clipped(entry.get("name"), 32).unwrap_or_else(|| format!("Option {}", i + 1));
+        if !seen.insert(name.to_lowercase()) {
+            continue;
+        }
+        out.push(Variation {
+            name,
+            description: clipped(entry.get("description"), 140),
+            styles: patch.styles,
+            rules: patch.rules,
+            graphein: patch.graphein,
+            classes: if is_chart { None } else { class_hint(entry.get("classes")) },
+        });
+        if out.len() >= count {
+            break;
+        }
+    }
+    out
+}
+
+/// Parse up to [`MAX_SUGGESTIONS`] suggestions that target known outline refs.
+fn parse_suggestions(text: &str, refs: &HashSet<String>) -> Vec<Suggestion> {
+    let Some(val) = extract_json(text) else { return vec![] };
+    let mut out: Vec<Suggestion> = Vec::new();
+    for entry in entries(val, &["suggestions", "improvements"]) {
+        let Some(reference) = entry.get("ref").and_then(|v| v.as_str()).map(str::trim) else { continue };
+        if !refs.contains(reference) {
+            continue;
+        }
+        let (Some(title), Some(instruction)) = (clipped(entry.get("title"), 80), clipped(entry.get("instruction"), 400))
+        else {
+            continue;
+        };
+        let patch = to_patch(&entry, false);
+        out.push(Suggestion {
+            id: format!("s{}", out.len() + 1),
+            reference: reference.to_string(),
+            title,
+            why: clipped(entry.get("why"), 220).unwrap_or_default(),
+            instruction,
+            styles: patch.styles,
+            rules: patch.rules,
+        });
+        if out.len() >= MAX_SUGGESTIONS {
+            break;
+        }
+    }
+    out
+}
+
+/* ----------------------------- prompts ----------------------------- */
+
 /// Chart-type-specific display fields the model may set, appended to the shared
-/// capability menu in the chart restyle prompt. Empty for types whose editable
-/// surface is fully covered by the shared (BaseSpec) fields.
+/// capability menu. Empty for types whose editable surface is fully covered by
+/// the shared (BaseSpec) fields.
 fn chart_type_hint(chart_type: Option<&str>) -> &'static str {
     match chart_type.unwrap_or("").trim() {
         "line" => "This line chart also supports: `curve` (\"linear\"|\"monotone\"|\"step\"|\"stepBefore\"|\"stepAfter\"|\"catmullRom\"), `points` (bool — show markers), `area` (bool — fill under the line).",
@@ -348,295 +536,250 @@ fn chart_type_hint(chart_type: Option<&str>) -> &'static str {
     }
 }
 
-/// Build the restyle instruction. For charts we ask for a partial Graphein spec
-/// patch; otherwise a flat JSON object of whitelisted CSS props.
-fn build_restyle_prompt(description: &str, ctx: &RestyleContext) -> String {
-    let desc = description.trim();
-    let comp = ctx
-        .component
+const CHART_MENU: &str = r##"Each option changes the chart through a PARTIAL Graphein spec patch (only the keys it changes), deep-merged over the current spec. Use these EXACT field names:
+- TITLE: `title` — a string, or { "text": "…", "subtitle": "…", "align": "left"|"center"|"right" }.
+- THEME: `theme` — "light" or "dark".
+- COLORS: `palette` — "graphein"|"colorblind"|"bright"|"muted", OR an array of hex colors (one per series). `background` — the plot background color.
+- AXES: `axes` = { "x": {…}, "y": {…} }. Each axis takes `show` (bool), `title` (string), `grid` (bool), `ticks` (approx count), `labels` (bool), `labelAngle` (x only: 0|45|90), and `format`.
+    `format` is a number-format string: [$][,][.precision][type] — f=fixed, %=percent, s=SI, d=integer. Examples: "$,.0f"→$1,234 · ".1%"→12.3% · ".2s"→3.4M.
+- LEGEND: `legend` — { "show": true, "position": "top"|"right"|"bottom"|"left" }, or a boolean.
+- TOOLTIP: `tooltip` — { "show": true }, or a boolean.
+- ANNOTATIONS: `annotations` — reference overlays: { "type": "line"|"band"|"point", "axis": "x"|"y", "value": …, "from"/"to": …, "label": "…", "color": "#hex" }.
+- INSIGHTS: `insights` — true (mark max + min), or { "max": true, "min": true, "outliers": true }.
+- SKETCH: `sketch` — true for a hand-drawn look.
+Nested OBJECTS are deep-merged; ARRAYS are REPLACED (to add an annotation, include the existing ones). NEVER include a `data` key."##;
+
+fn component_note(ctx: &RestyleContext) -> String {
+    ctx.component
         .as_deref()
         .filter(|s| !s.is_empty())
         .map(|s| format!(" (React component <{s}>)"))
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
 
+/// Describe the element (tag, classes, text, computed styles, notable children).
+fn element_brief(ctx: &RestyleContext) -> String {
+    let mut el = format!("<{}", if ctx.tag.is_empty() { "div" } else { ctx.tag.as_str() });
+    if let Some(c) = ctx.classes.as_deref().filter(|s| !s.trim().is_empty()) {
+        el.push_str(&format!(" class=\"{}\"", c.trim()));
+    }
+    el.push('>');
+    let mut out = format!("Element: {el}");
+    if let Some(t) = ctx.text.as_deref().filter(|s| !s.trim().is_empty()) {
+        out.push_str(&format!("\nIts visible text: \"{}\".", t.trim()));
+    }
+    let mut keys: Vec<&String> = ctx.styles.keys().collect();
+    keys.sort();
+    if !keys.is_empty() {
+        out.push_str("\nCurrent computed styles:");
+        for k in keys {
+            out.push_str(&format!("\n  {}: {};", k, ctx.styles[k]));
+        }
+    }
+    if let Some(Value::Array(arr)) = &ctx.children {
+        let mut kids = String::new();
+        for c in arr.iter().take(40) {
+            let Value::Object(o) = c else { continue };
+            let tag = o.get("tag").and_then(|v| v.as_str()).unwrap_or("");
+            if tag.is_empty() {
+                continue;
+            }
+            let cls = o
+                .get("classes")
+                .and_then(|v| v.as_str())
+                .and_then(|s| s.split_whitespace().next())
+                .map(|s| format!(".{s}"))
+                .unwrap_or_default();
+            let txt = o
+                .get("text")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| format!(" \"{s}\""))
+                .unwrap_or_default();
+            kids.push_str(&format!("\n  <{tag}{cls}>{txt}"));
+        }
+        if !kids.is_empty() {
+            out.push_str("\nElements inside it (targetable via `rules`):");
+            out.push_str(&kids);
+        }
+    }
+    out
+}
+
+/// Ask for `count` distinct, named alternatives for one element.
+fn build_variations_prompt(hint: Option<&str>, ctx: &RestyleContext, count: usize) -> String {
+    let hint = hint.map(str::trim).filter(|h| !h.is_empty());
+    let goal = match hint {
+        Some(h) => format!("The user wants: \"{h}\". Propose {count} DISTINCT ways to do that."),
+        None => format!("Propose {count} DISTINCT, tasteful alternative looks that would improve it."),
+    };
+    let comp = component_note(ctx);
     if ctx.is_chart {
-        let spec = ctx
-            .spec
-            .as_ref()
-            .and_then(|s| serde_json::to_string_pretty(s).ok())
-            .unwrap_or_else(|| "{}".to_string());
-        let kind = ctx
-            .chart_type
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .map(|s| format!("{s} "))
-            .unwrap_or_default();
-        let type_hint = chart_type_hint(ctx.chart_type.as_deref());
-        let menu = r##"You change the chart by returning a PARTIAL Graphein spec patch (only the keys you change), which is deep-merged over the current spec. Use these EXACT field names:
-- TITLE: `title` — a string, or { "text": "…", "subtitle": "…", "align": "left"|"center"|"right" }.
-- THEME: `theme` — "light" or "dark".
-- COLORS: `palette` — a named scheme "graphein"|"colorblind"|"bright"|"muted", OR an array of hex colors (one per series). `background` — the plot background color.
-- AXES: `axes` = { "x": {…}, "y": {…} }. Each axis takes `show` (bool), `title` (string), `grid` (bool), `ticks` (approx count), `tickValues` (array), `labels` (bool), `labelAngle` (x only: 0|45|90), and `format`.
-    `format` is a number-format string: [$][,][.precision][type] — type f=fixed (".2f"→3.14), %=percent (".0%"→42%), s=SI (".1s"→1.2k), d=integer (",d"→1,234), e=exponential, g=significant. Examples: "$,.0f"→$1,234 · ".1%"→12.3% · ".2s"→3.4M.
-- LEGEND: `legend` — { "show": true, "position": "top"|"right"|"bottom"|"left", "title": "…", "interactive": true }, or a boolean.
-- TOOLTIP: `tooltip` — { "show": true }, or a boolean.
-- ANNOTATIONS: `annotations` — an array of reference overlays. Each: { "type": "line"|"band"|"zone"|"point", "axis": "x"|"y", "value": <for a line>, "from"/"to": <for a band/zone>, "x"/"y": <for a point>, "label": "…", "color": "#hex", "strokeWidth": 1.5, "strokeDash": [4,4], "fillOpacity": 0.12, "labelPosition": "start"|"middle"|"end" }. Examples — target line: { "type":"line","axis":"y","value":100,"label":"Target" } · danger band: { "type":"band","axis":"y","from":0,"to":50,"color":"#f43f5e","label":"Low" } · point callout: { "type":"point","x":"Q4","y":120,"label":"Peak" }.
-- INSIGHTS: `insights` — true (auto-mark the max + min points), or { "max":true, "min":true, "outliers":true }.
-- TRENDLINE: `trendline` — true, or { "method":"linear", "groupBy":true, "label":true, "color":"#hex" } (needs a continuous or temporal x-axis).
-- SKETCH: `sketch` — true for a hand-drawn look, or { "roughness":1, "font":true }.
-- PADDING: `padding` — { "top":8, "right":8, "bottom":8, "left":8 }."##;
-        let rules_note = r##"
-MERGING: nested OBJECTS are deep-merged, so send only the sub-keys you change (e.g. { "axes": { "y": { "format": "$,.0f" } } } keeps the existing x axis). But ARRAYS are REPLACED, not appended — to ADD to `annotations`, include the EXISTING annotations from the current spec above PLUS your new one(s).
-
-Return ONLY a single fenced ```json code block containing the partial patch — include ONLY the keys you are changing, use ONLY the real field names listed above, and NEVER include a `data` key. Return nothing else."##;
+        let spec = ctx.spec.as_ref().and_then(|s| serde_json::to_string_pretty(s).ok()).unwrap_or_else(|| "{}".into());
+        let kind = ctx.chart_type.as_deref().filter(|s| !s.is_empty()).map(|s| format!("{s} ")).unwrap_or_default();
         let mut p = format!(
-            "You are editing a Graphein {kind}chart{comp} in a live app. Current spec (data omitted):\n\
-```json\n{spec}\n```\n\n\
-Apply this change: \"{desc}\"\n\n{menu}"
+            "You are a data-visualization designer improving a Graphein {kind}chart{comp} in a live app. Current spec (data omitted):\n```json\n{spec}\n```\n\n{goal}\n\n{CHART_MENU}"
         );
+        let type_hint = chart_type_hint(ctx.chart_type.as_deref());
         if !type_hint.is_empty() {
             p.push('\n');
             p.push_str(type_hint);
         }
-        p.push_str(rules_note);
-        p
-    } else {
-        let mut el = format!("<{}", ctx.tag);
-        if let Some(c) = ctx.classes.as_deref().filter(|s| !s.trim().is_empty()) {
-            el.push_str(&format!(" class=\"{}\"", c.trim()));
-        }
-        el.push('>');
-        let text = ctx
-            .text
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-            .map(|s| format!("\nIts visible text: \"{}\".", s.trim()))
-            .unwrap_or_default();
-        let mut styles = String::new();
-        let mut keys: Vec<&String> = ctx.styles.keys().collect();
-        keys.sort();
-        for k in keys {
-            styles.push_str(&format!("  {}: {};\n", k, ctx.styles[k]));
-        }
-        if styles.is_empty() {
-            styles.push_str("  (none provided)\n");
-        }
-        // Compact list of descendants the model may target via `rules`.
-        let mut kids = String::new();
-        if let Some(Value::Array(arr)) = &ctx.children {
-            for c in arr.iter().take(40) {
-                let Value::Object(o) = c else { continue };
-                let tag = o.get("tag").and_then(|v| v.as_str()).unwrap_or("");
-                if tag.is_empty() {
-                    continue;
-                }
-                let cls = o
-                    .get("classes")
-                    .and_then(|v| v.as_str())
-                    .and_then(|s| s.split_whitespace().next())
-                    .map(|s| format!(".{s}"))
-                    .unwrap_or_default();
-                let txt = o
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| format!(" \"{s}\""))
-                    .unwrap_or_default();
-                kids.push_str(&format!("  <{tag}{cls}>{txt}\n"));
-            }
-        }
-        let children_section = if kids.is_empty() {
-            String::new()
-        } else {
-            format!("Elements INSIDE it you can also target via `rules`:\n{kids}\n")
-        };
-        let allowed = ALLOWED_RESTYLE_PROPS.join(", ");
-        format!(
-            "You are restyling a component{comp} in a live web app.\n\
-Element: {el}{text}\n\
-Current (relevant) computed styles:\n{styles}\n\
-{children_section}\
-Apply this visual change: \"{desc}\"\n\n\
-Return ONLY a single fenced ```json code block with this exact shape:\n\
-{{ \"styles\": {{ /* CSS prop -> value for THIS element */ }}, \"rules\": [ {{ \"selector\": \"h1\", \"styles\": {{ /* CSS prop -> value */ }} }} ] }}\n\
-- `styles` restyles the selected element itself; `rules` restyle its DESCENDANTS — \
-each `selector` is a simple CSS selector relative to the element (e.g. \"h1\", \".btn\", \"p button\"). \
-Use `rules` whenever the change should reach children (e.g. \"make the headings bigger\").\n\
-- IMPORTANT: to change MANY inner elements (e.g. \"make all the numbers green\", \"recolor every \
-button\"), you MUST target them with `rules` — setting a property like `color` on the parent will \
-NOT affect descendants that define their own value. Match them by the classes/tags listed above.\n\
-- Allowed properties ONLY (for both `styles` and each rule's `styles`): {allowed}.\n\
+        p.push_str(&format!(
+            "\n\nReturn ONLY a single fenced ```json block holding an array of {count} objects: \
+[{{ \"name\": \"2-3 word label\", \"description\": \"one short sentence\", \"graphein\": {{ /* partial spec patch */ }} }}]. Return nothing else."
+        ));
+        return p;
+    }
+    let allowed = ALLOWED_RESTYLE_PROPS.join(", ");
+    format!(
+        "You are a senior product designer restyling one element{comp} in a live web app.\n{brief}\n\n{goal} \
+Keep each option coherent with a modern, accessible UI (readable contrast, consistent radii and spacing).\n\n\
+Return ONLY a single fenced ```json block holding an array of {count} objects with this exact shape:\n\
+[{{ \"name\": \"2-3 word label\", \"description\": \"one short sentence\", \"styles\": {{ /* CSS for THIS element */ }}, \
+\"rules\": [ {{ \"selector\": \"h2\", \"styles\": {{ }} }} ], \"classes\": \"the Tailwind utilities that would produce this look\" }}]\n\
+- `styles` restyle the element itself; `rules` restyle its DESCENDANTS (simple selectors relative to the element, \
+e.g. \"h2\", \".badge\", \"p span\"). Inner elements with their own colors need `rules`.\n\
+- Allowed properties ONLY: {allowed}.\n\
 - Concrete CSS values only. NO url(), external resources, @import, or JavaScript.\n\
-- Include ONLY what you are changing; omit `rules` (or `styles`) if not needed.\n\
-Return nothing else."
-        )
-    }
+Return nothing else.",
+        brief = element_brief(ctx)
+    )
 }
 
-/// Generate a self-contained HTML/CSS snippet for a placeholder from a natural
-/// description. Runs on a transient session (defaulting to a fast `model`);
-/// returns the extracted HTML (the renderer sanitizes before injecting). Returns
-/// an error string the renderer surfaces as a soft failure.
-#[tauri::command]
-pub async fn design_generate_html(
-    state: State<'_, AppState>,
-    project_id: String,
-    description: String,
-    width: u32,
-    height: u32,
-    model: Option<String>,
-) -> Result<String, String> {
-    if description.trim().is_empty() {
-        return Err("Describe the component first.".into());
-    }
-    let Some(project) = store::find_project(&project_id) else {
-        return Err("Project not found.".into());
-    };
-
-    // Transient, uncached session (fast model) — never lands in chat history.
-    let session = state
-        .copilot
-        .transient_session(&project.path, model, None)
-        .await
-        .map_err(|_| "Couldn't reach the model.".to_string())?;
-
-    let mut st = GenState::default();
-    let mut sub = session.subscribe();
-    let prompt = build_prompt(&description, width, height);
-    let sent = session.send(MessageOptions::new(prompt)).await.is_ok();
-
-    if sent {
-        let drain = async {
-            loop {
-                match sub.recv().await {
-                    Ok(ev) => {
-                        if map_event(&ev.event_type, &ev.data, &mut st) {
-                            break;
-                        }
-                    }
-                    Err(err) => match err.kind() {
-                        RecvErrorKind::Lagged(_) => {}
-                        _ => break,
-                    },
-                }
-            }
-        };
-        if tokio::time::timeout(Duration::from_millis(RUN_TIMEOUT_MS), drain)
-            .await
-            .is_err()
-        {
-            let _ = session.abort().await;
+/// Ask for concrete, high-impact improvements to the page in the outline.
+fn build_polish_prompt(page: &PageOutline) -> String {
+    let mut outline = String::new();
+    for el in page.elements.iter().take(MAX_OUTLINE_ELEMENTS) {
+        let mut line = format!("- [{}] {} <{}>", el.reference, el.label, el.tag);
+        if let Some(t) = el.text.as_deref().filter(|t| !t.is_empty()) {
+            line.push_str(&format!(" \"{t}\""));
         }
+        if let Some(c) = el.classes.as_deref().filter(|c| !c.is_empty()) {
+            line.push_str(&format!(" class=\"{}\"", c.chars().take(160).collect::<String>()));
+        }
+        let mut keys: Vec<&String> = el.styles.keys().collect();
+        keys.sort();
+        let styles: Vec<String> = keys.iter().map(|k| format!("{k}: {}", el.styles[*k])).collect();
+        if !styles.is_empty() {
+            line.push_str(&format!(" {{{}}}", styles.join("; ")));
+        }
+        outline.push_str(&line);
+        outline.push('\n');
     }
-    let _ = session.disconnect().await;
-
-    if !sent {
-        return Err("Couldn't send the request to the model.".into());
+    let mut findings = String::new();
+    for f in page.findings.iter().take(MAX_FINDINGS) {
+        let at = f.reference.as_deref().map(|r| format!(" [{r}]")).unwrap_or_default();
+        findings.push_str(&format!("- {}{at}: {}\n", f.kind, f.message));
     }
-    let html = extract_html(&st.assistant);
-    if html.is_empty() {
-        return Err("The model didn't return any HTML.".into());
+    if findings.is_empty() {
+        findings.push_str("- none\n");
     }
-    Ok(html)
+    let title = if page.title.trim().is_empty() { "(untitled)" } else { page.title.trim() };
+    let allowed = ALLOWED_RESTYLE_PROPS.join(", ");
+    format!(
+        "You are a senior product designer doing a quick polish review of one page of a live web app \
+(title \"{title}\", route {route}, viewport {viewport}). The attached screenshot (when present) shows it as rendered.\n\n\
+Notable elements, each with a ref in brackets:\n{outline}\n\
+Automated checks found:\n{findings}\n\
+Suggest up to {MAX_SUGGESTIONS} concrete, high-impact visual improvements — hierarchy, spacing rhythm, alignment, contrast, \
+consistency, emphasis of the primary action. Prefer fixing the automated findings. Each suggestion targets ONE element by its ref, \
+and includes a small CSS preview of the change for that element (and optional descendant `rules`).\n\n\
+Return ONLY a single fenced ```json block holding an array:\n\
+[{{ \"ref\": \"r3\", \"title\": \"short imperative title\", \"why\": \"one sentence on the benefit\", \
+\"instruction\": \"what to change in the source, specifically\", \"styles\": {{ }}, \"rules\": [ {{ \"selector\": \"h2\", \"styles\": {{ }} }} ] }}]\n\
+- Allowed CSS properties ONLY: {allowed}. Concrete values; NO url(), @import, or JavaScript.\n\
+- Only refs from the list above. Skip anything you can't preview with CSS unless the instruction is still clearly valuable.\n\
+Return nothing else.",
+        route = if page.route.is_empty() { "/" } else { page.route.as_str() },
+        viewport = page.viewport,
+    )
 }
 
-/// Restyle an existing element from a natural-language instruction ("Edit with
-/// AI"). Runs on a transient session (defaulting to a fast `model`) and returns a
-/// structured [`RestylePatch`] — whitelisted inline CSS props (+ an optional
-/// Graphein spec patch for charts) — which the in-page controller applies as
-/// revertable change-set entries. Returns an error string surfaced as a soft
-/// failure.
+/* ----------------------------- commands ----------------------------- */
+
+fn project_path(project_id: &str) -> Result<String, String> {
+    store::find_project(project_id).map(|p| p.path).ok_or_else(|| "Project not found.".to_string())
+}
+
+/// Propose `count` (default 3) named alternative looks for one element, as
+/// previewable patches. Runs on a transient, read-only session (defaulting to a
+/// fast `model`). Returns a soft error string the UI shows in place.
 #[tauri::command]
-pub async fn design_restyle_element(
+pub async fn design_variations(
     state: State<'_, AppState>,
     project_id: String,
-    description: String,
     context: RestyleContext,
+    hint: Option<String>,
+    count: Option<usize>,
     model: Option<String>,
-) -> Result<RestylePatch, String> {
-    if description.trim().is_empty() {
-        return Err("Describe the change first.".into());
+) -> Result<Vec<Variation>, String> {
+    let cwd = project_path(&project_id)?;
+    let count = count.unwrap_or(DEFAULT_VARIATIONS).clamp(1, MAX_VARIATIONS);
+    let prompt = build_variations_prompt(hint.as_deref(), &context, count);
+    let reply = run_transient(&state, &cwd, model, prompt, &[]).await?;
+    let options = parse_variations(&reply, context.is_chart, count);
+    if options.is_empty() {
+        return Err("Couldn't come up with options — try describing what you want.".into());
     }
-    let Some(project) = store::find_project(&project_id) else {
-        return Err("Project not found.".into());
-    };
+    Ok(options)
+}
 
-    // Transient, uncached session (fast model) — never lands in chat history.
-    let session = state
-        .copilot
-        .transient_session(&project.path, model, None)
-        .await
-        .map_err(|_| "Couldn't reach the model.".to_string())?;
-
-    let mut st = GenState::default();
-    let mut sub = session.subscribe();
-    let prompt = build_restyle_prompt(&description, &context);
-    let sent = session.send(MessageOptions::new(prompt)).await.is_ok();
-
-    if sent {
-        let drain = async {
-            loop {
-                match sub.recv().await {
-                    Ok(ev) => {
-                        if map_event(&ev.event_type, &ev.data, &mut st) {
-                            break;
-                        }
-                    }
-                    Err(err) => match err.kind() {
-                        RecvErrorKind::Lagged(_) => {}
-                        _ => break,
-                    },
-                }
-            }
-        };
-        if tokio::time::timeout(Duration::from_millis(RUN_TIMEOUT_MS), drain)
-            .await
-            .is_err()
-        {
-            let _ = session.abort().await;
+/// Review a page outline (and an optional screenshot, one of Fabricator's own
+/// temp captures) and suggest up to six previewable improvements. Retries
+/// without the screenshot when the model can't use it. The capture is deleted
+/// afterwards.
+#[tauri::command]
+pub async fn design_polish(
+    state: State<'_, AppState>,
+    project_id: String,
+    page: PageOutline,
+    screenshot_path: Option<String>,
+    model: Option<String>,
+) -> Result<Vec<Suggestion>, String> {
+    let shot = screenshot_path.as_deref().and_then(screenshot::owned_capture_path);
+    let result: Result<Vec<Suggestion>, String> = async {
+        let cwd = project_path(&project_id)?;
+        if page.elements.is_empty() {
+            return Err("There's nothing on this page to review yet.".to_string());
         }
+        let refs: HashSet<String> = page.elements.iter().map(|e| e.reference.clone()).collect();
+        let prompt = build_polish_prompt(&page);
+        let attachments: Vec<PathBuf> = shot.iter().cloned().collect();
+        let first = run_transient(&state, &cwd, model.clone(), prompt.clone(), &attachments).await;
+        let mut suggestions = first.as_deref().map(|reply| parse_suggestions(reply, &refs)).unwrap_or_default();
+        if suggestions.is_empty() && !attachments.is_empty() {
+            let reply = run_transient(&state, &cwd, model, prompt, &[]).await?;
+            suggestions = parse_suggestions(&reply, &refs);
+        } else if let Err(error) = first {
+            return Err(error);
+        }
+        if suggestions.is_empty() {
+            return Err("No clear improvements found for this page.".to_string());
+        }
+        Ok(suggestions)
     }
-    let _ = session.disconnect().await;
+    .await;
+    if let Some(path) = screenshot_path {
+        screenshot::cleanup(&[path]);
+    }
+    result
+}
 
-    if !sent {
-        return Err("Couldn't send the request to the model.".into());
-    }
-    let Some(val) = extract_json(&st.assistant) else {
-        return Err("The model didn't return a usable change.".into());
-    };
-    let patch = to_patch(val, context.is_chart);
-    if patch.styles.is_empty() && patch.graphein.is_none() && patch.rules.is_empty() {
-        return Err("The model didn't suggest any applicable changes.".into());
-    }
-    Ok(patch)
+/// Find the likely source lines behind picked elements (heuristic hints) and the
+/// project's Tailwind entry stylesheet.
+#[tauri::command]
+pub async fn design_locate(project_id: String, targets: Vec<LocateTarget>) -> Result<LocateResult, String> {
+    let root = PathBuf::from(project_path(&project_id)?);
+    let targets: Vec<LocateTarget> = targets.into_iter().take(40).collect();
+    tokio::task::spawn_blocking(move || design_locate::locate(&root, &targets))
+        .await
+        .map_err(|e| format!("Source lookup failed: {e}"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn extract_html_prefers_last_fenced_block() {
-        let text = "sure, here you go:\n```html\n<div class=\"card\">Hi</div>\n```\nlet me know!";
-        assert_eq!(extract_html(text), "<div class=\"card\">Hi</div>");
-    }
-
-    #[test]
-    fn extract_html_strips_language_tag_only() {
-        let text = "```html\n<p>x</p>\n```";
-        assert_eq!(extract_html(text), "<p>x</p>");
-    }
-
-    #[test]
-    fn extract_html_falls_back_to_tag_span() {
-        let text = "no fences but <section>hello</section> here";
-        assert_eq!(extract_html(text), "<section>hello</section>");
-    }
-
-    #[test]
-    fn extract_html_empty_when_no_markup() {
-        assert_eq!(extract_html("just prose, no tags"), "");
-    }
 
     #[test]
     fn extract_json_prefers_last_fenced_block() {
@@ -646,118 +789,156 @@ mod tests {
     }
 
     #[test]
-    fn extract_json_falls_back_to_brace_span() {
-        let text = "no fences but {\"border-radius\":\"8px\"} here";
-        let v = extract_json(text).expect("json");
-        assert_eq!(v["border-radius"], "8px");
-    }
-
-    #[test]
-    fn extract_json_none_when_no_object() {
+    fn extract_json_falls_back_to_array_then_brace_span() {
+        let arr = extract_json("here: [{\"name\":\"A\"}] done").expect("array");
+        assert!(arr.is_array());
+        let obj = extract_json("no fences but {\"border-radius\":\"8px\"} here").expect("object");
+        assert_eq!(obj["border-radius"], "8px");
         assert!(extract_json("just prose, no json").is_none());
     }
 
     #[test]
-    fn collect_styles_keeps_only_whitelisted_props() {
+    fn collect_styles_keeps_only_whitelisted_safe_values() {
         let map = serde_json::json!({
             "color": "#fff",
             "background-color": "#0f766e",
             "position": "absolute",
-            "onclick": "evil()"
+            "onclick": "evil()",
+            "background-image": "url(https://evil.example/x.png)",
+            "background": "expression(alert(1))",
+            "border": "1px solid red; position: fixed",
+            "border-radius": "9999px"
         });
         let mut out = HashMap::new();
         collect_styles(map.as_object().unwrap(), &mut out);
         assert_eq!(out.get("color").map(String::as_str), Some("#fff"));
         assert_eq!(out.get("background-color").map(String::as_str), Some("#0f766e"));
-        assert!(!out.contains_key("position"));
-        assert!(!out.contains_key("onclick"));
-    }
-
-    #[test]
-    fn collect_styles_rejects_external_and_script_values() {
-        let map = serde_json::json!({
-            "background-image": "url(https://evil.example/x.png)",
-            "background": "expression(alert(1))",
-            "color": "javascript:alert(1)",
-            "border-radius": "9999px"
-        });
-        let mut out = HashMap::new();
-        collect_styles(map.as_object().unwrap(), &mut out);
-        assert!(!out.contains_key("background-image"));
-        assert!(!out.contains_key("background"));
-        assert!(!out.contains_key("color"));
         assert_eq!(out.get("border-radius").map(String::as_str), Some("9999px"));
+        for dropped in ["position", "onclick", "background-image", "background", "border"] {
+            assert!(!out.contains_key(dropped), "{dropped}");
+        }
     }
 
     #[test]
-    fn to_patch_flat_styles_object() {
-        let v = serde_json::json!({ "color": "#fff", "font-size": "18px" });
-        let patch = to_patch(v, false);
-        assert_eq!(patch.styles.len(), 2);
-        assert!(patch.graphein.is_none());
+    fn in_page_controller_rechecks_the_same_property_list() {
+        let js = include_str!("../services/design_agent.js");
+        let start = js.find("var SAFE_PROPS = [").expect("SAFE_PROPS in design_agent.js");
+        let list = &js[start..start + js[start..].find("];").expect("end of SAFE_PROPS")];
+        for prop in ALLOWED_RESTYLE_PROPS {
+            assert!(list.contains(&format!("'{prop}'")), "design_agent.js SAFE_PROPS is missing {prop}");
+        }
+        assert_eq!(list.matches('\'').count() / 2, ALLOWED_RESTYLE_PROPS.len(), "SAFE_PROPS has extra properties");
     }
 
     #[test]
-    fn to_patch_styles_wrapper() {
-        let v = serde_json::json!({ "styles": { "opacity": "0.5" } });
-        let patch = to_patch(v, false);
-        assert_eq!(patch.styles.get("opacity").map(String::as_str), Some("0.5"));
-    }
-
-    #[test]
-    fn to_patch_chart_bare_object_is_spec_patch() {
-        let v = serde_json::json!({ "type": "line", "title": "Revenue" });
-        let patch = to_patch(v, true);
-        assert!(patch.styles.is_empty());
-        let g = patch.graphein.expect("graphein");
-        assert_eq!(g["type"], "line");
-        assert_eq!(g["title"], "Revenue");
-    }
-
-    #[test]
-    fn to_patch_chart_wrapper_and_strips_data() {
-        let v = serde_json::json!({ "graphein": { "palette": "bright" }, "data": [1, 2, 3] });
-        let patch = to_patch(v, true);
-        let g = patch.graphein.expect("graphein");
-        assert_eq!(g["palette"], "bright");
-    }
-
-    #[test]
-    fn to_patch_chart_bare_object_drops_data_key() {
-        let v = serde_json::json!({ "type": "bar", "data": [1, 2] });
-        let patch = to_patch(v, true);
-        let g = patch.graphein.expect("graphein");
-        assert_eq!(g["type"], "bar");
-        assert!(g.get("data").is_none());
-    }
-
-    #[test]
-    fn to_patch_parses_descendant_rules() {
+    fn to_patch_reads_styles_rules_and_flat_objects() {
         let v = serde_json::json!({
+            "name": "Pill",
             "styles": { "border-radius": "16px" },
             "rules": [
                 { "selector": "h1", "styles": { "font-size": "32px", "position": "absolute" } },
-                { "selector": ".btn", "styles": { "background-color": "#0f766e" } }
-            ]
-        });
-        let patch = to_patch(v, false);
-        assert_eq!(patch.styles.get("border-radius").map(String::as_str), Some("16px"));
-        assert_eq!(patch.rules.len(), 2);
-        assert_eq!(patch.rules[0].selector, "h1");
-        assert_eq!(patch.rules[0].styles.get("font-size").map(String::as_str), Some("32px"));
-        assert!(!patch.rules[0].styles.contains_key("position")); // whitelist applies to rules too
-    }
-
-    #[test]
-    fn to_patch_rejects_dangerous_rule_selectors() {
-        let v = serde_json::json!({
-            "rules": [
                 { "selector": "h1 { } body", "styles": { "color": "#fff" } },
                 { "selector": "p", "styles": {} }
             ]
         });
-        let patch = to_patch(v, false);
-        assert!(patch.rules.is_empty()); // bad selector dropped, empty-styles rule dropped
+        let patch = to_patch(&v, false);
+        assert_eq!(patch.styles.get("border-radius").map(String::as_str), Some("16px"));
+        assert_eq!(patch.rules.len(), 1);
+        assert!(!patch.rules[0].styles.contains_key("position"));
+        let flat = to_patch(&serde_json::json!({ "name": "x", "color": "#111" }), false);
+        assert_eq!(flat.styles.get("color").map(String::as_str), Some("#111"));
+    }
+
+    #[test]
+    fn chart_patches_drop_data_and_descriptive_keys() {
+        let bare = to_patch(&serde_json::json!({ "name": "Bars", "description": "x", "type": "bar", "data": [1] }), true);
+        let g = bare.graphein.expect("graphein");
+        assert_eq!(g["type"], "bar");
+        assert!(g.get("data").is_none() && g.get("name").is_none() && g.get("description").is_none());
+        let wrapped = to_patch(&serde_json::json!({ "graphein": { "palette": "bright", "data": [1] } }), true);
+        assert_eq!(wrapped.graphein.expect("graphein"), serde_json::json!({ "palette": "bright" }));
+    }
+
+    #[test]
+    fn parse_variations_names_dedupes_and_caps() {
+        let reply = r##"```json
+[
+  { "name": "Pill", "description": "Fully rounded", "styles": { "border-radius": "9999px" }, "classes": "rounded-full px-5 <script>" },
+  { "name": "pill", "styles": { "border-radius": "20px" } },
+  { "name": "Nothing", "styles": { "position": "fixed" } },
+  { "styles": { "box-shadow": "0 8px 24px rgba(0,0,0,.2)" } },
+  { "name": "Outline", "styles": { "background-color": "transparent", "border": "1px solid #4f46e5" } }
+]
+```"##;
+        let got = parse_variations(reply, false, 2);
+        assert_eq!(got.len(), 2);
+        assert_eq!(got[0].name, "Pill");
+        assert_eq!(got[0].classes.as_deref(), Some("rounded-full px-5"));
+        assert_eq!(got[1].name, "Option 4"); // unnamed entry gets a positional name
+        let wrapped = parse_variations(r##"{"variations":[{"name":"A","styles":{"color":"#222"}}]}"##, false, 3);
+        assert_eq!(wrapped.len(), 1);
+    }
+
+    #[test]
+    fn parse_suggestions_requires_known_refs_and_instructions() {
+        let refs: HashSet<String> = ["r1".to_string(), "r2".to_string()].into_iter().collect();
+        let reply = r##"[
+          { "ref": "r1", "title": "Raise the primary action", "why": "It's easy to miss.", "instruction": "Make the Add deal button a filled indigo button.", "styles": { "background-color": "#4f46e5" } },
+          { "ref": "r9", "title": "Unknown", "instruction": "x" },
+          { "ref": "r2", "title": "No instruction" },
+          { "ref": "r2", "title": "Tighten spacing", "instruction": "Reduce the card padding to p-4." }
+        ]"##;
+        let got = parse_suggestions(reply, &refs);
+        assert_eq!(got.len(), 2);
+        assert_eq!((got[0].id.as_str(), got[0].reference.as_str()), ("s1", "r1"));
+        assert_eq!(got[0].styles.get("background-color").map(String::as_str), Some("#4f46e5"));
+        assert_eq!(got[1].id, "s2");
+        assert!(got[1].styles.is_empty());
+        let json = serde_json::to_value(&got[0]).unwrap();
+        assert_eq!(json["ref"], "r1");
+    }
+
+    #[test]
+    fn variations_prompt_covers_elements_and_charts() {
+        let el = RestyleContext { tag: "button".into(), classes: Some("rounded-lg bg-indigo-600".into()), ..Default::default() };
+        let p = build_variations_prompt(Some("make it feel more premium"), &el, 3);
+        assert!(p.contains("make it feel more premium"));
+        assert!(p.contains("Allowed properties ONLY"));
+        assert!(p.contains("\"classes\""));
+        assert!(p.contains("array of 3 objects"));
+        let chart = RestyleContext {
+            is_chart: true,
+            chart_type: Some("bar".into()),
+            spec: Some(serde_json::json!({ "type": "bar", "title": "Revenue" })),
+            ..Default::default()
+        };
+        let c = build_variations_prompt(None, &chart, 2);
+        assert!(c.contains("\"title\": \"Revenue\""));
+        assert!(c.contains("orientation")); // bar-specific hint
+        assert!(c.contains("NEVER include a `data` key"));
+        assert!(c.contains("\"graphein\""));
+    }
+
+    #[test]
+    fn polish_prompt_lists_refs_and_findings() {
+        let page = PageOutline {
+            route: "/deals".into(),
+            title: "Deals".into(),
+            viewport: serde_json::json!({ "w": 1280, "h": 800 }),
+            elements: vec![OutlineElement {
+                reference: "r1".into(),
+                label: "Button · Add deal".into(),
+                tag: "button".into(),
+                text: Some("Add deal".into()),
+                styles: HashMap::from([("color".into(), "rgb(255, 255, 255)".into())]),
+                ..Default::default()
+            }],
+            findings: vec![Finding { reference: Some("r1".into()), kind: "contrast".into(), message: "2.1:1 text contrast".into() }],
+        };
+        let p = build_polish_prompt(&page);
+        assert!(p.contains("[r1] Button · Add deal <button> \"Add deal\""));
+        assert!(p.contains("contrast [r1]: 2.1:1 text contrast"));
+        assert!(p.contains("route /deals"));
     }
 
     #[test]
@@ -766,61 +947,7 @@ mod tests {
         assert!(chart_type_hint(Some("pie")).contains("donut"));
         assert!(chart_type_hint(Some("line")).contains("curve"));
         assert!(chart_type_hint(Some("combo")).contains("layers"));
-        assert_eq!(chart_type_hint(Some("gauge")), ""); // no distinctive hint → shared menu only
+        assert_eq!(chart_type_hint(Some("gauge")), "");
         assert_eq!(chart_type_hint(None), "");
-    }
-
-    #[test]
-    fn chart_prompt_includes_capability_menu_and_type_hint() {
-        let ctx = RestyleContext {
-            is_chart: true,
-            chart_type: Some("line".into()),
-            spec: Some(serde_json::json!({
-                "type": "line",
-                "encoding": { "x": { "field": "month" }, "y": { "field": "revenue" } }
-            })),
-            ..Default::default()
-        };
-        let p = build_restyle_prompt("add a target line at 100 and format the axis as currency", &ctx);
-        // The request + current spec are present.
-        assert!(p.contains("add a target line at 100"));
-        assert!(p.contains("\"field\": \"revenue\"")); // spec dumped
-        // Shared capability menu: annotations, palette, axis format, legend, insights.
-        assert!(p.contains("annotations"));
-        assert!(p.contains("palette"));
-        assert!(p.contains("format"));
-        assert!(p.contains("legend"));
-        assert!(p.contains("insights"));
-        // Number-format cheatsheet + a concrete example.
-        assert!(p.contains("$,.0f"));
-        // Line-specific hint appended.
-        assert!(p.contains("curve"));
-        // Merge/array-replacement guidance + the never-data contract.
-        assert!(p.contains("ARRAYS are REPLACED"));
-        assert!(p.contains("deep-merged"));
-        assert!(p.contains("NEVER include a `data` key"));
-    }
-
-    #[test]
-    fn chart_prompt_pie_includes_donut_and_labels() {
-        let ctx = RestyleContext {
-            is_chart: true,
-            chart_type: Some("pie".into()),
-            spec: Some(serde_json::json!({ "type": "pie" })),
-            ..Default::default()
-        };
-        let p = build_restyle_prompt("turn it into a donut with outside labels", &ctx);
-        assert!(p.contains("donut"));
-        assert!(p.contains("labels"));
-        assert!(p.contains("annotations")); // shared menu still present
-    }
-
-    #[test]
-    fn non_chart_prompt_still_asks_for_whitelisted_css() {
-        let ctx = RestyleContext { tag: "div".into(), ..Default::default() };
-        let p = build_restyle_prompt("make it teal with rounded corners", &ctx);
-        assert!(p.contains("Allowed properties"));
-        assert!(p.contains("rules")); // descendant-targeting guidance
-        assert!(!p.contains("Graphein")); // not the chart branch
     }
 }

@@ -104,25 +104,22 @@ The chat keeps the agent's answer front and center. While a turn runs, its steps
 
 After a successful chat turn, Fabricator automatically redeploys changes since the last deployed revision, including edits the agent has already committed. Unchanged content does not trigger another deploy. If the deployed revision is unknown (for example, after switching to another deployment), the next successful turn deploys once to establish a baseline. Failed or cancelled turns do not auto-deploy; if checking for changes fails, Fabricator shows an error with guidance to use **Redeploy**.
 
-**Preview.** A native inline preview loads your running app — navigation, reload, browser devtools (inspector), focus mode, a Fabric portal shell toggle, and annotate-a-screenshot-straight-into-chat.
+**Preview.** A native inline preview loads your running app — navigation, reload, browser devtools (inspector), focus mode, a Fabric portal shell toggle, and **Design**, which lets you point at your app to change it (below).
 
 The native preview follows the renderer's display scale and browser/pinch zoom, including moves between monitors. Creation, positioning, and visibility commands stay ordered so a slow-starting preview cannot leave an old surface over the chat or other tabs.
 
-### Design Studio (preview)
+### Design
 
-Enable **Settings → Experiments → Design Studio**, then choose **Design** in the preview toolbar. Your app fills the canvas—there is no permanent inspector or tool rail. Click text to type in place, or select a button or card for a small contextual palette. Text offers Color, Size, and Weight; buttons offer Color, Shape, and Look; containers offer Color, Space, and Look. Ordinary edits do not require a prompt or a model request.
+Choose **Design** in the preview toolbar, then click anything in your deployed app, either the direct view or the one embedded in Fabric. A card opens beside the element. Type what should change, or pick one of the suggestions for that kind of element. You can also change it directly:
 
-Form controls have styling tools tailored to the control: fill or accent color, text or control size, and rounded corners. Design does not edit their values or options. Lists, flex stacks, and grids offer Color, Space, and Layout for spacing between items, direction, alignment, wrapping, list markers, or column counts as appropriate, without replacing their items.
+- **Quick tweaks.** Edit text, pick a text or background color from your app's own palettes, step the size or spacing, or set corners, shadow, weight and alignment. You can also hide the element or move it among its siblings. Hover a swatch or choice to preview it; click to keep it. Tweaks are recorded in your app's Tailwind vocabulary, for example `text-sm → text-lg`.
+- **Charts.** Change a Graphein chart's type, palette, legend, sort, orientation, title and value format, and see it update live.
+- **Options.** Ask a fast model for three alternative looks for the element. Hover one to preview it; click to apply it. Your typed text guides the options.
+- **All like this.** Apply a change to every element that looks the same.
 
-The popover follows the interface theme and text size. Swatches show the selected color, Look tiles preview the treatment, and sliders show their live value. On tighter canvases, longer layout palettes scroll while their action row stays visible. Motion respects the system's reduced-motion preference.
+Everything previews live in the app, and each element gets one numbered change that you can undo or remove. **Theme** tries a new accent, neutral colors, corner radius, density or font across the whole app, and a light/dark preview if your app has both. **✦ Polish** runs a quick design review of the page. It suggests fixes such as low contrast, small tap targets or inconsistent corners, which you can preview and add. The Desktop, Tablet and Phone buttons change the preview width.
 
-Edits are **local design drafts**, not saved source changes. Preview a color or look before committing it, and use Undo or keyboard Redo to experiment safely. Acknowledged drafts are stored on this device for recovery after reloads and app restarts. Hold **Before** to compare, or choose **Use app** to interact normally. **Changes** opens an on-demand review area; missing targets and source changes are explained there rather than silently guessed.
-
-**Apply changes** sends the recorded changes to Copilot, then automatically deploys the updated project while keeping Design open. It preserves your chat draft and attachments. Deployment publishes the current project, including other pending source changes; it is not an isolated deployment of only the selected visual edits. A failed deployment can be retried without rerunning completed source edits. Interrupted or partially applied source work is recovered through Changes, not Chat's generic Retry or Resume actions.
-
-Use Desktop or Phone for a quick size change. Preview settings also offers a tablet size and local, directly deployed, or Fabric-embedded sources. Local preview requires the project's installed Vite and any backend/environment/sign-in prerequisites that the app itself needs. Design can keep that server open independently of chat turns; another app using Rayfin's fixed local port must be resolved before starting it.
-
-Design Studio remains opt-in. The on-canvas editing and source-to-Fabric publishing flow has been exercised on Windows; macOS native acceptance is still required before a broader rollout. The original Design experience remains available with the experiment off. Native controller changes require restarting the rebuilt desktop app, not only refreshing the renderer.
+Queued changes appear as chips in the chat composer, so you can review them, open one again, or drop one. Press **Send** in the composer or the Design bar to send them all as one request. Anything you type becomes a note. Fabricator attaches a screenshot of the previewed result, a crop of each changed element, and the likely source locations. Your message shows a Design card instead of the raw instructions; expand **Details sent to Copilot** to see exactly what went out. Copilot then edits the source, and the usual automatic redeploy shows the real result. **Try again** and **Retry** re-send the same changes.
 
 ### Validation and maintenance
 

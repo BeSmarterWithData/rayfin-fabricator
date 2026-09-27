@@ -8,10 +8,9 @@
 //! is wired from the last recorded deployment. The spawned server is long-lived:
 //! [`dev_start`] returns once Vite prints its `Local:` URL but leaves the process
 //! running under a per-project handle until [`dev_stop`] (or app exit) tree-kills
-//! it. Chat and Design are independent owners; only the last release stops it.
-//! Locally installed Vite is sufficient; no `dev` script is required.
+//! it. Locally installed Vite is sufficient; no `dev` script is required.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
@@ -131,15 +130,11 @@ struct DevHandle {
     cancel: CancelToken,
     /// The resolved `localhost` URL once Vite is ready.
     url: Option<String>,
-    owners: HashSet<DevOwner>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DevOwner { Chat, Design }
-
 /// Per-project registry of live Vite dev servers (Tauri managed state). Cloneable
-/// so the spawn monitor task can update / remove its own entry.
+/// so the spawn monitor task can update / remove its own entry. `lifecycle`
+/// serializes start/stop so a turn-end stop can't race the next turn's start.
 #[derive(Default, Clone)]
 pub struct DevServers {
     inner: Arc<Mutex<HashMap<String, DevHandle>>>,
@@ -147,21 +142,11 @@ pub struct DevServers {
 }
 
 impl DevServers {
+    /// Whether this project has a live, Fabricator-started server on the
+    /// canonical local port.
     pub fn owns_project(&self, project_id: &str) -> bool {
         self.inner.lock().unwrap().get(project_id)
-            .is_some_and(|h| !h.cancel.is_cancelled() && h.url.as_deref() == Some(LOCAL_URL) && !h.owners.is_empty())
-    }
-
-    fn release_owner(&self, project_id: &str, owner: DevOwner) -> bool {
-        let mut handles = self.inner.lock().unwrap();
-        if let Some(h) = handles.get_mut(project_id) {
-            if !h.owners.remove(&owner) { return false; }
-            if h.owners.is_empty() {
-                h.cancel.cancel();
-                return true;
-            }
-        }
-        false
+            .is_some_and(|h| !h.cancel.is_cancelled() && h.url.as_deref() == Some(LOCAL_URL))
     }
 }
 
@@ -226,27 +211,27 @@ pub async fn dev_start(
     app: AppHandle,
     state: State<'_, DevServers>,
     project_id: String,
-    owner: Option<DevOwner>,
 ) -> AppResult<DevServerResult> {
+    // Run in a task that owns the lifecycle, so the server bookkeeping completes
+    // even if the invoking renderer stops awaiting this IPC call.
     let servers = state.inner().clone();
-    tokio::spawn(async move { start_owned(app, servers, project_id, owner.unwrap_or(DevOwner::Chat)).await })
+    tokio::spawn(async move { start_server(app, servers, project_id).await })
         .await.map_err(|e| crate::error::AppError::Msg(format!("Local preview task failed: {e}")))?
 }
 
-async fn start_owned(app: AppHandle, state: DevServers, project_id: String, owner: DevOwner) -> AppResult<DevServerResult> {
+async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> AppResult<DevServerResult> {
     let _lifecycle = state.lifecycle.lock().await;
     // Idempotent: if a server is already up for this project, return its URL.
     {
-        let mut handles = state.inner.lock().unwrap();
-        if let Some(h) = handles.get_mut(&project_id) {
+        let handles = state.inner.lock().unwrap();
+        if let Some(h) = handles.get(&project_id) {
             if let Some(url) = h.url.clone().filter(|_| !h.cancel.is_cancelled()) {
-                h.owners.insert(owner);
                 return Ok(DevServerResult { ok: true, outcome: "running".into(), url: Some(url), error: None });
             }
-            return Ok(failed("The owned local preview is still starting or stopping. Retry after it finishes."));
+            return Ok(failed("The local preview is still starting or stopping. Retry after it finishes."));
         }
         if !handles.is_empty() {
-            return Ok(failed("Another Fabricator project owns localhost:5173. Leave its Design preview or wait for its chat preview to stop, then retry."));
+            return Ok(failed("Another Fabricator project's local preview owns localhost:5173. Wait for its chat turn to finish, then retry."));
         }
     }
 
@@ -339,7 +324,6 @@ async fn start_owned(app: AppHandle, state: DevServers, project_id: String, owne
             pid,
             cancel: cancel.clone(),
             url: None,
-            owners: HashSet::from([owner]),
         },
     );
 
@@ -437,21 +421,22 @@ async fn start_owned(app: AppHandle, state: DevServers, project_id: String, owne
     }
 }
 
-/// Stop the project's Vite dev server (tree-kill) if one is running. No-op when
-/// none is tracked, so this is safe to call unconditionally at turn end.
+/// Stop the project's Vite dev server (tree-kill) if one is running and wait for
+/// it to exit. No-op when none is tracked, so this is safe to call
+/// unconditionally at turn end. Never touches an untracked process.
 #[tauri::command]
-pub async fn dev_stop(state: State<'_, DevServers>, project_id: String, owner: Option<DevOwner>) -> AppResult<()> {
+pub async fn dev_stop(state: State<'_, DevServers>, project_id: String) -> AppResult<()> {
     let _lifecycle = state.lifecycle.lock().await;
-    let last = state.release_owner(&project_id, owner.unwrap_or(DevOwner::Chat));
-    if last {
-        stop_project(&state, &project_id);
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-        while state.inner.lock().unwrap().contains_key(&project_id) {
-            if tokio::time::Instant::now() >= deadline {
-                return Err(crate::error::AppError::Msg("The owned Vite process is still stopping. Retry shortly; no unowned process was killed.".into()));
-            }
-            tokio::time::sleep(Duration::from_millis(50)).await;
+    if !state.inner.lock().unwrap().contains_key(&project_id) {
+        return Ok(());
+    }
+    stop_project(&state, &project_id);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while state.inner.lock().unwrap().contains_key(&project_id) {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(crate::error::AppError::Msg("The local Vite process is still stopping. Retry shortly; no unowned process was killed.".into()));
         }
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     Ok(())
 }
@@ -527,26 +512,26 @@ mod tests {
     }
 
     #[test]
-    fn design_local_preview_has_independent_chat_and_design_owners() {
+    fn owns_project_only_for_a_live_server_on_the_canonical_port() {
         let servers = DevServers::default();
         let cancel = CancelToken::new();
         servers.inner.lock().unwrap().insert("p".into(), DevHandle {
             pid: None, cancel: cancel.clone(), url: Some(LOCAL_URL.into()),
-            owners: HashSet::from([DevOwner::Chat, DevOwner::Design]),
         });
-        assert!(!servers.release_owner("p", DevOwner::Chat));
+        servers.inner.lock().unwrap().insert("starting".into(), DevHandle {
+            pid: None, cancel: CancelToken::new(), url: None,
+        });
         assert!(servers.owns_project("p"));
-        assert!(!cancel.is_cancelled());
-        assert!(!servers.release_owner("p", DevOwner::Chat));
-        assert!(servers.release_owner("p", DevOwner::Design));
+        assert!(!servers.owns_project("starting"));
+        assert!(!servers.owns_project("untracked"));
+        stop_project(&servers, "p");
         assert!(cancel.is_cancelled());
         assert!(!servers.owns_project("p"));
-        assert!(!servers.owns_project("untracked"));
     }
 
     #[test]
     fn dev_supported_detects_installed_vite() {
-        let dir = crate::services::design_store::test_dir();
+        let dir = std::env::temp_dir().join(format!("rayfin-dev-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
 
         // No Vite installed → unsupported.

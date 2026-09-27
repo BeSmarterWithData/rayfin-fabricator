@@ -34,4 +34,10 @@ export interface OutboundPrompt {
    * so the user can append their actual request before sending.
    */
   stage?: boolean
+  /**
+   * Send the queued Design changes (the preview toolbar's "Send") — the composer
+   * text becomes the note, exactly as if the user pressed Send in the composer.
+   * `display` and `prompt` are ignored.
+   */
+  design?: boolean
 }

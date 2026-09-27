@@ -323,12 +323,10 @@ pub async fn deploy_run(
   app: AppHandle,
   project_id: String,
   workspace: Option<String>,
-  apply_id: Option<String>,
 ) -> DeployResult {
   // Keep ownership attached to actual process completion, not to the invoking
-  // renderer's lifetime. This is the existing deployment engine, not a second
-  // queue or an independent Design publication pipeline.
-  match tokio::spawn(async move { run_deploy(app, project_id, workspace, apply_id).await }).await {
+  // renderer's lifetime.
+  match tokio::spawn(async move { run_deploy(app, project_id, workspace).await }).await {
     Ok(result) => result,
     Err(error) => deployment_error(format!("Deployment task failed: {error}")),
   }
@@ -337,39 +335,19 @@ pub async fn deploy_run(
 /// Core deploy routine shared by the [`deploy_run`] command and Fabricator's
 /// after-turn auto-deploy. Runs `rayfin up` (streamed to the
 /// `deploy:run` UI channel), records the outcome in the store, and returns the
-/// resolved live URL on success.
+/// resolved live URL on success. Holds the project's mutation lease for the
+/// whole run so a chat turn can't edit source mid-deploy.
 pub(crate) async fn run_deploy(
   app: AppHandle,
   project_id: String,
   workspace: Option<String>,
-  apply_id: Option<String>,
 ) -> DeployResult {
   let state = app.state::<crate::state::AppState>();
-  let lease = if let Some(id) = &apply_id {
-    match crate::services::design_apply::cached_deployment(&project_id, id) {
-      Ok(Some(result)) => return result,
-      Ok(None) => {}
-      Err(error) => return deployment_error(error),
-    }
-    match crate::services::design_apply::prepare_deployment(&app, &project_id, id) {
-      Ok(lease) => lease,
-      Err(error) => return deployment_error(error),
-    }
-  } else {
-    match state.mutations.deploy(&project_id, None) {
-      Ok(lease) => lease,
-      Err(error) => return deployment_error(error),
-    }
+  let _lease = match state.mutations.deploy(&project_id) {
+    Ok(lease) => lease,
+    Err(error) => return deployment_error(error),
   };
-  let result = run_deploy_inner(app.clone(), project_id.clone(), workspace).await;
-  if let Some(id) = apply_id {
-    match crate::services::design_apply::complete_deployment(&app, &project_id, &id, &result) {
-      Ok(true) => lease.retain(),
-      Ok(false) => {}
-      Err(error) => return deployment_error(error),
-    }
-  }
-  result
+  run_deploy_inner(app.clone(), project_id, workspace).await
 }
 
 fn deployment_error(error: String) -> DeployResult {
@@ -709,7 +687,7 @@ pub async fn deploy_reconcile(project_id: String) -> ProjectsState {
 #[tauri::command]
 pub async fn deploy_switch(app: AppHandle, project_id: String, workspace: String, by_id: Option<bool>) -> DeployResult {
   let state = app.state::<crate::state::AppState>();
-  let _lease = match state.mutations.deploy(&project_id, None) {
+  let _lease = match state.mutations.deploy(&project_id) {
     Ok(lease) => lease,
     Err(error) => return deployment_error(error),
   };

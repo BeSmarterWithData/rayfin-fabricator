@@ -133,6 +133,12 @@ pub fn store_file() -> PathBuf {
   data_dir().join("studio.json")
 }
 
+/// Storage left behind by the retired Design Studio experiment (drafts,
+/// receipts, imported assets). Removed best-effort at startup.
+pub fn retired_design_studio_dir() -> PathBuf {
+  data_dir().join("design")
+}
+
 /// Scratch directory for preview region-screenshots (deferred feature).
 pub fn shots_dir() -> PathBuf {
   temp_dir().join("rayfin-fabricator-shots")
@@ -199,7 +205,7 @@ mod tests {
   use std::ffi::OsStr;
 
   #[test]
-  fn design_debug_data_dir_requires_an_absolute_nonempty_path() {
+  fn debug_data_dir_requires_an_absolute_nonempty_path() {
     for invalid in ["", " ", ".", "..", "relative-data"] {
       assert!(validated_dev_data_dir(OsStr::new(invalid)).is_err(), "{invalid:?}");
     }
@@ -213,7 +219,7 @@ mod tests {
 
   #[cfg(debug_assertions)]
   #[test]
-  fn design_invalid_debug_data_dir_fails_explicitly_without_fallback() {
+  fn invalid_debug_data_dir_fails_explicitly_without_fallback() {
     const CHILD: &str = "FABRICATOR_TEST_INVALID_DATA_DIR";
     if std::env::var_os(CHILD).is_some() {
       let _ = data_dir();
@@ -222,7 +228,7 @@ mod tests {
     let result = std::process::Command::new(std::env::current_exe().unwrap())
       .args([
         "--exact",
-        "services::paths::tests::design_invalid_debug_data_dir_fails_explicitly_without_fallback",
+        "services::paths::tests::invalid_debug_data_dir_fails_explicitly_without_fallback",
         "--nocapture",
       ])
       .env(CHILD, "1")

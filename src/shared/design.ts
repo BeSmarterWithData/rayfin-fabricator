@@ -1,229 +1,341 @@
-import type { DeployResult, PreviewDesignRestylePatch } from './ipc'
+/**
+ * Design mode ("visual chat") wire protocol.
+ *
+ * The renderer talks to the in-preview controller
+ * (`src-tauri/src/services/design_agent.js`, v6) through the Rust host, which
+ * only relays these JSON documents (`preview_design_*` commands). While Design
+ * is on the page owns the change queue and the renderer mirrors its snapshots;
+ * while it is off the renderer owns the queue and seeds the page on enable.
+ */
 
-export type DesignJson =
-  | null
-  | boolean
-  | number
-  | string
-  | DesignJson[]
-  | { [key: string]: DesignJson }
-export type DesignSource = 'local' | 'direct' | 'fabric'
-export type DesignTool = 'select' | 'interact' | 'comment' | 'draw'
-export type DesignBlock =
-  | 'section'
-  | 'row'
-  | 'columns'
-  | 'card'
+/** Fabricator's own theme, pushed so the in-page tools match the host app. */
+export interface DesignHostTheme {
+  accent: string
+  accentHi?: string
+  panel: string
+  panel2?: string
+  border?: string
+  txt: string
+  txtDim?: string
+  /** UI zoom (1 = 100%). */
+  scale?: number
+}
+
+export type DesignItemKind = 'element' | 'theme' | 'suggestion'
+
+/** Friendly element category, used for labels and suggestion chips. */
+export type DesignRole =
+  | 'button'
+  | 'link'
   | 'heading'
   | 'text'
-  | 'button'
   | 'image'
+  | 'icon'
+  | 'field'
+  | 'card'
+  | 'list'
+  | 'item'
+  | 'table'
+  | 'chart'
+  | 'nav'
+  | 'header'
+  | 'footer'
+  | 'section'
+  | 'container'
+  | 'element'
 
+/** A picked element, serializable and rich enough to find it again in the page
+ *  and for Copilot to locate it in source. */
 export interface DesignTarget {
-  id: string
-  selector: string
+  /** Friendly label, e.g. "Button · Add deal". */
+  label: string
+  role: DesignRole
   tag: string
-  label: string
+  /** Best-effort CSS path in the live DOM. */
+  selector: string
+  /** Visible text (trimmed and clipped). */
   text?: string
-  parentSelector?: string
-  role?: string
-  ariaLabel?: string
+  /** The full `class` attribute. */
+  classes?: string
+  /** React component name, when the build exposes one. */
   component?: string
-}
-
-export interface DesignEdit {
-  kind:
-    | 'style'
-    | 'text'
-    | 'remove'
-    | 'reorder'
-    | 'insert'
-    | 'image'
-    | 'theme'
-    | 'chart'
-    | 'comment'
-    | 'annotation'
-  target: DesignTarget
-  property?: string
-  before: DesignJson
-  after: DesignJson
-  scope?: string
-}
-
-export interface DesignTransaction {
-  id: string
-  label: string
+  ariaLabel?: string
+  nearestHeading?: string
+  /** Enclosing landmark (header / nav / main / aside / footer / section). */
+  region?: string
+  /** Route (path + query + hash) the element was picked on. */
   route: string
-  edits: DesignEdit[]
+  /** Size when picked, in CSS px. */
+  box: { w: number; h: number }
+  /** Graphein chart details when the element is a chart. */
+  chart?: { type?: string; title?: string }
+  /** `data-*` attributes (excluding the Graphein spec), capped. */
+  dataAttrs?: Record<string, string>
 }
 
-export interface DesignSelection extends DesignTarget {
+export type DesignTweakKind =
+  | 'text'
+  | 'color'
+  | 'background'
+  | 'size'
+  | 'weight'
+  | 'spacing'
+  | 'gap'
+  | 'corners'
+  | 'shadow'
+  | 'align'
+  | 'hide'
+  | 'order'
+  | 'variation'
+
+/** One previewed tweak, in the app's Tailwind vocabulary when it has one, plus
+ *  the CSS that produced the preview. */
+export interface DesignTweak {
+  kind: DesignTweakKind
+  /** Human summary, e.g. "Size: sm → lg". */
+  summary: string
+  /** Utility swap when the element already used a matching Tailwind class. */
+  tailwind?: { from?: string; to?: string }
+  /** CSS the preview applied. */
+  css?: { property: string; from?: string; to: string }[]
+  text?: { from: string; to: string }
+  /** Reorder among siblings; `steps` is the net move (negative = earlier). */
+  order?: { direction: 'up' | 'down'; steps?: number; relativeTo?: string }
+  /** Descendant rules an AI variation or suggestion previewed. */
+  rules?: DesignRule[]
+  /** Tailwind classes suggested for an AI variation. */
+  classes?: string
+}
+
+/** A previewed Graphein spec change (data stripped). */
+export interface DesignChartChange {
+  before: Record<string, unknown>
+  after: Record<string, unknown>
+  summary: string[]
+}
+
+/** A previewed, app-wide theme change. */
+export interface DesignThemeChange {
+  accent?: { from?: string; to: string; hex?: string }
+  neutral?: { from?: string; to: string }
+  /** Multiplier applied to every `--radius-*` token. */
+  radius?: { scale: number }
+  /** `--spacing` base, e.g. 0.25rem → 0.3rem. */
+  density?: { from: string; to: string }
+  font?: { from?: string; to: string; stack: string }
+  /** Exact CSS custom properties the preview overrode. */
+  tokens: Record<string, string>
+  /** A look described in words (apps without Tailwind tokens). */
+  intent?: string
+  summary: string[]
+}
+
+export interface DesignItem {
+  id: string
+  kind: DesignItemKind
+  target?: DesignTarget
+  /** What should change, in the user's words. */
+  instruction?: string
+  tweaks: DesignTweak[]
+  chart?: DesignChartChange
+  theme?: DesignThemeChange
+  /** When set, the change applies to every element like this one. */
+  similar?: number
+  /** Why a Polish suggestion is worth doing. */
+  why?: string
+  /** The element isn't on the page currently shown (the item stays sendable). */
+  missing?: boolean
+  createdAt: number
+}
+
+/** Compact element context sent with a variations request. */
+export interface DesignRestyleContext {
+  tag: string
+  text?: string
+  classes?: string
+  component?: string
+  /** Relevant computed styles, keyed by CSS property. */
   styles: Record<string, string>
-  inlineStyles: Record<string, string>
-  textEditable: boolean
-  ownText: string
-  width: number
-  height: number
-  parent?: DesignTarget
-  children: DesignTarget[]
-  image?: { src: string; alt: string }
-  chart?: {
-    spec: { [key: string]: DesignJson }
-    types: { value: string; label: string; enabled: boolean }[]
-  }
-  canContain: boolean
-  canReorder: boolean
+  isChart: boolean
+  chartType?: string
+  /** Current Graphein spec (data omitted) for charts. */
+  spec?: unknown
+  /** Notable descendants a variation may restyle through `rules`. */
+  children?: { tag: string; classes?: string; text?: string }[]
 }
 
-export interface DesignToken {
+/** A descendant rule inside a variation or suggestion patch. */
+export interface DesignRule {
+  selector: string
+  styles: Record<string, string>
+}
+
+/** One AI-proposed alternative look for an element. */
+export interface DesignVariation {
   name: string
-  value: string
-  kind: 'color' | 'length' | 'font' | 'other'
-  target: DesignTarget
+  description?: string
+  /** Whitelisted CSS for the element itself. */
+  styles: Record<string, string>
+  rules?: DesignRule[]
+  /** Partial Graphein spec patch (charts only). */
+  graphein?: Record<string, unknown>
+  /** Tailwind classes that would produce this look. */
+  classes?: string
 }
 
-export interface DesignConflict {
-  transactionId: string
-  message: string
+/** Something the page asks the host to do on its behalf. */
+export type DesignRequest = {
+  id: string
+  kind: 'variations'
+  itemId: string
+  context: DesignRestyleContext
+  hint?: string
 }
 
-export interface DesignVerification {
-  transactionId: string
-  ok: boolean
-  message?: string
+export interface DesignStatus {
+  enabled: boolean
+  /** The session the page was enabled with; `null` after a reload re-armed it
+   *  unseeded (the host then re-seeds). */
+  sessionId: string | null
+  /** Bumped on every change, so the host fetches a snapshot only when needed. */
+  version: number
+  hasTheme: boolean
+  itemCount: number
+  requests: DesignRequest[]
+  /** Results of data-returning commands, keyed by their `requestId`. */
+  results: Record<string, unknown>
+  panel: 'theme' | 'polish' | null
+}
+
+export interface DesignViewport {
+  w: number
+  h: number
+  dpr: number
 }
 
 export interface DesignSnapshot {
-  protocol: 1
-  sessionId: string
-  documentId: string
-  revision: number
-  enabled: boolean
+  version: number
+  /** The session the items belong to (`null` while the page is unseeded). */
+  sessionId: string | null
   route: string
-  tool: DesignTool
-  compare: boolean
-  selection: DesignSelection[]
-  layers: DesignTarget[]
-  tokens: DesignToken[]
-  breakpoints: string[]
-  viewport: { width: number; height: number }
-  history: DesignTransaction[]
-  cursor: number
-  conflicts: DesignConflict[]
-  acknowledged: string[]
-  error?: string
-  notice?: string
-  verification?: DesignVerification[]
+  viewport: DesignViewport
+  items: DesignItem[]
 }
 
-export interface DesignApplyReceipt {
-  id: string
-  projectId: string
-  draftRevision: number
-  turnId: string
-  phase:
-    | 'editing'
-    | 'source-updated'
-    | 'deploying'
-    | 'deployed'
-    | 'needs-review'
-    | 'error'
-    | 'interrupted'
-  sourceRevisionBefore: string
-  sourceRevisionAfter?: string
-  filesModified: string[]
-  error?: string
-  deployment?: DeployResult
+export interface DesignRect {
+  x: number
+  y: number
+  w: number
+  h: number
 }
 
-export interface DesignDraft {
-  schemaVersion: 1
-  projectId: string
-  sessionId: string
-  revision: number
-  source: DesignSource
+/** Where each item's element sits in the captured frame (`prepareCapture`). */
+export interface DesignCaptureLayout {
+  viewport: DesignViewport
+  /** Offset of the app frame inside the captured surface, or `null` when it
+   *  can't be known (then only the full view is attached). */
+  frame: { x: number; y: number } | null
+  /** Visible part of each item's element, in app-viewport CSS px. */
+  rects: Record<string, DesignRect>
+}
+
+export type DesignFindingKind = 'contrast' | 'tap-target' | 'overflow' | 'radius' | 'line-length'
+
+/** A notable element on the page, as collected for a Polish pass. */
+export interface DesignOutlineElement {
+  ref: string
+  label: string
+  role: DesignRole
+  tag: string
+  text?: string
+  classes?: string
+  styles: Record<string, string>
+  rect: DesignRect
+}
+
+export interface DesignPageOutline {
   route: string
-  sourceRevision: string
-  history: DesignTransaction[]
-  cursor: number
-  viewportWidth?: number
-  receipt?: DesignApplyReceipt
+  title: string
+  viewport: DesignViewport
+  elements: DesignOutlineElement[]
+  findings: { ref?: string; kind: DesignFindingKind; message: string }[]
 }
 
-export interface DesignAsset {
+/** One AI-proposed improvement from a Polish pass. */
+export interface DesignSuggestion {
   id: string
-  name: string
-  mime: string
-  size: number
-  projectPath?: string
+  /** Outline ref of the element it applies to. */
+  ref: string
+  title: string
+  why: string
+  /** What Copilot should do, in words. */
+  instruction: string
+  styles?: Record<string, string>
+  rules?: DesignRule[]
 }
 
-export interface DesignConnection {
+export type DesignCommand =
+  | { op: 'seed'; sessionId: string; items: DesignItem[] }
+  | { op: 'removeItem'; id: string }
+  | { op: 'focusItem'; id: string }
+  | { op: 'clear' }
+  | { op: 'openPanel'; panel: 'theme' | 'polish' | null }
+  | { op: 'applyVariations'; requestId: string; options: DesignVariation[] }
+  | { op: 'failRequest'; requestId: string; message: string }
+  /** Tell the page what's happening with a pending request (e.g. which model is working). */
+  | { op: 'requestProgress'; requestId: string; message: string }
+  | { op: 'collectPage'; requestId: string }
+  | { op: 'showSuggestions'; suggestions: DesignSuggestion[]; message?: string }
+  | { op: 'setBusy'; message: string | null; panel?: boolean }
+  | { op: 'prepareCapture'; requestId: string; ids: string[] }
+  | { op: 'endCapture' }
+
+/** Options passed when Design is switched on. */
+export interface DesignEnableOptions {
   sessionId: string
-  embedded: boolean
-  appUrl: string
-  history: DesignTransaction[]
-  cursor: number
-  revision: number
-  route?: string
-  assetPreviews?: Record<string, string>
+  items: DesignItem[]
+  hostTheme?: DesignHostTheme
+  /** Show the one-time "click anything" coach mark. */
+  intro?: boolean
 }
 
-export type DesignCommandBody =
-  | { type: 'select'; target: DesignTarget; toggle?: boolean }
-  | { type: 'tool'; tool: DesignTool }
-  | {
-      type: 'style'
-      values: Record<string, string>
-      scope?: string
-      gestureId?: string
-      phase?: 'preview' | 'commit' | 'cancel'
-    }
-  | { type: 'text'; value: string }
-  | { type: 'undo' | 'redo' | 'reset' | 'discard' | 'clear' }
-  | { type: 'revert'; transactionId: string }
-  | { type: 'retarget'; transactionId: string; target: DesignTarget }
-  | { type: 'compare'; enabled: boolean }
-  | { type: 'move'; direction: 'previous' | 'next'; free?: boolean }
-  | { type: 'freeMove'; enabled: boolean }
-  | { type: 'remove' | 'duplicate' }
-  | { type: 'insert'; block: DesignBlock; placement: 'inside' | 'before' | 'after' }
-  | { type: 'image'; assetId: string; dataUrl: string; alt?: string }
-  | { type: 'attribute'; name: 'alt'; value: string }
-  | { type: 'theme'; values: { token: DesignToken; value: string }[] }
-  | { type: 'chart'; patch: { [key: string]: DesignJson } }
-  | { type: 'debug'; enabled: boolean }
-  | { type: 'comment'; value: string }
-  | { type: 'drawOptions'; shape: 'pen' | 'arrow' | 'rect' | 'ellipse'; color: string }
-  | { type: 'restyle'; patch: PreviewDesignRestylePatch }
-  | { type: 'generated'; html: string }
-  | { type: 'capture'; enabled: boolean }
-  | { type: 'verify'; history: DesignTransaction[]; cursor: number }
-
-export type DesignCommand = DesignCommandBody & {
-  sessionId: string
-  documentId: string
-  commandId: string
+/** An element to look up in the project's source (`design.locate`). */
+export interface DesignLocateTarget {
+  key: string
+  tag?: string
+  classes?: string
+  text?: string
+  chartTitle?: string
+  chartType?: string
 }
 
-export interface DesignStudioApi {
-  connect: (options: DesignConnection) => Promise<DesignSnapshot>
-  poll: (sessionId: string) => Promise<DesignSnapshot | null>
-  command: (command: DesignCommand) => Promise<DesignSnapshot>
-  disconnect: (sessionId: string) => Promise<void>
-  load: (projectId: string) => Promise<DesignDraft | null>
-  save: (draft: DesignDraft) => Promise<number>
-  clear: (projectId: string) => Promise<void>
-  sourceRevision: (projectId: string) => Promise<string>
-  assets: (projectId: string) => Promise<DesignAsset[]>
-  importAsset: (projectId: string) => Promise<DesignAsset | null>
-  assetPreview: (projectId: string, assetId: string) => Promise<string>
-  apply: (
-    projectId: string,
-    applyId: string,
-    revision: number,
-    screenshotPath?: string
-  ) => Promise<DesignApplyReceipt>
-  receipt: (projectId: string) => Promise<DesignApplyReceipt | null>
-  finish: (projectId: string, applyId: string, verified: boolean) => Promise<DesignApplyReceipt>
+export interface DesignLocateCandidate {
+  /** Project-relative path with forward slashes. */
+  file: string
+  /** 1-based line number. */
+  line: number
+  reason: string
+  /** 0..1 confidence. */
+  score: number
+  snippet: string
+}
+
+export interface DesignLocateResult {
+  /** The Tailwind entry stylesheet (the file importing `tailwindcss`). */
+  entryCss?: string
+  targets: { key: string; candidates: DesignLocateCandidate[] }[]
+}
+
+/** The design changes a user message carried, as shown in the transcript. */
+export interface ChatDesignSummary {
+  items: {
+    n: number
+    kind: DesignItemKind
+    label: string
+    summary: string
+    /** Index into the message's `attachmentThumbs` of this item's crop. */
+    shot?: number
+  }[]
+  /** Index into the message's `attachmentThumbs` of the full-view capture. */
+  full?: number
 }

@@ -562,14 +562,13 @@ pub async fn chat_send(
   // renderer navigates away and stops awaiting its IPC promise.
   tokio::spawn(async move {
     let state = app.state::<AppState>();
-    run_turn(app.clone(), state.inner(), project_id, turn_id, text, attachments, mode, None).await
+    run_turn(app.clone(), state.inner(), project_id, turn_id, text, attachments, mode).await
   }).await.map_err(|e| format!("Chat task failed: {e}"))?
 }
 
 /// The turn engine behind `chat_send`. Drives one Copilot invocation and streams
-/// its events to `(project_id, turn_id)`. Chat failures surface inside the
-/// [`ChatTurnResult`]; internal Apply authorization/mode failures reject outright.
-#[allow(clippy::too_many_arguments)]
+/// its events to `(project_id, turn_id)`. Always resolves to `Ok` — failures
+/// surface inside the [`ChatTurnResult`].
 pub(crate) async fn run_turn(
   app: AppHandle,
   state: &AppState,
@@ -578,23 +577,16 @@ pub(crate) async fn run_turn(
   text: String,
   attachments: Option<Vec<String>>,
   mode: Option<String>,
-  apply_id: Option<String>,
 ) -> Result<ChatTurnResult, String> {
   let attachments = attachments.unwrap_or_default();
-  let _mutation = if let Some(id) = &apply_id {
-    if id != &turn_id || !state.mutations.is_apply(&project_id, id, crate::services::project_mutation::ApplyStage::Editing) {
+  // Source-writing chat and deployment share one per-project lease, so a deploy
+  // never publishes a half-written turn (and a turn never edits mid-deploy).
+  let _mutation = match state.mutations.chat(&project_id) {
+    Ok(guard) => guard,
+    Err(error) => {
       screenshot::cleanup(&attachments);
-      return Err("Design Apply does not own this source turn.".into());
-    }
-    None
-  } else {
-    match state.mutations.chat(&project_id) {
-      Ok(guard) => Some(guard),
-      Err(error) => {
-        screenshot::cleanup(&attachments);
-        emit_chat_event(&app, &project_id, &turn_id, ChatEvent::Error { text: error.clone() });
-        return Ok(ChatTurnResult { ok: false, error: Some(error), files_modified: vec![], ran_deploy: false });
-      }
+      emit_chat_event(&app, &project_id, &turn_id, ChatEvent::Error { text: error.clone() });
+      return Ok(ChatTurnResult { ok: false, error: Some(error), files_modified: vec![], ran_deploy: false });
     }
   };
 
@@ -621,7 +613,7 @@ pub(crate) async fn run_turn(
   };
 
   // Guard against two concurrent turns on the same project.
-  let Some(token) = (if apply_id.is_some() { state.chat_token(&project_id) } else { state.try_begin_chat(&project_id) }) else {
+  let Some(token) = state.try_begin_chat(&project_id) else {
     emit_chat_event(
       &app,
       &project_id,
@@ -673,7 +665,7 @@ pub(crate) async fn run_turn(
     Err(e) => {
       emit_chat_event(&app, &project_id, &turn_id, ChatEvent::Error { text: e.clone() });
       screenshot::cleanup(&attachments);
-      if apply_id.is_none() { state.end_chat(&project_id); }
+      state.end_chat(&project_id);
       let empty = TurnCtx::new(full);
       record_turn_diagnostics(
         &app_version,
@@ -704,14 +696,9 @@ pub(crate) async fn run_turn(
 
   // Apply the requested mode (Agent / Plan / Autopilot) to the session before
   // sending. Mode is sticky on the session, so this also handles switching modes
-  // between turns. Ordinary chat may fall back to the prior mode on failure;
-  // Design Apply must positively enter Agent mode before any source request.
+  // between turns. A failure here is non-fatal — fall back to the prior mode.
   let session_mode = session_mode(&mode);
   if let Err(e) = session.rpc().mode().set(ModeSetRequest { mode: session_mode.clone() }).await {
-    if apply_id.is_some() {
-      screenshot::cleanup(&attachments);
-      return Err(format!("Design Apply could not enter explicit Agent mode: {e}"));
-    }
     log::warn!("failed to set session mode {session_mode:?}: {e}");
   }
 
@@ -770,10 +757,6 @@ pub(crate) async fn run_turn(
             });
           }
           if let Err(e) = session.rpc().mode().set(ModeSetRequest { mode: session_mode.clone() }).await {
-            if apply_id.is_some() {
-              send_error = Some(format!("Design Apply could not enter Agent mode after reconnecting: {e}"));
-              break;
-            }
             log::warn!("failed to set recovered session mode {session_mode:?}: {e}");
           }
         }
@@ -930,7 +913,7 @@ pub(crate) async fn run_turn(
   if ctx.stream_closed {
     state.copilot.invalidate_transport(&project_id, &session).await;
   }
-  if apply_id.is_none() { state.end_chat(&project_id); }
+  state.end_chat(&project_id);
   // Drop this turn's plan route and unblock any handler still awaiting a decision
   // (covers Stop / timeout while an approval card or a structured question is open).
   state.plan.clear_route(&session_key);
@@ -1052,10 +1035,6 @@ pub async fn chat_steer(
 ) -> Result<SteerResult, String> {
   let attachments = attachments.unwrap_or_default();
 
-  if state.mutations.apply_id(&project_id).is_some() {
-    return Err("Design Apply owns this turn. Answer its question card or cancel Apply; normal chat steering is disabled.".into());
-  }
-
   // Nothing running → let the caller start a normal turn.
   if !state.is_chat_running(&project_id) {
     return Ok(SteerResult { steered: false });
@@ -1149,9 +1128,6 @@ pub async fn chat_steer(
 
 #[tauri::command]
 pub async fn chat_reset(state: State<'_, AppState>, project_id: String) -> Result<(), String> {
-  if state.mutations.apply_id(&project_id).is_some() {
-    return Err("Finish or cancel Design Apply before resetting chat.".into());
-  }
   // Stop any in-flight turn first (mirrors chat.ts resetSession → cancelMessage).
   state.cancel_chat(&project_id);
   // Drop the cached SDK session so the next turn starts a brand-new conversation.

@@ -82,19 +82,25 @@ function makeApi(calls: PreviewCall[], getCaptureResult: () => string) {
     }),
     design: {
       setEnabled: vi.fn(rec('design.setEnabled')),
-      setModels: vi.fn(rec('design.setModels')),
-      poll: vi.fn(() => Promise.resolve(null)),
-      drain: vi.fn(() => Promise.resolve(null)),
-      drainAi: vi.fn(() => Promise.resolve(null)),
-      generateHtml: vi.fn(() => Promise.resolve('')),
-      applyGenerated: vi.fn(rec('design.applyGenerated'))
+      poll: vi.fn((): Promise<unknown> => Promise.resolve(null)),
+      snapshot: vi.fn((): Promise<unknown> => Promise.resolve(null)),
+      command: vi.fn(rec('design.command')),
+      setTheme: vi.fn(rec('design.setTheme'))
     }
   }
 
   const api = {
     preview: { ...preview, ...serializePreviewMutations(preview) },
     openExternal: vi.fn(),
-    screenshot: { save: vi.fn(() => Promise.resolve('C:/tmp/shot.png')) },
+    screenshot: {
+      save: vi.fn(() => Promise.resolve('C:/tmp/shot.png')),
+      cleanup: vi.fn(() => Promise.resolve(undefined))
+    },
+    design: {
+      variations: vi.fn(() => Promise.resolve([])),
+      polish: vi.fn(() => Promise.resolve([])),
+      locate: vi.fn(() => Promise.resolve({ targets: [] }))
+    },
     projects: { setPreviewMode: vi.fn(() => Promise.resolve(undefined)) },
     chat: { listModels: vi.fn(() => Promise.resolve([])) }
   }

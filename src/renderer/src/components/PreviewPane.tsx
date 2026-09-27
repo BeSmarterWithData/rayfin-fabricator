@@ -1,19 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type {
-  DeployResult,
-  PreviewBounds,
-  PreviewDesignAiRequest,
-  PreviewDesignAiEditRequest,
-  PreviewDesignHandoff,
-  PreviewDesignRestylePatch,
-  PreviewDesignTheme,
-  PreviewMode,
-  StudioProject
-} from '@shared/ipc'
-import { loadCopilotModels, pickFastModel, isFastModel } from '../copilotModels'
-import type { DesignSource } from '@shared/design'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { DeployResult, PreviewBounds, PreviewMode, StudioProject } from '@shared/ipc'
 import { usePreviewSuppressed } from '../overlay'
 import { measurePreviewBounds, watchPreviewPixelRatio } from '../previewBounds'
+import { DEVICES, deviceHostWidth, type DeviceId } from '../design/devices'
+import { readFabricatorTheme } from '../design/hostTheme'
+import type { DesignSession, DesignSurface } from '../design/useDesignSession'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -21,7 +12,12 @@ import {
   FabricIcon,
   DesignIcon,
   ExpandIcon,
-  CollapseIcon
+  CollapseIcon,
+  PaletteIcon,
+  SparkleIcon,
+  DesktopIcon,
+  TabletIcon,
+  PhoneIcon
 } from './icons'
 import DeployStage from './DeployStage'
 
@@ -31,22 +27,9 @@ export interface DeployUiState {
   result?: DeployResult
 }
 
-export interface DesignPreviewTarget {
-  url: string
-  appUrl: string
-  embedded: boolean
-}
-
-export interface StudioPreviewOptions {
-  source: DesignSource
-  viewportWidth?: number
-  onReady: (target: DesignPreviewTarget | null) => void
-}
-
 /**
- * A highlighted screenshot pending attachment to the next chat message. Produced
- * by design mode's "Send to chat" hand-off (a capture of the preview with the
- * changed elements ringed), and consumed by the chat composer.
+ * A screenshot pending attachment to the next chat message — one the user
+ * added to the composer, or a Design capture — consumed by the chat composer.
  */
 export interface PendingShot {
   /** Absolute temp-file path passed to copilot as `--attachment`. */
@@ -55,29 +38,10 @@ export interface PendingShot {
   thumb: string
 }
 
-/** localStorage key persisting the design-mode AI model choice across sessions. */
-const DESIGN_MODEL_KEY = 'rayfin.design.aiModel'
-
-/**
- * Read Fabricator's own theme (accent / surfaces / text / border) + UI zoom from
- * the renderer's CSS tokens so the in-preview design tools can match the host
- * app's look and scale (the tools are Fabricator UI, not the previewed app's).
- * Falls back to the dark-teal defaults if a token is missing.
- */
-export function readFabricatorTheme(): PreviewDesignTheme {
-  const cs = getComputedStyle(document.documentElement)
-  const v = (n: string): string => cs.getPropertyValue(n).trim()
-  const scale = Number(v('--ui-scale') || document.documentElement.style.zoom) || 1
-  return {
-    accent: v('--accent') || '#34b4ba',
-    accentHi: v('--accent-2') || undefined,
-    panel: v('--bg-elev') || '#12161f',
-    panel2: v('--bg-elev-2') || undefined,
-    border: v('--border') || undefined,
-    txt: v('--text') || '#eceff5',
-    txtDim: v('--text-dim') || undefined,
-    scale
-  }
+const DEVICE_ICONS: Record<DeviceId, (props: { className?: string }) => JSX.Element> = {
+  desktop: DesktopIcon,
+  tablet: TabletIcon,
+  phone: PhoneIcon
 }
 
 /** How long the frozen still-frame lingers as a backstop after the native preview
@@ -126,9 +90,17 @@ interface Props {
   /** Notify the parent that the persisted preview mode changed (so it can refresh
    *  project state — the selection lives on the project, store-backed). */
   onPreviewModeChanged?: () => void
-  /** Hand a composed design-mode instruction (+ optional highlighted screenshot)
-   *  to the chat composer for review. Fired when the user hits "Send to chat". */
-  onDesignHandoff?: (instruction: string, shot?: PendingShot) => void
+  /** Design mode ("visual chat"). The session lives in the Workbench, which
+   *  shares its queue with the chat composer. */
+  design?: DesignSession
+  /** Why sending the queued design changes is blocked right now (a turn is
+   *  running, the first deploy is pending…), or null when it can go. */
+  designSendBlocked?: string | null
+  /** Send the queued design changes to chat (the composer text is the note). */
+  onDesignSend?: () => void
+  /** Report the surface Design can run on — the deployed app, directly or
+   *  embedded in Fabric — or null while it can't (deploying, loading, local). */
+  onDesignSurface?: (surface: DesignSurface | null) => void
   /** Report the project-load overlay state so the parent can render a centered
    *  "Loading <name>…" over the whole build view (a project switch reloads the
    *  chat + preview, so the indicator belongs at the content level, not the
@@ -139,9 +111,6 @@ interface Props {
    *  running), the preview surface shows this instead of the deployed app, with a
    *  "Local" badge. See {@link RayfinStudioApi.dev}. */
   localPreviewUrl?: string | null
-  designStudioEnabled?: boolean
-  onOpenDesignStudio?: () => void
-  studio?: StudioPreviewOptions
 }
 
 function statusLabel(running: boolean, status: string | undefined): string {
@@ -174,39 +143,30 @@ function prettyUrl(url: string): string {
   }
 }
 
-function matchingPreviewOrigin(actual: string, expected: string | undefined): boolean {
-  if (!actual || !expected) return false
-  try {
-    return new URL(actual).origin === new URL(expected).origin
-  } catch {
-    return false
-  }
+/** Fabricator's UI zoom, tracked while `enabled` (device widths divide it out). */
+function useUiScale(enabled: boolean): number {
+  const [scale, setScale] = useState(1)
+  useEffect(() => {
+    if (!enabled) return
+    const update = (): void => setScale(readFabricatorTheme().scale ?? 1)
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style'] })
+    return () => observer.disconnect()
+  }, [enabled])
+  return scale
 }
 
-/** Downscale a PNG `data:` URL to a small thumbnail data URL for a chat chip.
- *  Falls back to the original URL if the image can't be decoded. */
-function makeThumbFromDataUrl(dataUrl: string): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const maxW = 176
-      const scale = Math.min(1, maxW / (img.naturalWidth || maxW))
-      const w = Math.max(1, Math.round((img.naturalWidth || maxW) * scale))
-      const hgt = Math.max(1, Math.round((img.naturalHeight || maxW) * scale))
-      const canvas = document.createElement('canvas')
-      canvas.width = w
-      canvas.height = hgt
-      const ctx = canvas.getContext('2d')
-      if (!ctx) {
-        resolve(dataUrl)
-        return
-      }
-      ctx.drawImage(img, 0, 0, w, hgt)
-      resolve(canvas.toDataURL('image/png'))
-    }
-    img.onerror = () => resolve(dataUrl)
-    img.src = dataUrl
-  })
+/** Whole seconds since `since` (a `performance.now()` stamp), ticking while set. */
+function useElapsed(since: number | null): number {
+  const [now, setNow] = useState(() => performance.now())
+  useEffect(() => {
+    if (since == null) return
+    setNow(performance.now())
+    const timer = window.setInterval(() => setNow(performance.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [since])
+  return since == null ? 0 : Math.max(0, Math.floor((now - since) / 1000))
 }
 
 export default function PreviewPane({
@@ -217,12 +177,12 @@ export default function PreviewPane({
   focused,
   onToggleFocus,
   onPreviewModeChanged,
-  onDesignHandoff,
+  design,
+  designSendBlocked = null,
+  onDesignSend,
+  onDesignSurface,
   onLoadingChange,
-  localPreviewUrl,
-  designStudioEnabled = false,
-  onOpenDesignStudio,
-  studio
+  localPreviewUrl
 }: Props): JSX.Element {
   const suppressed = usePreviewSuppressed()
   const running = deploy?.running ?? false
@@ -253,7 +213,6 @@ export default function PreviewPane({
   const [canForward, setCanForward] = useState(false)
   const [nativeShown, setNativeShown] = useState(false)
   const [surfaceError, setSurfaceError] = useState<string | null>(null)
-  const [studioUiScale, setStudioUiScale] = useState(() => readFabricatorTheme().scale ?? 1)
   // While an HTML overlay suppresses the native preview, `frozen` holds a PNG of
   // the last visible frame so the placeholder shows that still image, not black.
   const [frozen, setFrozen] = useState<string | null>(null)
@@ -363,16 +322,12 @@ export default function PreviewPane({
   // Which URL the embedded webview actually loads. Falls back to the direct URL
   // whenever the Fabric link is unavailable or the toggle is off.
   const [previewMode, setPreviewMode] = useState<PreviewMode>(() => readPreviewMode(project))
-  const effectiveMode = studio ? (studio.source === 'fabric' ? 'fabric' : 'direct') : previewMode
-  const deployedPreviewUrl = effectiveMode === 'fabric' && fabricUrl ? fabricUrl : deployedUrl
+  const deployedPreviewUrl = previewMode === 'fabric' && fabricUrl ? fabricUrl : deployedUrl
   // Live local preview (experiment): while a Vite dev server is running for this
   // project, the surface shows its localhost URL instead of the deployed app. A
   // running deploy still wins (DeployStage), so this only applies mid-turn.
-  const isLocal = Boolean(localPreviewUrl) && !running && (!studio || studio.source === 'local')
-  const previewUrl = studio?.source === 'local'
-    ? localPreviewUrl ?? undefined
-    : studio?.source === 'fabric' && !fabricUrl ? undefined
-    : isLocal ? localPreviewUrl ?? undefined : deployedPreviewUrl
+  const isLocal = Boolean(localPreviewUrl) && !running
+  const previewUrl = isLocal ? (localPreviewUrl ?? undefined) : deployedPreviewUrl
   const showWebview = !running && Boolean(previewUrl)
 
   // Re-init from the persisted project on project switch (don't carry a prior
@@ -681,26 +636,6 @@ export default function PreviewPane({
     }
   }, [deployedUrl, previewUrl, showWebview, suppressed, transitioning, measureHost])
 
-  const studioOnReady = studio?.onReady
-  const isStudio = Boolean(studio)
-  useEffect(() => {
-    if (!isStudio) return
-    const update = (): void => setStudioUiScale(readFabricatorTheme().scale ?? 1)
-    update()
-    const observer = new MutationObserver(update)
-    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'data-theme'] })
-    return () => observer.disconnect()
-  }, [isStudio])
-  useEffect(() => {
-    const appUrl = isLocal ? localPreviewUrl : deployedUrl
-    studioOnReady?.(
-      nativeShown && showWebview && !transitioning && !loading && matchingPreviewOrigin(displayUrl, previewUrl) && previewUrl && appUrl
-        ? { url: previewUrl, appUrl, embedded: effectiveMode === 'fabric' }
-        : null
-    )
-  }, [studioOnReady, nativeShown, showWebview, transitioning, loading, displayUrl, previewUrl, isLocal, localPreviewUrl, deployedUrl, effectiveMode])
-  useEffect(() => () => studioOnReady?.(null), [studioOnReady])
-
   // The positioning effect hides the webview whenever a dependency change makes it
   // not-visible (and its rAF loop hides it when the host collapses to 0×0). On the
   // pane's own unmount (a tab switch to Code/Model/Advisor, or teardown) park the
@@ -757,301 +692,29 @@ export default function PreviewPane({
     if (u) void window.api.openExternal(u)
   }
 
-  // ── In-preview design mode ────────────────────────────────────────────────
-  // A click-to-edit controller injected into the preview webview lets the user
-  // tweak live elements (move/resize/recolor/text + a Graphein spec editor); the
-  // collected changes are handed to the chat composer. See `preview.design.*`
-  // and the injected `design_agent.js`.
-  const [designActive, setDesignActive] = useState(false)
-  const [designBusy, setDesignBusy] = useState(false)
-  const [designCount, setDesignCount] = useState(0)
-  const handoffRef = useRef(false)
-  // AI placeholder generation: a re-entrancy guard + the resolved fast model id
-  // (picked once from the model list; `undefined` → engine default).
-  const aiRef = useRef(false)
-  const fastModelRef = useRef<string | undefined>(undefined)
-  // The resolved model list for the placeholder AI picker, cached so the poll can
-  // re-push it if the controller is re-injected empty (preview reload).
-  const designModelsRef = useRef<{ id: string; name: string; fast: boolean }[] | null>(null)
-  // The user's chosen AI model id, persisted across sessions (localStorage) so the
-  // picker preselects it. Seeded from storage; updated when the poll sees a change.
-  const designModelRef = useRef<string | null>(
-    typeof localStorage !== 'undefined' ? localStorage.getItem(DESIGN_MODEL_KEY) : null
+  // ── Design mode ("visual chat") ───────────────────────────────────────────
+  // The session (queue, polling, AI requests, capture) lives in the Workbench so
+  // the chat composer can show and send the queue; this pane reports the surface
+  // Design can run on — the deployed app, direct or embedded in Fabric — and
+  // renders the design toolbar + device width. See `useDesignSession` and the
+  // injected `design_agent.js`.
+  const designActive = Boolean(design?.active)
+  const embedded = previewMode === 'fabric' && Boolean(fabricUrl)
+  const designSurface = useMemo<DesignSurface | null>(
+    () =>
+      showWebview && !transitioning && !isLocal && previewUrl && deployedUrl
+        ? { url: previewUrl, embedded, appUrl: deployedUrl }
+        : null,
+    [showWebview, transitioning, isLocal, previewUrl, deployedUrl, embedded]
   )
-  // Signature of the last Fabricator theme pushed to the controller, so the poll
-  // re-pushes only when the theme/zoom actually changes (or after a reload).
-  const lastThemeSigRef = useRef('')
-
-  // Resolve a fast model once design mode is on, and push the model list to the
-  // controller's placeholder AI picker (fast models first), preselecting the
-  // persisted choice when present. Also push Fabricator's theme so the tools
-  // match the host look + zoom. Best-effort.
   useEffect(() => {
-    if (!designActive) return
-    // Push the current Fabricator theme (accent/surfaces/text/border + UI scale).
-    try {
-      const theme = readFabricatorTheme()
-      lastThemeSigRef.current = JSON.stringify(theme)
-      void window.api.preview.design.setTheme(theme)
-    } catch {
-      /* non-fatal — the controller falls back to its default palette */
-    }
-    let cancelled = false
-    void loadCopilotModels()
-      .then((models) => {
-        if (cancelled) return
-        fastModelRef.current = pickFastModel(models)
-        const list = models
-          .map((m) => ({ id: m.id, name: m.name, fast: isFastModel(m) }))
-          .sort((a, b) => (a.fast === b.fast ? 0 : a.fast ? -1 : 1))
-        if (list.length) {
-          designModelsRef.current = list
-          void window.api.preview.design.setModels(list, designModelRef.current ?? undefined)
-        }
-      })
-      .catch(() => {
-        /* leave undefined → engine default */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [designActive])
-
-  // Generate an HTML/CSS component for a placeholder and inject it. Best-effort:
-  // on any failure, `applyGenerated(id, '')` tells the controller to restore the
-  // describe state, so the poll's `aiRef` guard is always cleared.
-  const runAiGenerate = useCallback(async (): Promise<void> => {
-    let req: PreviewDesignAiRequest | null = null
-    try {
-      req = await window.api.preview.design.drainAi()
-    } catch {
-      req = null
-    }
-    if (!req) return
-    let html = ''
-    try {
-      html = await window.api.preview.design.generateHtml(
-        project.id,
-        req.description,
-        req.width,
-        req.height,
-        req.model || undefined
-      )
-    } catch {
-      html = ''
-    }
-    try {
-      await window.api.preview.design.applyGenerated(req.id, html)
-    } catch {
-      // ignore — the controller self-heals its generating state on next select
-    }
-  }, [project.id])
-  const aiGenRef = useRef(runAiGenerate)
-  useEffect(() => {
-    aiGenRef.current = runAiGenerate
-  }, [runAiGenerate])
-
-  // Restyle a selected element from a natural-language change and apply it live.
-  // Best-effort: on any failure, `applyRestyle(id, empty)` clears the controller's
-  // "Applying…" busy state, and the poll's `aiEditRef` guard is always released.
-  const runAiEdit = useCallback(async (): Promise<void> => {
-    let req: PreviewDesignAiEditRequest | null = null
-    try {
-      req = await window.api.preview.design.drainAiEdit()
-    } catch {
-      req = null
-    }
-    if (!req) return
-    let patch: PreviewDesignRestylePatch = { styles: {} }
-    try {
-      patch = await window.api.preview.design.restyleElement(
-        project.id,
-        req.description,
-        req.context,
-        req.model || undefined
-      )
-    } catch {
-      patch = { styles: {} }
-    }
-    try {
-      const ids = req.ids && req.ids.length ? req.ids : [req.id]
-      // One patch, applied to every selected element (consistent multi-select edit).
-      for (const id of ids) {
-        await window.api.preview.design.applyRestyle(id, patch)
-      }
-    } catch {
-      // ignore — the controller clears its busy state on the next select
-    }
-  }, [project.id])
-  const aiEditRef = useRef(false)
-  const runAiEditRef = useRef(runAiEdit)
-  useEffect(() => {
-    runAiEditRef.current = runAiEdit
-  }, [runAiEdit])
-
-  const toggleDesign = useCallback((): void => {
-    setDesignActive((prev) => {
-      const next = !prev
-      // In the Fabric-embedded view the app runs in a cross-origin iframe; tell
-      // the host to drive the controller through the top-frame relay by passing
-      // the embedded flag + the direct app URL (its origin identifies the iframe).
-      void window.api.preview.design.setEnabled(next, previewMode === 'fabric', deployedUrl)
-      if (!next) setDesignCount(0)
-      return next
-    })
-  }, [previewMode, deployedUrl])
-
-  // Capture the highlighted screenshot, drain the composed instruction, hand it
-  // to chat, then leave design mode. Fired when the poll sees `handoffReady`.
-  // Every step is best-effort so this never rejects — a rejection would strand
-  // the poll's `handoffRef` guard and wedge design mode.
-  const finishDesignHandoff = useCallback(async (): Promise<void> => {
-    setDesignBusy(true)
-    try {
-      // The controller has drawn highlight rings + hidden its chrome, so a
-      // capture now shows exactly what changed. Screenshot is best-effort.
-      let shot: PendingShot | undefined
-      try {
-        const dataUrl = await window.api.preview.capture()
-        const path = await window.api.screenshot.save(dataUrl)
-        const thumb = await makeThumbFromDataUrl(dataUrl)
-        shot = { path, thumb }
-      } catch {
-        // no screenshot — still hand off the instruction
-      }
-      let handoff: PreviewDesignHandoff | null = null
-      try {
-        handoff = await window.api.preview.design.drain()
-      } catch {
-        // drain failed — still leave design mode cleanly below
-      }
-      try {
-        await window.api.preview.design.setEnabled(false)
-      } catch {
-        // ignore — local state is reset regardless
-      }
-      setDesignActive(false)
-      setDesignCount(0)
-      if (handoff) onDesignHandoff?.(handoff.instruction, shot)
-    } finally {
-      setDesignBusy(false)
-    }
-  }, [onDesignHandoff])
-
-  // Poll the controller while design mode is on: track the change count and
-  // trigger the hand-off once the user hits "Send to chat". `finishDesignHandoff`
-  // is read through a ref so frequent parent re-renders don't restart the timer
-  // (which could otherwise starve the 250ms poll and miss the handoff).
-  const finishRef = useRef(finishDesignHandoff)
-  useEffect(() => {
-    finishRef.current = finishDesignHandoff
-  }, [finishDesignHandoff])
-  useEffect(() => {
-    if (!designActive) return
-    let cancelled = false
-    let timer: number | null = null
-    const tick = async (): Promise<void> => {
-      try {
-        const status = await window.api.preview.design.poll()
-        if (cancelled) return
-        if (status) setDesignCount(status.changeCount)
-        // Persist the AI model choice when the user changes it in the picker.
-        if (status?.aiModel && status.aiModel !== designModelRef.current) {
-          designModelRef.current = status.aiModel
-          try {
-            localStorage.setItem(DESIGN_MODEL_KEY, status.aiModel)
-          } catch {
-            /* storage unavailable — keep the in-memory ref */
-          }
-        }
-        // Re-push the model list if the controller was re-injected empty (a
-        // preview reload drops its in-page state), preselecting the saved choice.
-        if (status && status.hasModels === false && designModelsRef.current) {
-          void window.api.preview.design.setModels(
-            designModelsRef.current,
-            designModelRef.current ?? undefined
-          )
-        }
-        // Keep the tools on Fabricator's theme: re-push after a reload (the
-        // controller lost it) or whenever the theme/UI-zoom changed live.
-        if (status) {
-          const theme = readFabricatorTheme()
-          const sig = JSON.stringify(theme)
-          if (status.hasTheme === false || sig !== lastThemeSigRef.current) {
-            lastThemeSigRef.current = sig
-            void window.api.preview.design.setTheme(theme)
-          }
-        }
-        if (status?.aiPending && !aiRef.current) {
-          aiRef.current = true
-          try {
-            await aiGenRef.current()
-          } finally {
-            aiRef.current = false
-          }
-        }
-        if (status?.aiEditPending && !aiEditRef.current) {
-          aiEditRef.current = true
-          try {
-            await runAiEditRef.current()
-          } finally {
-            aiEditRef.current = false
-          }
-        }
-        if (status?.handoffReady && !handoffRef.current) {
-          handoffRef.current = true
-          try {
-            await finishRef.current()
-          } finally {
-            // Always clear the guard, even if the handoff threw, so a transient
-            // failure doesn't permanently wedge design mode.
-            handoffRef.current = false
-          }
-          return
-        }
-      } catch {
-        // ignore transient poll errors
-      }
-      if (!cancelled) timer = window.setTimeout(() => void tick(), 250)
-    }
-    timer = window.setTimeout(() => void tick(), 250)
-    return () => {
-      cancelled = true
-      if (timer) window.clearTimeout(timer)
-    }
-  }, [designActive])
-
-  // Leave design mode if the preview goes away (project switch / undeploy), and
-  // always disable on unmount.
-  useEffect(() => {
-    if (designActive && !showWebview) {
-      setDesignActive(false)
-      setDesignCount(0)
-      void window.api.preview.design.setEnabled(false)
-    }
-  }, [designActive, showWebview])
-  const studioMode = Boolean(studio)
-  useEffect(() => () => {
-    if (!studioMode) void window.api.preview.design.setEnabled(false)
-  }, [studioMode])
-
-  // End the design session whenever the preview navigates to a different URL — a
-  // project switch, the Fabric-view toggle, or a redeploy to a new URL. Rust's
-  // `reset_to` clears `design_active` on the new root URL (so the controller
-  // isn't re-injected); this keeps the renderer's toggle + count in sync (this
-  // component isn't remounted per project, so an effect is needed). Keyed on
-  // `previewUrl` rather than `project.id` so the Fabric toggle — a URL change
-  // with the same project — doesn't leave a lit-but-dead Design button.
-  const prevPreviewUrlRef = useRef(previewUrl)
-  useEffect(() => {
-    if (prevPreviewUrlRef.current === previewUrl) return
-    prevPreviewUrlRef.current = previewUrl
-    if (studioMode) return
-    setDesignActive(false)
-    setDesignCount(0)
-    void window.api.preview.design.setEnabled(false)
-  }, [previewUrl, studioMode])
-
+    onDesignSurface?.(designSurface)
+  }, [designSurface, onDesignSurface])
+  useEffect(() => () => onDesignSurface?.(null), [onDesignSurface])
+  const uiScale = useUiScale(designActive)
+  const hostWidth = designActive && design ? deviceHostWidth(design.device, uiScale) : null
+  const polishSeconds = useElapsed(designActive ? (design?.polishingSince ?? null) : null)
+  const designCount = design?.items.length ?? 0
   const dotClass =
     status === 'success'
       ? 'ok'
@@ -1062,8 +725,8 @@ export default function PreviewPane({
           : 'idle'
 
   return (
-    <div className={`preview${studio ? ' preview--studio' : ''}`}>
-      {!studio && <div className="preview-toolbar">
+    <div className="preview">
+      <div className="preview-toolbar">
         <div className="preview-toolbar-left">
           <div className="seg seg--toolbar preview-nav">
             <button
@@ -1128,13 +791,15 @@ export default function PreviewPane({
                   .setPreviewMode(project.id, next)
                   .then(() => onPreviewModeChanged?.())
               }}
-              disabled={!showWebview || !fabricUrl || transitioning || isLocal}
+              disabled={!showWebview || !fabricUrl || transitioning || isLocal || designActive}
               title={
                 !fabricUrl
                   ? 'The Fabric portal view is unavailable for this deployment'
-                  : previewMode === 'fabric'
-                    ? 'Viewing inside the Fabric portal shell — click to return to the direct app view'
-                    : 'View the app embedded in the Fabric portal shell'
+                  : designActive
+                    ? 'Finish designing (Done) to switch views'
+                    : previewMode === 'fabric'
+                      ? 'Viewing inside the Fabric portal shell — click to return to the direct app view'
+                      : 'View the app embedded in the Fabric portal shell'
               }
             >
               <FabricIcon />
@@ -1142,26 +807,19 @@ export default function PreviewPane({
             </button>
             <button
               className={`seg-btn ${designActive ? 'seg-btn--on' : ''}`}
-              onClick={designStudioEnabled ? onOpenDesignStudio : toggleDesign}
-              disabled={designStudioEnabled ? running || transitioning : !showWebview || transitioning || designBusy || isLocal}
+              onClick={design?.toggle}
+              aria-pressed={designActive}
+              disabled={!design || (!designActive && (!design.available || !nativeShown))}
               title={
-                designStudioEnabled
-                  ? 'Open Design Studio - edit visually, save a draft, then apply it to your app'
-                  : previewMode === 'fabric'
-                  ? 'Design mode — click elements in the embedded app to tweak them (move, resize, color, text, chart specs), then send the changes to chat'
-                  : 'Design mode — click elements in the preview to tweak them (move, resize, color, text, chart specs), then send the changes to chat'
+                designActive
+                  ? 'Leave Design — your queued changes stay in the chat composer'
+                  : isLocal
+                    ? 'Design works on the deployed app — available once this turn finishes'
+                    : 'Design — click anything in your app to change it, preview the result live, then send it all to Copilot at once'
               }
             >
               <DesignIcon />
-              <span className="seg-btn-label">
-                {designStudioEnabled
-                  ? 'Design'
-                  : designBusy
-                  ? 'Sending…'
-                  : designActive
-                    ? `Design${designCount ? ` · ${designCount}` : ''}`
-                    : 'Design'}
-              </span>
+              <span className="seg-btn-label">{designCount ? `Design · ${designCount}` : 'Design'}</span>
             </button>
             <button
               className={`seg-btn seg-btn--icon ${focused ? 'seg-btn--on' : ''}`}
@@ -1175,7 +833,82 @@ export default function PreviewPane({
             </button>
           </div>
         </div>
-      </div>}
+      </div>
+
+      {designActive && design && (
+        <div className="design-bar" role="toolbar" aria-label="Design tools">
+          <span className="design-bar-status" aria-live="polite">
+            <span className="design-bar-dot" aria-hidden="true" />
+            {designCount
+              ? `${designCount} change${designCount === 1 ? '' : 's'} ready`
+              : 'Click anything in your app to change it'}
+          </span>
+          <div className="design-bar-actions">
+            <div className="seg seg--toolbar" role="group" aria-label="Preview width">
+              {DEVICES.map((d) => {
+                const Glyph = DEVICE_ICONS[d.id]
+                const on = design.device === d.id
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className={`seg-btn seg-btn--icon ${on ? 'seg-btn--on' : ''}`}
+                    aria-pressed={on}
+                    aria-label={`${d.label} width`}
+                    title={d.width ? `${d.label} — ${d.width}px wide` : `${d.label} — fill the pane`}
+                    onClick={() => design.setDevice(d.id)}
+                  >
+                    <Glyph className="btn-ico" />
+                  </button>
+                )
+              })}
+            </div>
+            <div className="seg seg--toolbar">
+              <button
+                type="button"
+                className={`seg-btn ${design.panel === 'theme' ? 'seg-btn--on' : ''}`}
+                aria-pressed={design.panel === 'theme'}
+                onClick={design.toggleTheme}
+                title="Theme — try a new accent, neutrals, corners, density or font across the whole app"
+              >
+                <PaletteIcon />
+                <span className="seg-btn-label">Theme</span>
+              </button>
+              <button
+                type="button"
+                className={`seg-btn ${design.panel === 'polish' ? 'seg-btn--on' : ''}`}
+                onClick={design.polish}
+                disabled={design.polishingSince != null}
+                title="Polish — a quick design review of this page with fixes you can preview and add"
+              >
+                <SparkleIcon />
+                <span className="seg-btn-label">
+                  {design.polishingSince != null ? `Reviewing… ${polishSeconds}s` : 'Polish'}
+                </span>
+              </button>
+            </div>
+            <div className="seg seg--toolbar">
+              <button
+                type="button"
+                className="seg-btn seg-btn--primary"
+                onClick={onDesignSend}
+                disabled={!onDesignSend || !designCount || design.sending || Boolean(designSendBlocked)}
+                title={designSendBlocked ?? (designCount ? 'Send these changes to Copilot as one request' : 'Queue a change first')}
+              >
+                {design.sending ? 'Sending…' : designCount ? `Send ${designCount}` : 'Send'}
+              </button>
+              <button
+                type="button"
+                className="seg-btn"
+                onClick={design.stop}
+                title="Leave Design — your queued changes stay in the chat composer"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {surfaceError && <div className="preview-error-banner" role="alert">{surfaceError}</div>}
 
@@ -1210,9 +943,9 @@ export default function PreviewPane({
                   The project-load overlay is rendered at the Workbench level (so it
                   centers over the whole build view), not here. */}
               <div
-                className="preview-webview-host"
+                className={`preview-webview-host${hostWidth ? ' preview-webview-host--device' : ''}`}
                 ref={hostRef}
-                style={studio ? { width: studio.viewportWidth ? studio.viewportWidth / studioUiScale : '100%', maxWidth: '100%', flex: '0 1 auto' } : undefined}
+                style={hostWidth ? { width: `${hostWidth}px` } : undefined}
               >
                 {frozen && <img className="preview-frozen" src={frozen} alt="" draggable={false} />}
               </div>

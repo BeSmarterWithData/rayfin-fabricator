@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { StudioProject } from '@shared/ipc'
 import { OverlayProvider, SuppressPreview } from '../overlay'
-import PreviewPane, { type DeployUiState, type StudioPreviewOptions, __resetPreviewSurfaceState } from './PreviewPane'
+import { useDesignSession, type DesignSurface } from '../design/useDesignSession'
+import PreviewPane, { type DeployUiState, __resetPreviewSurfaceState } from './PreviewPane'
 import { installPreviewEnv, makeProject, type PreviewEnv } from '../../test/harness'
 import { deferred } from '../../test/deferred'
 
@@ -18,9 +20,6 @@ function Harnessed({
   suppressed,
   deploy,
   localPreviewUrl,
-  studio,
-  designStudioEnabled,
-  onOpenDesignStudio,
   onRefreshAuth,
   authBusy
 }: {
@@ -28,9 +27,6 @@ function Harnessed({
   suppressed: boolean
   deploy?: DeployUiState
   localPreviewUrl?: string | null
-  studio?: StudioPreviewOptions
-  designStudioEnabled?: boolean
-  onOpenDesignStudio?: () => void
   onRefreshAuth?: () => void
   authBusy?: boolean
 }): JSX.Element {
@@ -43,9 +39,6 @@ function Harnessed({
         onRefreshAuth={onRefreshAuth}
         authBusy={authBusy}
         localPreviewUrl={localPreviewUrl}
-        studio={studio}
-        designStudioEnabled={designStudioEnabled}
-        onOpenDesignStudio={onOpenDesignStudio}
         focused={false}
         onToggleFocus={() => {}}
       />
@@ -574,15 +567,14 @@ function fabricProject(id = 'p1'): StudioProject {
 }
 
 describe('PreviewPane design mode', () => {
-  it.each(['fabric', 'local'] as const)('reconnects to a retained %s document when native re-show replays navigation', async (source) => {
+  it.each(['fabric', 'local'] as const)('does not reload a retained %s document when native re-show replays navigation', async (source) => {
     const project = fabricProject()
     const localPreviewUrl = 'http://localhost:5173'
     const url = source === 'fabric' ? project.lastDeploy!.portalUrl! : localPreviewUrl
     const actualUrl = source === 'fabric' ? `${url}?experience=power-bi` : `${url}/dashboard`
-    const ready = vi.fn()
     const pane = (
-      <Harnessed project={project} suppressed={false} localPreviewUrl={localPreviewUrl}
-        studio={{ source, onReady: ready }} />
+      <Harnessed project={project} suppressed={false}
+        localPreviewUrl={source === 'local' ? localPreviewUrl : undefined} />
     )
     const { unmount } = render(pane)
     await settle(e)
@@ -590,7 +582,6 @@ describe('PreviewPane design mode', () => {
     await settle(e)
     unmount()
     await settle(e)
-    ready.mockClear()
     e.api.navigate.mockClear()
     e.api.showUrl.mockImplementation(async () => {
       e.emitNav({ url: actualUrl, loading: false })
@@ -599,105 +590,133 @@ describe('PreviewPane design mode', () => {
     render(pane)
     await settle(e)
     expect(e.api.navigate).not.toHaveBeenCalled()
-    expect(ready).toHaveBeenLastCalledWith({
-      url, appUrl: source === 'fabric' ? project.lastDeploy?.url : localPreviewUrl,
-      embedded: source === 'fabric'
-    })
-  })
-
-  it('does not connect Studio when native re-show reports a retained sign-in redirect', async () => {
-    const ready = vi.fn()
-    e.api.showUrl.mockImplementation(async () => {
-      e.emitNav({ url: 'https://login.microsoftonline.com/signin', loading: false })
-    })
-    render(<Harnessed project={fabricProject()} suppressed={false}
-      studio={{ source: 'fabric', onReady: ready }} />)
-    await settle(e)
-    expect(ready.mock.calls.every(([value]) => value === null)).toBe(true)
-  })
-
-  it('waits for the local origin instead of connecting Studio to the old deployed document', async () => {
-    const ready = vi.fn()
-    render(<Harnessed project={makeProject('p1')} suppressed={false}
-      localPreviewUrl="http://localhost:5173"
-      studio={{ source: 'local', onReady: ready }} />)
-    await settle(e)
-    expect(ready.mock.calls.every(([value]) => value === null)).toBe(true)
-    await act(async () => e.emitNav({ url: 'http://localhost:5173/auth', loading: false }))
-    await settle(e)
-    expect(ready).toHaveBeenLastCalledWith({
-      url: 'http://localhost:5173', appUrl: 'http://localhost:5173', embedded: false
-    })
-  })
-
-  it('opens the opt-in workspace without enabling the legacy overlay', async () => {
-    const open = vi.fn()
-    render(<Harnessed project={makeProject('p1')} suppressed={false} designStudioEnabled onOpenDesignStudio={open} />)
-    await settle(e)
-    fireEvent.click(screen.getByRole('button', { name: 'Design' }))
-    expect(open).toHaveBeenCalledTimes(1)
-    expect(e.calls.some((call) => call.method === 'design.setEnabled')).toBe(false)
-  })
-
-  it('makes the new workspace available before the first deployment', async () => {
-    render(<Harnessed project={makeProject('p1', { lastDeploy: undefined })} suppressed={false} designStudioEnabled onOpenDesignStudio={vi.fn()} />)
-    expect((screen.getByRole('button', { name: 'Design' }) as HTMLButtonElement).disabled).toBe(false)
-  })
-
-  it('uses an explicit Studio source instead of swapping to a chat-owned local server', async () => {
-    const ready = vi.fn()
-    const project = makeProject('p1')
-    render(<Harnessed project={project} suppressed={false} localPreviewUrl="http://localhost:5173" studio={{ source: 'direct', onReady: ready, viewportWidth: 390 }} />)
-    await settle(e)
-    expect(e.calls.find((call) => call.method === 'showUrl')?.args[0]).toBe(project.lastDeploy?.url)
-    expect(ready).toHaveBeenLastCalledWith({ url: project.lastDeploy?.url, appUrl: project.lastDeploy?.url, embedded: false })
-    expect(screen.queryByRole('button', { name: 'Design' })).toBeNull()
-    const host = document.querySelector('.preview-webview-host') as HTMLElement
-    expect(host.style.width).toBe('390px')
-    expect(host.style.maxWidth).toBe('100%')
-  })
-
-  it('does not announce a usable design surface until native creation has completed', async () => {
-    const gate = deferred<void>()
-    e.api.showUrl.mockImplementationOnce(() => gate.promise)
-    const ready = vi.fn()
-    render(<Harnessed project={makeProject('p1')} suppressed={false} studio={{ source: 'direct', onReady: ready }} />)
-    await settle(e)
-    expect(ready.mock.calls.every(([value]) => value === null)).toBe(true)
-    await act(async () => gate.resolve())
-    await settle(e)
-    expect(ready.mock.calls.at(-1)?.[0]).toMatchObject({ embedded: false })
+    expect(screen.getByRole('button', { name: new URL(actualUrl).host })).toBeTruthy()
   })
 
   // Regression: design mode used to be hard-disabled in the Fabric portal view
   // (the app runs in a cross-origin iframe the top-frame editor couldn't reach).
   // It must now be enabled and drive the app iframe through the top-frame relay.
   it('enables the Design button in the Fabric-embedded view and drives the relay', async () => {
-    render(<Harnessed project={fabricProject('p1')} suppressed={false} />)
+    render(<DesignHarnessed project={fabricProject('p1')} />)
     await settle(e)
 
-    const designBtn = screen.getByRole('button', { name: /design/i }) as HTMLButtonElement
+    const designBtn = screen.getByRole('button', { name: /^design/i }) as HTMLButtonElement
     expect(designBtn.disabled).toBe(false)
 
     fireEvent.click(designBtn)
+    await settle(e)
 
     // Toggling on passes embedded=true + the direct app URL so the host can find
-    // and drive the cross-origin app iframe from the top-frame relay.
+    // and drive the cross-origin app iframe from the top-frame relay, plus a
+    // fresh session seeded with the (empty) queue.
     const call = e.calls.find((c) => c.method === 'design.setEnabled')
     expect(call, 'design.setEnabled was not called').toBeTruthy()
-    expect(call!.args).toEqual([true, true, 'https://p1.example.app/'])
+    expect(call!.args.slice(0, 3)).toEqual([true, true, 'https://p1.example.app/'])
+    expect(call!.args[3]).toMatchObject({ items: [], intro: true, sessionId: expect.any(String) })
   })
 
   it('drives the direct view with embedded=false', async () => {
-    render(<Harnessed project={makeProject('p1')} suppressed={false} />)
+    render(<DesignHarnessed project={makeProject('p1')} />)
     await settle(e)
 
-    const designBtn = screen.getByRole('button', { name: /design/i }) as HTMLButtonElement
+    const designBtn = screen.getByRole('button', { name: /^design/i }) as HTMLButtonElement
     expect(designBtn.disabled).toBe(false)
     fireEvent.click(designBtn)
+    await settle(e)
 
     const call = e.calls.find((c) => c.method === 'design.setEnabled')
-    expect(call!.args).toEqual([true, false, 'https://p1.example.app/'])
+    expect(call!.args.slice(0, 3)).toEqual([true, false, 'https://p1.example.app/'])
+  })
+
+  it('shows the design bar while designing: device widths, Theme, Polish, Send and Done', async () => {
+    const onSend = vi.fn()
+    render(<DesignHarnessed project={fabricProject('p1')} onSend={onSend} />)
+    await settle(e)
+    fireEvent.click(screen.getByRole('button', { name: /^design/i }))
+    await settle(e)
+
+    const bar = screen.getByRole('toolbar', { name: 'Design tools' })
+    expect(bar.textContent).toContain('Click anything in your app to change it')
+    // Switching views mid-session would reload the page, so the toggle is locked.
+    expect((screen.getByRole('button', { name: /fabric/i }) as HTMLButtonElement).disabled).toBe(true)
+    // Nothing queued yet → nothing to send.
+    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(true)
+
+    // A device width constrains the preview host (the native surface follows it).
+    fireEvent.click(screen.getByRole('button', { name: 'Phone width' }))
+    const host = document.querySelector('.preview-webview-host') as HTMLElement
+    expect(host.style.width).toBe('390px')
+    expect(host.classList.contains('preview-webview-host--device')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Desktop width' }))
+    expect(host.style.width).toBe('')
+
+    fireEvent.click(screen.getByRole('button', { name: /theme/i }))
+    await settle(e)
+    const openTheme = e.calls.find((c) => c.method === 'design.command' && (c.args[0] as { op: string }).op === 'openPanel')
+    expect(openTheme?.args[0]).toEqual({ op: 'openPanel', panel: 'theme' })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    await settle(e)
+    expect(screen.queryByRole('toolbar', { name: 'Design tools' })).toBeNull()
+    expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
+    expect(onSend).not.toHaveBeenCalled()
+  })
+
+  it('mirrors the page’s queue into the toolbar and sends it from the bar', async () => {
+    const onSend = vi.fn()
+    render(<DesignHarnessed project={makeProject('p1')} onSend={onSend} />)
+    await settle(e)
+    fireEvent.click(screen.getByRole('button', { name: /^design/i }))
+    await settle(e)
+    const session = (e.calls.find((c) => c.method === 'design.setEnabled')!.args[3] as { sessionId: string }).sessionId
+    const item = {
+      id: 'i1', kind: 'element', tweaks: [], instruction: 'Make it the primary action', createdAt: 1,
+      target: { label: 'Button · Save', role: 'button', tag: 'button', selector: 'button', route: '/', box: { w: 80, h: 32 } }
+    }
+    e.api.design.poll.mockResolvedValue({ enabled: true, sessionId: session, version: 3, hasTheme: true, itemCount: 1, requests: [], results: {}, panel: null })
+    e.api.design.snapshot.mockResolvedValue({ version: 3, sessionId: session, route: '/', viewport: { w: 900, h: 600, dpr: 1 }, items: [item] })
+    await settle(e)
+
+    expect(screen.getByRole('toolbar', { name: 'Design tools' }).textContent).toContain('1 change ready')
+    expect(screen.getByRole('button', { name: /^design · 1/i })).toBeTruthy()
+    const send = screen.getByRole('button', { name: 'Send 1' }) as HTMLButtonElement
+    expect(send.disabled).toBe(false)
+    fireEvent.click(send)
+    expect(onSend).toHaveBeenCalledOnce()
+  })
+
+  it('re-seeds a page that came back unseeded after a reload', async () => {
+    render(<DesignHarnessed project={makeProject('p1')} />)
+    await settle(e)
+    fireEvent.click(screen.getByRole('button', { name: /^design/i }))
+    await settle(e)
+    const session = (e.calls.find((c) => c.method === 'design.setEnabled')!.args[3] as { sessionId: string }).sessionId
+    e.api.design.poll.mockResolvedValue({ enabled: true, sessionId: null, version: 0, hasTheme: false, itemCount: 0, requests: [], results: {}, panel: null })
+    await settle(e)
+    const seed = e.calls.find((c) => c.method === 'design.command' && (c.args[0] as { op: string }).op === 'seed')
+    expect(seed?.args[0]).toEqual({ op: 'seed', sessionId: session, items: [] })
+    // An unseeded page's snapshot must never replace the host's queue.
+    expect(e.api.design.snapshot).not.toHaveBeenCalled()
+  })
+
+  it('ends the session when a deploy takes the preview away', async () => {
+    const project = makeProject('p1')
+    const { rerender } = render(<DesignHarnessed project={project} />)
+    await settle(e)
+    fireEvent.click(screen.getByRole('button', { name: /^design/i }))
+    await settle(e)
+    expect(screen.getByRole('toolbar', { name: 'Design tools' })).toBeTruthy()
+
+    rerender(<DesignHarnessed project={project} deploy={{ running: true, log: [] }} />)
+    await settle(e)
+    expect(screen.queryByRole('toolbar', { name: 'Design tools' })).toBeNull()
+    expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
+  })
+
+  it('keeps Design off while the live local preview is showing', async () => {
+    render(<DesignHarnessed project={makeProject('p1')} localPreviewUrl="http://localhost:5173" />)
+    await settle(e)
+    expect((screen.getByRole('button', { name: /^design/i }) as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('no longer renders an Annotate button (design mode replaced it)', async () => {
@@ -706,6 +725,36 @@ describe('PreviewPane design mode', () => {
     expect(screen.queryByRole('button', { name: /annotate/i })).toBeNull()
   })
 })
+
+/** PreviewPane wired to a real Design session, the way the Workbench does it. */
+function DesignHarnessed({
+  project,
+  deploy,
+  localPreviewUrl,
+  onSend
+}: {
+  project: StudioProject
+  deploy?: DeployUiState
+  localPreviewUrl?: string | null
+  onSend?: () => void
+}): JSX.Element {
+  const [surface, setSurface] = useState<DesignSurface | null>(null)
+  const design = useDesignSession(project.id, surface)
+  return (
+    <OverlayProvider>
+      <PreviewPane
+        project={project}
+        deploy={deploy}
+        localPreviewUrl={localPreviewUrl}
+        focused={false}
+        onToggleFocus={() => {}}
+        design={design}
+        onDesignSend={onSend}
+        onDesignSurface={setSurface}
+      />
+    </OverlayProvider>
+  )
+}
 
 /** The last `showUrl(url, bounds)` call, with its position in the call log. */
 function lastShowUrl(

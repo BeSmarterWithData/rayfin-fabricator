@@ -38,7 +38,6 @@ fn default_settings() -> AppSettings {
       compatibility_rendering: Some(false),
       chat_mode_selector: Some(false),
       local_dev_preview: Some(false),
-      design_studio: Some(false),
     }),
     full_diagnostics: Some(false),
   }
@@ -149,12 +148,10 @@ fn merge_experiments(experiments: &mut Option<ExperimentFlags>, patch: Experimen
     compatibility_rendering: Some(false),
     chat_mode_selector: Some(false),
     local_dev_preview: Some(false),
-    design_studio: Some(false),
   });
   if let Some(v) = patch.compatibility_rendering { current.compatibility_rendering = Some(v); }
   if let Some(v) = patch.chat_mode_selector { current.chat_mode_selector = Some(v); }
   if let Some(v) = patch.local_dev_preview { current.local_dev_preview = Some(v); }
-  if let Some(v) = patch.design_studio { current.design_studio = Some(v); }
 }
 
 pub fn set_workspace_root(path: String) -> ProjectsState {
@@ -238,19 +235,29 @@ mod tests {
   use super::*;
 
   #[test]
-  fn design_experiment_deep_merge_preserves_existing_flags() {
+  fn experiment_deep_merge_preserves_existing_flags() {
     let mut flags: Option<ExperimentFlags> = Some(serde_json::from_value(serde_json::json!({
       "compatibilityRendering":true,"chatModeSelector":true,"localDevPreview":true
     })).unwrap());
-    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"designStudio":true})).unwrap());
+    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"chatModeSelector":false})).unwrap());
     let merged = flags.as_ref().unwrap();
-    assert_eq!(merged.design_studio, Some(true));
+    assert_eq!(merged.chat_mode_selector, Some(false));
     assert_eq!(merged.compatibility_rendering, Some(true));
-    assert_eq!(merged.chat_mode_selector, Some(true));
     assert_eq!(merged.local_dev_preview, Some(true));
     merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"localDevPreview":false})).unwrap());
     let json = serde_json::to_value(flags.unwrap()).unwrap();
-    assert_eq!(json["designStudio"], true);
+    assert_eq!(json["chatModeSelector"], false);
     assert_eq!(json["localDevPreview"], false);
+    assert_eq!(json["compatibilityRendering"], true);
+  }
+
+  #[test]
+  fn retired_experiment_flags_are_ignored_on_load() {
+    // Settings saved while the removed Design Studio experiment existed still load.
+    let flags: ExperimentFlags = serde_json::from_value(serde_json::json!({
+      "localDevPreview":true,"designStudio":true
+    })).unwrap();
+    assert_eq!(flags.local_dev_preview, Some(true));
+    assert!(!serde_json::to_string(&flags).unwrap().contains("designStudio"));
   }
 }

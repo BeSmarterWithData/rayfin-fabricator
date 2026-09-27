@@ -3,10 +3,9 @@ import type { DeployResult } from '@shared/ipc'
 export interface DeploymentRequest {
   projectId: string
   workspace?: string
-  applyId?: string
 }
 
-type Runner = (projectId: string, workspace?: string, applyId?: string) => Promise<DeployResult>
+type Runner = (projectId: string, workspace?: string) => Promise<DeployResult>
 interface Job {
   request: DeploymentRequest
   run: Runner
@@ -15,19 +14,21 @@ interface Job {
 }
 
 function key(request: DeploymentRequest): string {
-  return JSON.stringify([request.projectId, request.workspace ?? null, request.applyId ?? null])
+  return JSON.stringify([request.projectId, request.workspace ?? null])
 }
 
+/**
+ * Runs deployments one at a time, in order. A request identical to one that is
+ * still waiting shares that job's result instead of deploying twice; a request
+ * made while an identical deploy is already running queues a fresh run, so
+ * changes made during that deploy still get published.
+ */
 export class DeploymentQueue {
   private pending: Job[] = []
   private active: Job | null = null
 
   enqueue(request: DeploymentRequest, run: Runner): Promise<DeployResult> {
-    const existing =
-      this.pending.find((job) => key(job.request) === key(request)) ??
-      (request.applyId && this.active && key(this.active.request) === key(request)
-        ? this.active
-        : undefined)
+    const existing = this.pending.find((job) => key(job.request) === key(request))
     if (existing) return existing.result
     let resolve!: (result: DeployResult) => void
     const result = new Promise<DeployResult>((done) => {
@@ -48,7 +49,7 @@ export class DeploymentQueue {
     if (!job) return
     this.active = job
     void job
-      .run(job.request.projectId, job.request.workspace, job.request.applyId)
+      .run(job.request.projectId, job.request.workspace)
       .then(job.resolve, (reason: unknown) => {
         const error = reason instanceof Error ? reason.message : String(reason)
         console.error('Queued deployment failed', reason)

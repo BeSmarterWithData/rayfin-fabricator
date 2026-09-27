@@ -126,6 +126,49 @@ export function DesignIcon(props: IconProps): JSX.Element {
   )
 }
 
+/** Painter's palette — the app-wide Theme sheet. */
+export function PaletteIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.8-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8Z" />
+      <circle cx="7.5" cy="11" r="1" fill="currentColor" />
+      <circle cx="10" cy="7" r="1" fill="currentColor" />
+      <circle cx="14.5" cy="7" r="1" fill="currentColor" />
+    </Icon>
+  )
+}
+
+/** Monitor — the full-width (desktop) preview. */
+export function DesktopIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <rect x="3" y="4" width="18" height="12" rx="1.5" />
+      <path d="M9 20h6" />
+      <path d="M12 16v4" />
+    </Icon>
+  )
+}
+
+/** Tablet — a medium-width preview. */
+export function TabletIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <rect x="5" y="3" width="14" height="18" rx="2" />
+      <path d="M11 18h2" />
+    </Icon>
+  )
+}
+
+/** Phone — a narrow (mobile) preview. */
+export function PhoneIcon(props: IconProps): JSX.Element {
+  return (
+    <Icon {...props}>
+      <rect x="7" y="3" width="10" height="18" rx="2" />
+      <path d="M11 18h2" />
+    </Icon>
+  )
+}
+
 /** Corner arrows pointing out — enter focus / full-width preview. */
 export function ExpandIcon(props: IconProps): JSX.Element {
   return (

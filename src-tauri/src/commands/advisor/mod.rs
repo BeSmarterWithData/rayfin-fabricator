@@ -188,7 +188,10 @@ impl PermissionHandler for ReadOnlyPolicy {
   }
 }
 
-fn read_only_options(root: &str) -> SessionOptions {
+/// Session options that sandbox a transient session to reading `root` (and the
+/// rayfin.ai docs): writes, shell, secrets and sandbox bypasses are denied.
+/// Shared with Design mode's model-backed helpers.
+pub(crate) fn read_only_options(root: &str) -> SessionOptions {
   let policy: Arc<dyn PermissionHandler> = Arc::new(ReadOnlyPolicy { root: PathBuf::from(root) });
   SessionOptions {
     permission: Some(policy),

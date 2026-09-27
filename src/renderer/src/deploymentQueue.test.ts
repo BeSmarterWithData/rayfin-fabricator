@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { DeployResult } from '@shared/ipc'
-import { deferred } from '../../test/deferred'
+import { deferred } from '../test/deferred'
 import { DeploymentQueue } from './deploymentQueue'
 
 describe('shared deployment queue', () => {
@@ -12,24 +12,40 @@ describe('shared deployment queue', () => {
       .mockResolvedValue({ ok: true, url: 'second' })
     const queue = new DeploymentQueue()
     const a = queue.enqueue({ projectId: 'a' }, run)
-    const b = queue.enqueue({ projectId: 'b', workspace: 'workspace-b', applyId: 'apply-b' }, run)
+    const b = queue.enqueue({ projectId: 'b', workspace: 'workspace-b' }, run)
     expect(run).toHaveBeenCalledTimes(1)
     first.resolve({ ok: false, outcome: 'error', error: 'Failed' })
     expect(await a).toMatchObject({ ok: false })
     expect(await b).toMatchObject({ url: 'second' })
-    expect(run).toHaveBeenLastCalledWith('b', 'workspace-b', 'apply-b')
+    expect(run).toHaveBeenLastCalledWith('b', 'workspace-b')
   })
 
-  it('coalesces duplicate Apply requests without coalescing different workspace targets', async () => {
+  it('coalesces duplicate waiting requests but not different workspace targets', async () => {
     const first = deferred<DeployResult>()
     const run = vi
       .fn()
       .mockImplementationOnce(() => first.promise)
       .mockResolvedValue({ ok: true })
     const queue = new DeploymentQueue()
-    const a = queue.enqueue({ projectId: 'p1', applyId: 'apply' }, run)
-    expect(queue.enqueue({ projectId: 'p1', applyId: 'apply' }, run)).toBe(a)
-    const b = queue.enqueue({ projectId: 'p1', workspace: 'different', applyId: 'apply' }, run)
+    const running = queue.enqueue({ projectId: 'p0' }, run)
+    const a = queue.enqueue({ projectId: 'p1' }, run)
+    expect(queue.enqueue({ projectId: 'p1' }, run)).toBe(a)
+    const b = queue.enqueue({ projectId: 'p1', workspace: 'different' }, run)
+    expect(b).not.toBe(a)
+    first.resolve({ ok: true, outcome: 'success' })
+    await Promise.all([running, a, b])
+    expect(run).toHaveBeenCalledTimes(3)
+  })
+
+  it('queues a fresh run when the same deploy is requested while it is running', async () => {
+    const first = deferred<DeployResult>()
+    const run = vi
+      .fn()
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValue({ ok: true, outcome: 'success' })
+    const queue = new DeploymentQueue()
+    const a = queue.enqueue({ projectId: 'p1' }, run)
+    const b = queue.enqueue({ projectId: 'p1' }, run)
     expect(b).not.toBe(a)
     first.resolve({ ok: true, outcome: 'success' })
     await Promise.all([a, b])

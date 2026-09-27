@@ -75,7 +75,9 @@ mod tests {
   use super::*;
 
   #[test]
-  fn design_apply_markers_survive_chat_history_sanitizing_and_serde() {
+  fn legacy_rows_load_and_retired_markers_are_dropped() {
+    // Transcripts saved by the removed Design Studio carried `designApplyId`; they
+    // must still load (the marker is simply ignored) and legacy merges vanish.
     let rows: Vec<ChatMessage> = serde_json::from_value(serde_json::json!([
       {"id":"apply-user","role":"user","text":"Apply the visual draft","designApplyId":"apply-1"},
       {"id":"apply-1","role":"assistant","text":"","designApplyId":"apply-1","interrupted":true},
@@ -84,16 +86,7 @@ mod tests {
     let saved = serde_json::to_string(&sanitize(rows)).unwrap();
     let reloaded = sanitize(serde_json::from_str(&saved).unwrap());
     assert_eq!(reloaded.len(), 2);
-    assert!(reloaded.iter().all(|row| row.design_apply_id.as_deref() == Some("apply-1")));
     assert_eq!(reloaded[1].interrupted, Some(true));
-    assert!(saved.contains("\"designApplyId\":\"apply-1\""));
-    assert!(!saved.contains("design_apply_id"));
-  }
-
-  #[test]
-  fn design_marker_is_optional_in_legacy_chat_history() {
-    let row: ChatMessage = serde_json::from_str(r#"{"id":"ordinary","role":"user","text":"Hello"}"#).unwrap();
-    assert!(row.design_apply_id.is_none());
-    assert!(!serde_json::to_string(&row).unwrap().contains("designApplyId"));
+    assert!(!saved.contains("designApplyId"));
   }
 }

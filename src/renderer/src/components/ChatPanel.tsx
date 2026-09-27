@@ -47,10 +47,44 @@ import { flattenFiles, rankFiles, type MentionFile } from './chat/mentions'
 import { createFileResolver } from './chat/paths'
 import { MessageRow } from './chat/MessageRow'
 import { tryAgainPrompt } from './chat/prompts'
+import type { ChatDesignSummary, DesignItem } from '@shared/design'
+import type { DesignTurn } from '../design/useDesignSession'
+import { DesignTray } from '../design/DesignTray'
 import './chat/chat.css'
 
 export type { OutboundPrompt, UIChatMessage } from './chat/types'
 export { reduceChatMessage } from './chat/reducer'
+
+const NO_DESIGN_ITEMS: DesignItem[] = []
+
+/** The prompt a Retry / Try again / Resume re-sends for a user message, or null
+ *  when it can't be re-run (a screenshot-only message). */
+function rerunPrompt(user: UIChatMessage): string | null {
+  if (user.prompt) return user.prompt
+  if (!user.text || user.text === '(screenshot)') return null
+  return user.text
+}
+
+/** A Design message's card and prompt, carried to its rerun (without the
+ *  captures — those were deleted once the original turn used them). */
+function rerunExtra(
+  user: UIChatMessage
+): { design?: ChatDesignSummary; storedPrompt?: string } | undefined {
+  if (!user.prompt && !user.design) return undefined
+  return {
+    design: user.design
+      ? {
+          items: user.design.items.map((item) => ({
+            n: item.n,
+            kind: item.kind,
+            label: item.label,
+            summary: item.summary
+          }))
+        }
+      : undefined,
+    storedPrompt: user.prompt
+  }
+}
 
 interface Props {
   project: StudioProject
@@ -100,8 +134,6 @@ interface Props {
   modeSelectorEnabled?: boolean
   /** The host owns the global chat-event subscription (keeps turns live while this panel is unmounted). */
   eventsManagedExternally?: boolean
-  /** A Design Apply owns source editing; keep the composer draft, but don't steer it. */
-  externalBusy?: boolean
   /** Open a file referenced by an @-mention chip (path without the leading @). */
   onOpenMention?: (ref: string) => void
   /** The current composer draft. Persisted by the parent (keyed by project) so a
@@ -110,6 +142,19 @@ interface Props {
   draft?: string
   /** Called whenever the composer draft changes so the parent can persist it. */
   onDraftChange?: (value: string) => void
+  /** Queued Design changes, shown as chips in the composer and sent with the
+   *  next message (its text becomes an optional note). */
+  designItems?: DesignItem[]
+  /** The Design changes are being captured for sending. */
+  designSending?: boolean
+  onDesignRemove?: (id: string) => void
+  /** Show a queued change in the preview (switches Design on if needed). */
+  onDesignFocus?: (id: string) => void
+  onDesignClear?: () => void
+  /** Capture and compose the Design turn for `note` (null when nothing is queued). */
+  buildDesignTurn?: (note: string, options?: { extraImages?: number }) => Promise<DesignTurn | null>
+  /** A Design turn was dispatched: the parent drops its changes from the queue and leaves Design. */
+  onDesignSent?: (turn: DesignTurn) => void
   copilotAuth?: CopilotAuthStatus
   onCopilotAuthChanged?: () => Promise<void> | void
 }
@@ -137,10 +182,16 @@ export default function ChatPanel({
   onRequestDeploy,
   modeSelectorEnabled = false,
   eventsManagedExternally = false,
-  externalBusy = false,
   onOpenMention,
   draft,
   onDraftChange,
+  designItems = NO_DESIGN_ITEMS,
+  designSending = false,
+  onDesignRemove,
+  onDesignFocus,
+  onDesignClear,
+  buildDesignTurn,
+  onDesignSent,
   copilotAuth,
   onCopilotAuthChanged
 }: Props): JSX.Element {
@@ -163,6 +214,8 @@ export default function ChatPanel({
     onDraftChangeRef.current?.(value)
   }, [])
   const [sending, setSending] = useState(false)
+  /** A Design turn is being captured and composed (guards double sends). */
+  const designBuildRef = useRef(false)
   // Recover the in-flight state when the panel remounts mid-turn — switching
   // workbench tabs/projects or a dev hot-reload tears down this component while
   // the backend turn keeps streaming. `messages` is owned by the parent and
@@ -614,7 +667,7 @@ export default function ChatPanel({
   const submitBlocked = deploying && blockSubmitWhileDeploying
 
   async function send(): Promise<void> {
-    if (deployLock || externalBusy) return
+    if (deployLock) return
     const text = input.trim()
     const shots = attachments ?? []
     // Mid-turn: interrupt the running reply with this message (conversation
@@ -675,11 +728,43 @@ export default function ChatPanel({
     // allowed) so the turn never overlaps the deploy and the local preview can
     // start cleanly once the deploy finishes.
     if (submitBlocked) return
+    // Queued Design changes go out as one turn; the typed text is their note.
+    if (designItems.length > 0 && buildDesignTurn) {
+      await sendDesign(text, shots)
+      return
+    }
     if (!text && shots.length === 0) return
     const prompt = text || 'Here is a screenshot of the current preview — please take a look.'
     setInput('')
     onAttachmentsConsumed?.()
     await dispatch(text || '(screenshot)', prompt, shots)
+  }
+
+  /**
+   * Send the queued Design changes as one turn. The previews are captured and
+   * composed into a structured prompt (hidden behind the transcript's Design
+   * card); `note` is what the user typed, if anything.
+   */
+  async function sendDesign(note: string, shots: PendingShot[]): Promise<void> {
+    if (!buildDesignTurn || designBuildRef.current) return
+    designBuildRef.current = true
+    let turn: DesignTurn | null = null
+    try {
+      turn = await buildDesignTurn(note, { extraImages: shots.length })
+    } catch (err) {
+      console.error('Failed to prepare the design changes', err)
+    } finally {
+      designBuildRef.current = false
+    }
+    if (!turn) return
+    // Keep anything typed while the changes were being captured.
+    if (inputRef.current.trim() === note) setInput('')
+    onAttachmentsConsumed?.()
+    onDesignSent?.(turn)
+    await dispatch(turn.display, turn.prompt, [...turn.shots, ...shots], undefined, undefined, {
+      design: turn.summary,
+      storedPrompt: turn.storedPrompt
+    })
   }
 
   /**
@@ -737,15 +822,16 @@ export default function ChatPanel({
     if (filesRequested.current) void refreshFiles()
   }
 
-  /** Append a fresh turn and stream its result. Shared by send + retry. */
+  /** Append a fresh turn and stream its result. Shared by send + retry. `extra`
+   *  carries a Design turn's transcript card and the prompt reruns re-send. */
   async function dispatch(
     displayText: string,
     prompt: string,
     shots: PendingShot[],
     modeOverride?: ChatMode,
-    initialPlan?: ChatPlanArtifact
+    initialPlan?: ChatPlanArtifact,
+    extra?: { design?: ChatDesignSummary; storedPrompt?: string }
   ): Promise<void> {
-    if (externalBusy) return
     const turnId = uid()
     const assistantId = uid()
     const sendMode = modeOverride ?? activeMode
@@ -758,7 +844,9 @@ export default function ChatPanel({
       pending: false,
       createdAt: now,
       attachments: shots.length || undefined,
-      attachmentThumbs: shots.length ? shots.map((s) => s.thumb) : undefined
+      attachmentThumbs: shots.length ? shots.map((s) => s.thumb) : undefined,
+      design: extra?.design,
+      prompt: extra?.storedPrompt
     }
     const assistantMsg: UIChatMessage = {
       id: assistantId,
@@ -803,22 +891,22 @@ export default function ChatPanel({
     if (sending) return
     const idx = messages.findIndex((m) => m.id === assistantId)
     if (idx <= 0) return
-    if (messages[idx].designApplyId) return
     const user = messages[idx - 1]
-    if (!user || user.role !== 'user' || user.text === '(screenshot)') return
-    await dispatch(user.text, user.text, [])
+    if (!user || user.role !== 'user' || !rerunPrompt(user)) return
+    await dispatch(user.text, rerunPrompt(user)!, [], undefined, undefined, rerunExtra(user))
   }
 
   /** Re-run the latest prompt for a fresh attempt (its context and file changes stay). */
   async function tryAgain(assistantId: string): Promise<void> {
-    if (sending || externalBusy || deployLock || submitBlocked) return
+    if (sending || deployLock || submitBlocked) return
     const idx = messages.findIndex((m) => m.id === assistantId)
     if (idx <= 0 || idx !== messages.length - 1) return
     const turn = messages[idx]
-    if (turn.pending || turn.plan || turn.designApplyId) return
+    if (turn.pending || turn.plan) return
     const user = messages[idx - 1]
-    if (!user || user.role !== 'user' || !user.text || user.text === '(screenshot)') return
-    await dispatch(user.text, tryAgainPrompt(user.text), [])
+    const original = user?.role === 'user' ? rerunPrompt(user) : null
+    if (!original) return
+    await dispatch(user.text, tryAgainPrompt(original), [], undefined, undefined, rerunExtra(user))
   }
 
   /**
@@ -831,9 +919,9 @@ export default function ChatPanel({
     if (sending) return
     const idx = messages.findIndex((m) => m.id === assistantId)
     if (idx <= 0) return
-    if (messages[idx].designApplyId) return
     const user = messages[idx - 1]
-    if (!user || user.role !== 'user' || user.text === '(screenshot)') return
+    const original = user?.role === 'user' ? rerunPrompt(user) : null
+    if (!original) return
     const turnId = uid()
     const now = Date.now()
     const assistantMsg: UIChatMessage = {
@@ -851,7 +939,7 @@ export default function ChatPanel({
     setSending(true)
     onTurnStart?.()
     try {
-      const result = await window.api.chat.send(project.id, turnId, user.text, [], activeMode)
+      const result = await window.api.chat.send(project.id, turnId, original, [], activeMode)
       finishTurn(turnId, result)
     } catch (error) {
       finishTurn(turnId, {
@@ -1259,16 +1347,19 @@ export default function ChatPanel({
   // replay every time this panel remounts (e.g. after switching tabs).
   const handledOutbound = useRef<string | null>(null)
   useEffect(() => {
-    if (!outbound || outbound.id === handledOutbound.current || externalBusy) return
+    if (!outbound || outbound.id === handledOutbound.current) return
     handledOutbound.current = outbound.id
-    if (sending || outbound.stage) {
+    if (outbound.design) {
+      // The preview toolbar's Send: the same as pressing Send here.
+      if (!sending) void send()
+    } else if (sending || outbound.stage) {
       setInput(outbound.prompt)
       taRef.current?.focus()
     } else {
       void dispatch(outbound.display, outbound.prompt, [])
     }
     onOutboundConsumed?.()
-  }, [outbound?.id, externalBusy])
+  }, [outbound?.id])
 
   // Precompute the conversation rows so a keystroke in the composer (which only
   // touches local `input` state) doesn't re-run `messages.map` and re-create N
@@ -1279,11 +1370,12 @@ export default function ChatPanel({
     () =>
       messages.map((m, i) => {
         const prevUser = m.role === 'assistant' && i > 0 ? messages[i - 1] : undefined
+        // A Design message re-sends its stored prompt; plain screenshot-only
+        // messages can't be re-run (their images are gone).
         const rerunnable =
           !sending &&
           prevUser?.role === 'user' &&
-          !prevUser.attachments &&
-          prevUser.text !== '(screenshot)'
+          (Boolean(prevUser.prompt) || (!prevUser.attachments && prevUser.text !== '(screenshot)'))
         const canRetry = Boolean(m.error) && !m.plan && rerunnable
         const canResume = Boolean(m.interrupted) && !m.plan && !m.pending && rerunnable
         const latest = m.role === 'assistant' && i === messages.length - 1
@@ -1291,12 +1383,10 @@ export default function ChatPanel({
           latest &&
           rerunnable &&
           !deployLock &&
-          !externalBusy &&
           !m.pending &&
           !m.error &&
           !m.interrupted &&
-          !m.plan &&
-          !m.designApplyId
+          !m.plan
         return (
           <MessageRow
             key={m.id}
@@ -1325,7 +1415,6 @@ export default function ChatPanel({
       messages,
       sending,
       deployLock,
-      externalBusy,
       project.name,
       project.path,
       planBusyId,
@@ -1509,6 +1598,14 @@ export default function ChatPanel({
               ))}
             </div>
           )}
+          <DesignTray
+            items={designItems}
+            sending={designSending}
+            waiting={sending}
+            onRemove={onDesignRemove}
+            onFocus={onDesignFocus}
+            onClear={onDesignClear}
+          />
           {((attachments?.length ?? 0) > 0 || attaching) && (
             <div className="chat-attachments">
               {(attachments ?? []).map((a) => (
@@ -1551,7 +1648,9 @@ export default function ChatPanel({
               placeholder={
                 deployLock
                   ? 'Deploy your app to start chatting…'
-                  : `Message Fabricator about ${project.name}…`
+                  : designItems.length > 0
+                    ? 'Add a note for these changes (optional) — or just press Enter to send them'
+                    : `Message Fabricator about ${project.name}…`
               }
               value={input}
               rows={1}
@@ -1586,7 +1685,7 @@ export default function ChatPanel({
                     type="button"
                     className="composer-send composer-send--interject"
                     onClick={send}
-                    disabled={!input.trim() || externalBusy}
+                    disabled={!input.trim()}
                     title="Interject — send this now without waiting"
                     aria-label="Interject this message"
                   >
@@ -1613,11 +1712,17 @@ export default function ChatPanel({
                     onClick={send}
                     disabled={
                       deployLock ||
-                      externalBusy ||
                       submitBlocked ||
-                      (!input.trim() && (attachments?.length ?? 0) === 0)
+                      designSending ||
+                      (!input.trim() && (attachments?.length ?? 0) === 0 && designItems.length === 0)
                     }
-                    title={submitBlocked ? undefined : 'Send (Enter)'}
+                    title={
+                      submitBlocked
+                        ? undefined
+                        : designItems.length > 0
+                          ? `Send ${designItems.length} design change${designItems.length === 1 ? '' : 's'} (Enter)`
+                          : 'Send (Enter)'
+                    }
                     aria-label="Send"
                   >
                     <SendIcon />

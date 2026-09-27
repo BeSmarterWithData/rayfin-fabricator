@@ -3,7 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ChatEventEnvelope, ChatPlanArtifact, ChatPlanQuestion } from '@shared/ipc'
 import { makeProject } from '../../test/harness'
+import type { DesignItem } from '@shared/design'
+import type { DesignTurn } from '../design/useDesignSession'
 import ChatPanel, { reduceChatMessage, type UIChatMessage } from './ChatPanel'
+import { tryAgainPrompt } from './chat/prompts'
 
 vi.mock('../monaco', () => ({}))
 vi.mock('@monaco-editor/react', () => ({
@@ -213,40 +216,6 @@ describe('ChatPanel authentication recovery', () => {
     fireEvent.keyDown(composer, { key: 'Enter' })
     await screen.findByText('Not authenticated')
     expect(screen.getByRole('button', { name: 'Sign in to Copilot' })).toBeTruthy()
-  })
-})
-
-describe('ChatPanel Design Apply isolation', () => {
-  it('keeps a composer draft and outbound request untouched while Design owns source editing', async () => {
-    const api = installApi()
-    const consumed = vi.fn()
-    const changed = vi.fn()
-    render(<ChatPanel
-      project={makeProject('p1')} messages={[]} onChange={() => {}}
-      draft="Keep this idea for later" onDraftChange={changed} externalBusy
-      outbound={{ id: 'queued', display: 'An update', prompt: 'Do not replace my draft' }}
-      onOutboundConsumed={consumed}
-    />)
-    const composer = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
-    fireEvent.keyDown(composer, { key: 'Enter' })
-    expect(composer.value).toBe('Keep this idea for later')
-    expect(api.chat.send).not.toHaveBeenCalled()
-    expect(api.chat.steer).not.toHaveBeenCalled()
-    expect(consumed).not.toHaveBeenCalled()
-    expect(changed).not.toHaveBeenCalled()
-  })
-
-  it('does not offer generic prompt replay for an interrupted or failed source Apply', async () => {
-    installApi()
-    const base: UIChatMessage = { id: 'u1', role: 'user', text: 'Apply visual changes', tools: [], pending: false }
-    render(<ChatPanel project={makeProject('p1')} onChange={() => {}} messages={[
-      base,
-      { ...base, id: 'a1', role: 'assistant', designApplyId: 'apply1', interrupted: true },
-      { ...base, id: 'a2', role: 'assistant', designApplyId: 'apply2', error: 'Source needs review' }
-    ]} />)
-    expect(screen.queryByRole('button', { name: /Resume$/i })).toBeNull()
-    expect(screen.queryByRole('button', { name: /^Retry$/i })).toBeNull()
-    expect(screen.getAllByText(/Open Design Studio to review or recover/)).toHaveLength(2)
   })
 })
 
@@ -1005,5 +974,142 @@ describe('ChatPanel streamed delta coalescing (P1)', () => {
       vi.clearAllTimers()
       vi.useRealTimers()
     }
+  })
+})
+
+/**
+ * Design mode ("visual chat"): changes queued in the preview show as chips in
+ * the composer and go out as ONE turn. The transcript shows the note plus a
+ * Design card; the structured prompt is hidden but re-sent on reruns.
+ */
+describe('ChatPanel Design changes', () => {
+  const ITEM: DesignItem = {
+    id: 'i1',
+    kind: 'element',
+    tweaks: [{ kind: 'background', summary: 'Background: bg-indigo-600 → bg-indigo-700' }],
+    createdAt: 1,
+    target: { label: 'Button · Save', role: 'button', tag: 'button', selector: 'button', route: '/', box: { w: 80, h: 32 } }
+  }
+  const TURN: DesignTurn = {
+    projectId: 'p1',
+    itemIds: ['i1'],
+    display: 'make it pop',
+    prompt: 'make it pop\n\n## Design changes from the live preview (1)\nAttached images: #1 is the full view',
+    storedPrompt: 'make it pop\n\n## Design changes from the live preview (1)',
+    shots: [
+      { path: 'C:/tmp/full.png', thumb: 'data:image/png;base64,FULL' },
+      { path: 'C:/tmp/crop.png', thumb: 'data:image/png;base64,CROP' }
+    ],
+    summary: { full: 0, items: [{ n: 1, kind: 'element', label: 'Button · Save', summary: 'Background: bg-indigo-600 → bg-indigo-700', shot: 1 }] }
+  }
+
+  function DesignHarness({
+    initial = [],
+    items = [ITEM],
+    buildDesignTurn,
+    onDesignSent,
+    onDesignRemove
+  }: {
+    initial?: UIChatMessage[]
+    items?: DesignItem[]
+    buildDesignTurn?: (note: string, options?: { extraImages?: number }) => Promise<DesignTurn | null>
+    onDesignSent?: (turn: DesignTurn) => void
+    onDesignRemove?: (id: string) => void
+  }): JSX.Element {
+    const [messages, setMessages] = useState<UIChatMessage[]>(initial)
+    return (
+      <ChatPanel
+        project={makeProject('p1')}
+        messages={messages}
+        onChange={(update) => setMessages(update)}
+        draft=""
+        designItems={items}
+        buildDesignTurn={buildDesignTurn}
+        onDesignSent={onDesignSent}
+        onDesignRemove={onDesignRemove}
+      />
+    )
+  }
+
+  it('lists queued changes as chips and sends them as one turn with a clean card', async () => {
+    const api = installApi()
+    const build = vi.fn(async () => TURN)
+    const sent = vi.fn()
+    const removed = vi.fn()
+    render(<DesignHarness buildDesignTurn={build} onDesignSent={sent} onDesignRemove={removed} />)
+
+    const tray = screen.getByRole('group', { name: 'Design changes to send' })
+    expect(tray.textContent).toContain('1 design change · sent with your message')
+    expect(tray.textContent).toContain('Button · Save')
+    fireEvent.click(screen.getByRole('button', { name: 'Remove change 1: Button · Save' }))
+    expect(removed).toHaveBeenCalledWith('i1')
+
+    const composer = screen.getByPlaceholderText(/Add a note for these changes/) as HTMLTextAreaElement
+    // The changes alone are enough to send.
+    expect((screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.change(composer, { target: { value: 'make it pop' } })
+    await act(async () => {
+      fireEvent.keyDown(composer, { key: 'Enter' })
+    })
+
+    await waitFor(() => expect(api.chat.send).toHaveBeenCalledOnce())
+    expect(build).toHaveBeenCalledWith('make it pop', { extraImages: 0 })
+    expect(sent).toHaveBeenCalledWith(TURN)
+    const [, , prompt, paths] = api.chat.send.mock.calls[0] as unknown as [string, string, string, string[]]
+    expect(prompt).toBe(TURN.prompt)
+    expect(paths).toEqual(['C:/tmp/full.png', 'C:/tmp/crop.png'])
+    expect(composer.value).toBe('')
+
+    // The transcript shows the note and a Design card — not the raw prompt.
+    const card = await screen.findByRole('group', { name: 'Design changes (1)' })
+    expect(card.textContent).toContain('1 design change')
+    expect(card.textContent).toContain('Button · Save')
+    expect(card.querySelector('img.design-card-shot')?.getAttribute('src')).toBe('data:image/png;base64,CROP')
+    expect(card.querySelector('img.design-card-full')?.getAttribute('src')).toBe('data:image/png;base64,FULL')
+    expect(screen.getByText('make it pop')).toBeTruthy()
+    // Captures shown in the card aren't repeated as loose screenshots.
+    expect(document.querySelectorAll('.msg-shots img')).toHaveLength(0)
+    expect(card.querySelector('details pre')?.textContent).toBe(TURN.storedPrompt)
+  })
+
+  it('does nothing when the changes could not be prepared', async () => {
+    const api = installApi()
+    const sent = vi.fn()
+    render(<DesignHarness buildDesignTurn={async () => null} onDesignSent={sent} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    })
+    expect(api.chat.send).not.toHaveBeenCalled()
+    expect(sent).not.toHaveBeenCalled()
+  })
+
+  it('re-sends the stored Design prompt on Try again, keeping the card', async () => {
+    const api = installApi()
+    const initial: UIChatMessage[] = [
+      {
+        id: 'u1',
+        role: 'user',
+        text: '',
+        tools: [],
+        pending: false,
+        attachments: 2,
+        attachmentThumbs: ['data:image/png;base64,FULL', 'data:image/png;base64,CROP'],
+        design: TURN.summary,
+        prompt: TURN.storedPrompt
+      },
+      { id: 'a1', role: 'assistant', text: 'Done — the Save button is darker now.', tools: [], pending: false }
+    ]
+    render(<DesignHarness initial={initial} items={[]} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
+    })
+    await waitFor(() => expect(api.chat.send).toHaveBeenCalledOnce())
+    const [, , prompt, paths] = api.chat.send.mock.calls[0] as unknown as [string, string, string, string[]]
+    expect(prompt).toBe(tryAgainPrompt(TURN.storedPrompt))
+    expect(paths).toEqual([])
+    // Both Design messages render a card; the rerun has no captures to show.
+    const cards = screen.getAllByRole('group', { name: 'Design changes (1)' })
+    expect(cards).toHaveLength(2)
+    expect(cards[1].querySelector('img')).toBeNull()
   })
 })

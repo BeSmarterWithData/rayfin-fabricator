@@ -30,6 +30,7 @@ pub struct AppState {
   pub copilot: CopilotManager,
   /// Bridges Plan-mode `exit_plan_mode` requests to the renderer's approval UI.
   pub plan: Arc<PlanGate>,
+  /// Per-project lease shared by source-writing chat turns and deployments.
   pub mutations: crate::services::project_mutation::ProjectMutations,
 }
 
@@ -256,12 +257,9 @@ impl AppState {
     self.chat_cancels.lock().unwrap().remove(project_id);
   }
 
-  pub(crate) fn chat_token(&self, project_id: &str) -> Option<CancelToken> {
-    self.chat_cancels.lock().unwrap().get(project_id).cloned()
-  }
-
   /// Cancel an in-flight turn, if one is running. Returns true when a token was
-  /// found and signalled.
+  /// found and signalled. The slot stays occupied until the turn actually ends
+  /// (`end_chat`), so a new turn can't start while the old one is still aborting.
   pub fn cancel_chat(&self, project_id: &str) -> bool {
     if let Some(token) = self.chat_cancels.lock().unwrap().get(project_id) {
       token.cancel();
@@ -422,7 +420,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn design_chat_cancel_keeps_the_slot_until_the_turn_stops() {
+  fn chat_cancel_keeps_the_slot_until_the_turn_stops() {
     let state = AppState::default();
     let token = state.try_begin_chat("p").unwrap();
     assert!(state.cancel_chat("p"));
@@ -431,20 +429,6 @@ mod tests {
     assert!(state.try_begin_chat("p").is_none());
     state.end_chat("p");
     assert!(state.try_begin_chat("p").is_some());
-  }
-
-  #[test]
-  fn design_owned_turns_still_accept_structured_question_answers() {
-    let state = AppState::default();
-    let _lease = state.mutations.apply("p", "apply-1").unwrap();
-    state.plan.set_route("copilot-session", route("p", "apply-1", false));
-    let mut answer = state.plan.register_pending_question("copilot-session", "question", true);
-    assert_eq!(state.mutations.apply_id("p").as_deref(), Some("apply-1"));
-    assert_eq!(state.plan.question_owner("question").unwrap().turn_id, "apply-1");
-    assert!(state.plan.resolve_question("question", Some(UserInputResponse {
-      answer: "Use the existing theme".into(), was_freeform: true,
-    })));
-    assert_eq!(answer.try_recv().unwrap().unwrap().answer, "Use the existing theme");
   }
 
   fn route(project_id: &str, turn_id: &str, plan_context: bool) -> TurnRoute {

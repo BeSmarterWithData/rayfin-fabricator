@@ -27,15 +27,20 @@ import {
   type PreviewBounds,
   type PreviewNavState,
   type PreviewAgentEvent,
-  type PreviewDesignRestylePatch,
-  type PreviewDesignRestyleContext,
-  type PreviewDesignTheme,
   type ProcLogEvent,
   type DeleteProgressEvent,
   type RayfinStudioApi,
   type ToolId,
   type UpdateProgress
 } from '@shared/ipc'
+import type {
+  DesignCommand,
+  DesignEnableOptions,
+  DesignHostTheme,
+  DesignLocateTarget,
+  DesignPageOutline,
+  DesignRestyleContext
+} from '@shared/design'
 
 /** Subscribe to a Tauri event, returning a synchronous unsubscribe function. */
 function subscribe<T>(name: string, cb: (payload: T) => void): () => void {
@@ -245,8 +250,8 @@ export const api: RayfinStudioApi = {
   },
 
   deploy: {
-    run: (projectId: string, workspace?: string, applyId?: string) =>
-      invoke('deploy_run', { projectId, workspace, applyId }),
+    run: (projectId: string, workspace?: string) =>
+      invoke('deploy_run', { projectId, workspace }),
     list: (projectId: string) => invoke('deploy_list', { projectId }),
     switch: (projectId: string, workspace: string, byId?: boolean) =>
       invoke('deploy_switch', { projectId, workspace, byId }),
@@ -258,28 +263,23 @@ export const api: RayfinStudioApi = {
   },
 
   dev: {
-    start: (projectId: string, owner?: 'chat' | 'design') => invoke('dev_start', { projectId, owner }),
-    stop: (projectId: string, owner?: 'chat' | 'design') => invoke('dev_stop', { projectId, owner }),
+    start: (projectId: string) => invoke('dev_start', { projectId }),
+    stop: (projectId: string) => invoke('dev_stop', { projectId }),
     supported: (projectId: string) => invoke('dev_supported_cmd', { projectId })
   },
 
-  designStudio: {
-    connect: (options) => invoke('preview_studio_connect', { options }),
-    poll: (sessionId) => invoke('preview_studio_poll', { sessionId }),
-    command: (command) => invoke('preview_studio_command', { command }),
-    disconnect: (sessionId) => invoke('preview_studio_disconnect', { sessionId }),
-    load: (projectId) => invoke('design_draft_load', { projectId }),
-    save: (draft) => invoke('design_draft_save', { draft }),
-    clear: (projectId) => invoke('design_draft_clear', { projectId }),
-    sourceRevision: (projectId) => invoke('design_source_revision', { projectId }),
-    assets: (projectId) => invoke('design_assets', { projectId }),
-    importAsset: (projectId) => invoke('design_import_asset', { projectId }),
-    assetPreview: (projectId, assetId) => invoke('design_asset_preview', { projectId, assetId }),
-    apply: (projectId, applyId, revision, screenshotPath) =>
-      invoke('design_apply', { projectId, applyId, revision, screenshotPath }),
-    receipt: (projectId) => invoke('design_apply_receipt', { projectId }),
-    finish: (projectId, applyId, verified) =>
-      invoke('design_apply_finish', { projectId, applyId, verified })
+  design: {
+    variations: (
+      projectId: string,
+      context: DesignRestyleContext,
+      hint?: string,
+      count?: number,
+      model?: string
+    ) => invoke('design_variations', { projectId, context, hint, count, model }),
+    polish: (projectId: string, page: DesignPageOutline, screenshotPath?: string, model?: string) =>
+      invoke('design_polish', { projectId, page, screenshotPath, model }),
+    locate: (projectId: string, targets: DesignLocateTarget[]) =>
+      invoke('design_locate', { projectId, targets })
   },
 
   settings: {
@@ -304,36 +304,22 @@ export const api: RayfinStudioApi = {
     onAgentPreview: (cb: (event: PreviewAgentEvent) => void) =>
       subscribe<PreviewAgentEvent>(IpcChannels.previewAgent, cb),
     design: {
-      setEnabled: (enabled: boolean, embedded?: boolean, appUrl?: string) =>
+      setEnabled: (
+        enabled: boolean,
+        embedded?: boolean,
+        appUrl?: string,
+        options?: DesignEnableOptions
+      ) =>
         invoke('preview_design_set', {
           enabled,
           embedded: embedded ?? false,
-          appUrl: appUrl ?? null
+          appUrl: appUrl ?? null,
+          options: options ?? null
         }),
       poll: () => invoke('preview_design_poll'),
-      drain: () => invoke('preview_design_drain'),
-      drainAi: () => invoke('preview_design_drain_ai'),
-      applyGenerated: (id: string, html: string) =>
-        invoke('preview_design_apply_generated', { id, html }),
-      setModels: (models: { id: string; name: string; fast: boolean }[], preferred?: string) =>
-        invoke('preview_design_set_models', { models, preferred: preferred ?? null }),
-      setTheme: (theme: PreviewDesignTheme) => invoke('preview_design_set_theme', { theme }),
-      generateHtml: (
-        projectId: string,
-        description: string,
-        width: number,
-        height: number,
-        model?: string
-      ) => invoke('design_generate_html', { projectId, description, width, height, model }),
-      drainAiEdit: () => invoke('preview_design_drain_ai_edit'),
-      applyRestyle: (id: string, patch: PreviewDesignRestylePatch) =>
-        invoke('preview_design_apply_restyle', { id, patch }),
-      restyleElement: (
-        projectId: string,
-        description: string,
-        context: PreviewDesignRestyleContext,
-        model?: string
-      ) => invoke('design_restyle_element', { projectId, description, context, model })
+      snapshot: () => invoke('preview_design_snapshot'),
+      command: (command: DesignCommand) => invoke('preview_design_command', { command }),
+      setTheme: (theme: DesignHostTheme) => invoke('preview_design_set_theme', { theme })
     }
   },
 

@@ -43,6 +43,13 @@ pub fn cleanup(paths: &[String]) {
   }
 }
 
+/// The canonical path of `path` when it is one of Fabricator's own temp
+/// captures (a regular file directly inside the shots dir), else `None`.
+pub fn owned_capture_path(path: &str) -> Option<PathBuf> {
+  let shots = std::fs::canonicalize(crate::services::paths::shots_dir()).ok()?;
+  owned_capture(&shots, &PathBuf::from(path))
+}
+
 fn owned_capture(shots: &std::path::Path, path: &std::path::Path) -> Option<PathBuf> {
   let canonical = std::fs::canonicalize(path).ok()?;
   // Lexical starts_with allowed shots/../... to delete persistent assets.
@@ -57,12 +64,12 @@ mod tests {
   use super::*;
 
   #[test]
-  fn design_screenshot_cleanup_cannot_escape_into_persistent_assets() {
-    let dir = crate::services::design_store::test_dir();
+  fn screenshot_cleanup_cannot_escape_into_persistent_files() {
+    let dir = std::env::temp_dir().join(format!("fabricator-shots-test-{}", uuid::Uuid::new_v4()));
     let shots = dir.join("shots");
     let assets = dir.join("assets");
-    std::fs::create_dir(&shots).unwrap();
-    std::fs::create_dir(&assets).unwrap();
+    std::fs::create_dir_all(&shots).unwrap();
+    std::fs::create_dir_all(&assets).unwrap();
     std::fs::write(shots.join("shot-1.png"), b"capture").unwrap();
     std::fs::write(assets.join("original.bin"), b"persistent").unwrap();
     let canonical = std::fs::canonicalize(&shots).unwrap();

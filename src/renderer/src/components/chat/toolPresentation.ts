@@ -22,7 +22,6 @@ export type ToolKind =
   | 'console'
   | 'scroll'
   | 'model'
-  | 'design'
   | 'other'
 
 /** Tools whose UI lives elsewhere (question cards, the plan card, the status line). */
@@ -43,7 +42,6 @@ export function toolKind(name: string): ToolKind {
     if (n.includes('console')) return 'console'
     if (n.includes('scroll')) return 'scroll'
     if (n.includes('semantic_model')) return 'model'
-    if (n.includes('design')) return 'design'
     return 'other'
   }
   if (/^(read|write|stop|list)_(powershell|bash|shell)/.test(n)) return 'shell-io'
@@ -83,7 +81,6 @@ const VERBS: Record<ToolKind, [running: string, done: string]> = {
   console: ['Reading the preview console', 'Read the preview console'],
   scroll: ['Scrolling the preview', 'Scrolled the preview'],
   model: ['Looking up a semantic model', 'Looked up a semantic model'],
-  design: ['Reporting design changes', 'Reported design changes'],
   other: ['Using', 'Used']
 }
 
@@ -123,7 +120,6 @@ const PHASES: Record<ToolKind, string> = {
   console: 'Reading the preview console',
   scroll: 'Scrolling the preview',
   model: 'Looking up a semantic model',
-  design: 'Reporting design changes',
   other: 'Working'
 }
 
@@ -211,7 +207,6 @@ export function describeStep(tool: ChatToolCall, projectPath: string): StepView 
     case 'screenshot':
     case 'console':
     case 'scroll':
-    case 'design':
       break
     case 'other':
       target = { kind: 'text', text: hasTitle ? title : humanize(tool.name) }

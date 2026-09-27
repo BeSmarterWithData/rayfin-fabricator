@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo } from 'react'
+import { DesignSummary, designShotIndexes } from '../../design/DesignSummary'
 import { MentionText } from '../MentionText'
 import PlanCard from '../PlanCard'
 import { Codicon, ImageIcon } from '../icons'
@@ -18,16 +19,20 @@ function UserMessage({
   onOpenMention?: (ref: string) => void
 }): JSX.Element {
   const hasText = Boolean(m.text) && m.text !== '(screenshot)'
+  // A Design message shows its captures inside the card; the strip keeps the rest.
+  const designShots = m.design ? designShotIndexes(m.design) : null
+  const shots = (m.attachmentThumbs ?? []).filter((_, i) => !designShots?.has(i))
   return (
     <div className="turn turn--user">
       <div className="turn-main">
-        {m.attachmentThumbs && m.attachmentThumbs.length > 0 ? (
+        {m.design && <DesignSummary design={m.design} thumbs={m.attachmentThumbs} prompt={m.prompt} />}
+        {shots.length > 0 ? (
           <div className="msg-shots">
-            {m.attachmentThumbs.map((src, i) => (
+            {shots.map((src, i) => (
               <img key={i} className="msg-shot" src={src} alt="Screenshot attachment" />
             ))}
           </div>
-        ) : m.attachments ? (
+        ) : m.attachments && !m.design ? (
           <div className="msg-attach">
             <ImageIcon className="msg-attach-ico" />
             {m.attachments} screenshot{m.attachments > 1 ? 's' : ''}
@@ -187,7 +192,7 @@ export const MessageRow = memo(function MessageRow({
           <div className="msg-error" role="alert">
             <Codicon name="error" />
             <span className="msg-error-text">{m.error}</span>
-            {canRetry && !m.designApplyId && (
+            {canRetry && (
               <button
                 type="button"
                 className="btn btn--xs btn--ghost msg-error-retry"
@@ -205,7 +210,7 @@ export const MessageRow = memo(function MessageRow({
             <span className="msg-interrupted-text">
               This response was interrupted when the app closed.
             </span>
-            {canResume && !m.designApplyId && (
+            {canResume && (
               <button
                 type="button"
                 className="btn btn--xs btn--ghost msg-interrupted-resume"
@@ -215,12 +220,6 @@ export const MessageRow = memo(function MessageRow({
                 <Codicon name="debug-continue" /> Resume
               </button>
             )}
-          </div>
-        )}
-        {m.designApplyId && !m.pending && (m.error || m.interrupted) && (
-          <div className="msg-notice">
-            Open Design Studio to review or recover this Apply. Its source changes will not be
-            replayed from chat.
           </div>
         )}
         {!m.pending && (
