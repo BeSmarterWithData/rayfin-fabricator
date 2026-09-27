@@ -93,6 +93,8 @@ function HunkRows({
 interface DiffViewProps {
   diff: string
   truncated?: boolean
+  /** A remark for the footer about how complete the diff is (replaces the truncation note). */
+  note?: string
   projectPath: string
   onOpenFile?: (path: string) => void
 }
@@ -101,6 +103,7 @@ interface DiffViewProps {
 export const DiffView = memo(function DiffView({
   diff,
   truncated,
+  note,
   projectPath,
   onOpenFile
 }: DiffViewProps): JSX.Element {
@@ -166,9 +169,11 @@ export const DiffView = memo(function DiffView({
             Show all {total} lines
           </button>
         )}
-        {truncated && (
+        {note ? (
+          <span className="diff-note">{note}</span>
+        ) : truncated ? (
           <span className="diff-note">Diff shortened — open the file to see everything.</span>
-        )}
+        ) : null}
         <button
           type="button"
           className={`diff-wrap-toggle${wrap ? ' is-on' : ''}`}

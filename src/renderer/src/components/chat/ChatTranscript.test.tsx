@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import type { ChatToolCall } from '@shared/ipc'
 import { makeProject } from '../../../test/harness'
 import ChatPanel, { type UIChatMessage } from '../ChatPanel'
@@ -206,14 +206,45 @@ describe('chat transcript', () => {
     expect(screen.getByText('Running a command…')).toBeTruthy()
   })
 
-  it('shows files the turn changed as chips that open the Code tab', async () => {
+  it('opens a changed file’s diff from its chip, with a way into the Code tab', async () => {
     installApi()
     const onOpen = vi.fn()
     render(<Harness initial={finishedTurn()} onOpen={onOpen} />)
-    const chip = screen.getByTitle('Edited src/App.tsx — open in the Code tab')
+    const chip = screen.getByTitle('Edited src/App.tsx — show the changes')
     expect(chip.textContent).toContain('+2')
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+
+    await act(async () => fireEvent.click(chip))
+    expect(chip.getAttribute('aria-expanded')).toBe('true')
+    const region = screen.getByRole('region', { name: 'Changes to src/App.tsx' })
+    expect(chip.getAttribute('aria-controls')).toBe(region.id)
+    expect(region.querySelectorAll('.diff-row--add')).toHaveLength(2)
+    expect(region.querySelectorAll('.diff-row--del')).toHaveLength(1)
+    expect(onOpen).not.toHaveBeenCalled()
+
+    await act(async () => fireEvent.click(within(region).getByRole('button', { name: /Open/ })))
+    expect(onOpen).toHaveBeenCalledWith('src/App.tsx')
+
+    await act(async () => fireEvent.click(chip))
+    expect(screen.queryByRole('region', { name: 'Changes to src/App.tsx' })).toBeNull()
+  })
+
+  it('opens a changed file in the Code tab when its turn recorded no diff', async () => {
+    installApi()
+    const onOpen = vi.fn()
+    const legacy = finishedTurn({
+      tools: [tool('edit1', 'edit', { title: `${ROOT}/src/App.tsx`, added: 2, removed: 1 })],
+      segments: [
+        { kind: 'tool', id: 'edit1' },
+        { kind: 'text', text: 'Done.' }
+      ]
+    })
+    render(<Harness initial={legacy} onOpen={onOpen} />)
+    const chip = screen.getByTitle('Edited src/App.tsx — open in the Code tab')
+    expect(chip.getAttribute('aria-expanded')).toBeNull()
     await act(async () => fireEvent.click(chip))
     expect(onOpen).toHaveBeenCalledWith('src/App.tsx')
+    expect(screen.queryByRole('region', { name: /^Changes to/ })).toBeNull()
   })
 
   it('never shows ask_user as a step, and shows an answered question as a compact exchange', async () => {

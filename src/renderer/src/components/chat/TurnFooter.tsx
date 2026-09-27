@@ -1,6 +1,7 @@
-import { memo, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ClockIcon, Codicon } from '../icons'
 import { CopyButton } from './CopyButton'
+import { DiffView } from './DiffView'
 import { formatClock, formatFullDate, formatTurnDuration } from './format'
 import { ToolKindIcon } from './icons'
 import { basename } from './paths'
@@ -23,16 +24,27 @@ function Stats({ added, removed }: { added?: number; removed?: number }): JSX.El
   )
 }
 
-/** The files a turn changed, as chips that open the file in the Code tab. */
+/**
+ * The files a turn changed, as chips. A chip shows what the turn did to its
+ * file below the row; one with no recorded diff opens the file in the Code tab.
+ */
 export function FilesChanged({
   files,
+  shown,
+  panelId,
+  onToggle,
   onOpenFile
 }: {
   files: FileChange[]
+  /** The file whose changes are showing. */
+  shown: string | null
+  /** The id of the element showing them. */
+  panelId: string
+  onToggle: (path: string) => void
   onOpenFile?: (path: string) => void
 }): JSX.Element {
   const [all, setAll] = useState(false)
-  const shown = all ? files : files.slice(0, CHIP_LIMIT)
+  const visible = all ? files : files.slice(0, CHIP_LIMIT)
   return (
     <div
       className="files-changed"
@@ -42,16 +54,25 @@ export function FilesChanged({
       <span className="files-changed-label" aria-hidden="true">
         Changed
       </span>
-      {shown.map((f) => {
-        const clickable = Boolean(onOpenFile) && f.status !== 'deleted'
+      {visible.map((f) => {
+        const hasDiff = f.diff != null
+        const open = hasDiff && shown === f.path
+        const clickable = hasDiff || (Boolean(onOpenFile) && f.status !== 'deleted')
+        const hint = hasDiff
+          ? ` — ${open ? 'hide' : 'show'} the changes`
+          : clickable
+            ? ' — open in the Code tab'
+            : ''
         return (
           <button
             key={f.path}
             type="button"
-            className={`file-chip file-chip--${f.status}`}
+            className={`file-chip file-chip--${f.status}${open ? ' is-open' : ''}`}
             disabled={!clickable}
-            onClick={() => onOpenFile?.(f.path)}
-            title={`${STATUS_WORD[f.status]} ${f.path}${clickable ? ' — open in the Code tab' : ''}`}
+            aria-expanded={hasDiff ? open : undefined}
+            aria-controls={open ? panelId : undefined}
+            onClick={() => (hasDiff ? onToggle(f.path) : onOpenFile?.(f.path))}
+            title={`${STATUS_WORD[f.status]} ${f.path}${hint}`}
           >
             <ToolKindIcon kind={STATUS_ICON[f.status]} className="file-chip-ico" />
             <span className="file-chip-name">{basename(f.path)}</span>
@@ -63,6 +84,57 @@ export function FilesChanged({
         <button type="button" className="file-chip file-chip--more" onClick={() => setAll(true)}>
           +{files.length - CHIP_LIMIT} more
         </button>
+      )}
+    </div>
+  )
+}
+
+/** What a turn did to one file, opened from its chip. */
+function FileDiff({
+  file,
+  id,
+  projectPath,
+  onOpenFile
+}: {
+  file: FileChange
+  id: string
+  projectPath: string
+  onOpenFile?: (path: string) => void
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  // Opening a chip on the newest turn adds the diff below the fold.
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+  }, [])
+  const note = file.partial
+    ? 'Some edits to this file weren’t recorded — open it to see all of them.'
+    : file.stepwise
+      ? 'Shown edit by edit — these edits couldn’t be combined into one diff.'
+      : undefined
+  return (
+    <div
+      ref={ref}
+      id={id}
+      className="file-diff"
+      role="region"
+      aria-label={`Changes to ${file.path}`}
+    >
+      {file.diff ? (
+        <DiffView diff={file.diff} note={note} projectPath={projectPath} onOpenFile={onOpenFile} />
+      ) : (
+        <div className="file-diff-empty">
+          <span>No net change — later edits undid the earlier ones.</span>
+          {onOpenFile && file.status !== 'deleted' && (
+            <button
+              type="button"
+              className="diff-open"
+              onClick={() => onOpenFile(file.path)}
+              title={`Open ${file.path} in the Code tab`}
+            >
+              <Codicon name="go-to-file" /> Open
+            </button>
+          )}
+        </div>
       )}
     </div>
   )
@@ -87,8 +159,21 @@ export const TurnFooter = memo(function TurnFooter({
 }): JSX.Element | null {
   const files = useMemo(() => filesChanged(m.tools, projectPath), [m.tools, projectPath])
   const copy = useMemo(() => answerText(m), [m])
+  const [shown, setShown] = useState<string | null>(null)
+  const panelId = useId()
+  const toggle = useCallback((path: string) => setShown((cur) => (cur === path ? null : path)), [])
   const hasActions = Boolean(copy || onTryAgain || m.elapsedMs != null || m.createdAt != null)
   if (files.length === 0 && !hasActions) return null
+  const open = files.find((f) => f.path === shown && f.diff != null)
+  const diff = open ? (
+    <FileDiff
+      key={open.path}
+      file={open}
+      id={panelId}
+      projectPath={projectPath}
+      onOpenFile={onOpenFile}
+    />
+  ) : null
   // Older turns reveal their actions on hover, floating in the gap below the
   // turn so they never reserve an empty row; the latest turn keeps them inline.
   const float = !latest
@@ -133,7 +218,13 @@ export const TurnFooter = memo(function TurnFooter({
   ) : null
   const chips = files.length > 0 && (
     <div className="turn-footer">
-      <FilesChanged files={files} onOpenFile={onOpenFile} />
+      <FilesChanged
+        files={files}
+        shown={shown}
+        panelId={panelId}
+        onToggle={toggle}
+        onOpenFile={onOpenFile}
+      />
       {!float && actions}
     </div>
   )
@@ -141,9 +232,16 @@ export const TurnFooter = memo(function TurnFooter({
     return (
       <>
         {chips}
+        {diff}
         {actions}
       </>
     )
   }
-  return chips || <div className="turn-footer">{actions}</div>
+  if (!chips) return <div className="turn-footer">{actions}</div>
+  return (
+    <>
+      {chips}
+      {diff}
+    </>
+  )
 })

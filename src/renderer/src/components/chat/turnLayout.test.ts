@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { ChatSegment, ChatToolCall } from '@shared/ipc'
+import { parseUnifiedDiff } from './diff'
 import { answerText, filesChanged, layoutTurn, workDuration } from './turnLayout'
 import type { UIChatMessage } from './types'
 
@@ -168,10 +169,93 @@ describe('filesChanged', () => {
       }),
       tool('v', 'view')
     ]
-    expect(filesChanged(tools, ROOT)).toEqual([
-      { path: 'src/a.ts', status: 'edited', added: 3, removed: 1 },
+    const files = filesChanged(tools, ROOT)
+    expect(files).toMatchObject([
+      // The second edit to a.ts recorded no diff, so the diff shown is partial.
+      { path: 'src/a.ts', status: 'edited', added: 3, removed: 1, partial: true },
       { path: 'src/new.ts', status: 'created', added: 1, removed: 0 }
     ])
+    expect(files[0].diff).toContain('+z')
+    expect(files[1].partial).toBeUndefined()
+    expect(files[1].diff).toBe(
+      [
+        'diff --git a/src/new.ts b/src/new.ts',
+        '--- /dev/null',
+        '+++ b/src/new.ts',
+        '@@ -1,0 +1,1 @@',
+        '+hello'
+      ].join('\n')
+    )
+  })
+
+  const header = [
+    'diff --git a/C:/p/src/a.ts b/C:/p/src/a.ts',
+    '--- a/C:/p/src/a.ts',
+    '+++ b/C:/p/src/a.ts'
+  ]
+
+  it('shows the net change of several edits to one file', () => {
+    const first = [...header, '@@ -1,3 +1,4 @@', ' a', '-b', '+b1', '+b2', ' c'].join('\n')
+    const second = [...header, '@@ -1,4 +1,4 @@', ' a', ' b1', '-b2', '+b2!', ' c'].join('\n')
+    const [file, ...rest] = filesChanged(
+      [tool('e1', 'edit', { diff: first }), tool('e2', 'edit', { diff: second })],
+      ROOT
+    )
+    expect(rest).toEqual([])
+    // Net +2 −1, not the edits' sum of +3 −2.
+    expect(file).toMatchObject({ path: 'src/a.ts', status: 'edited', added: 2, removed: 1 })
+    expect(file.stepwise).toBeUndefined()
+    expect(file.diff).toBe(
+      [
+        'diff --git a/src/a.ts b/src/a.ts',
+        '--- a/src/a.ts',
+        '+++ b/src/a.ts',
+        '@@ -1,3 +1,4 @@',
+        ' a',
+        '-b',
+        '+b1',
+        '+b2!',
+        ' c'
+      ].join('\n')
+    )
+  })
+
+  it('lists edits one by one when their diffs don’t line up', () => {
+    const first = [...header, '@@ -1,3 +1,3 @@', ' a', '-b', '+B', ' c'].join('\n')
+    const stale = [...header, '@@ -1,3 +1,3 @@', ' a', '-b', '+beta', ' c'].join('\n')
+    const [file] = filesChanged(
+      [tool('e1', 'edit', { diff: first }), tool('e2', 'edit', { diff: stale })],
+      ROOT
+    )
+    expect(file).toMatchObject({ path: 'src/a.ts', added: 2, removed: 2, stepwise: true })
+    expect(file.partial).toBeUndefined()
+    expect(parseUnifiedDiff(file.diff ?? '').map((f) => f.path)).toEqual(['src/a.ts', 'src/a.ts'])
+  })
+
+  it('shows what a shortened diff has, with the tool’s full totals', () => {
+    const cut = [...header, '@@ -1,3 +1,3 @@', ' a', '-b', '+B'].join('\n')
+    const [file] = filesChanged(
+      [
+        tool('e', 'edit', {
+          paths: ['C:\\p\\src\\a.ts'],
+          diff: cut,
+          diffTruncated: true,
+          added: 40,
+          removed: 12
+        })
+      ],
+      ROOT
+    )
+    expect(file).toMatchObject({ path: 'src/a.ts', added: 40, removed: 12, partial: true })
+    expect(file.diff).toContain('+B')
+  })
+
+  it('marks edits that cancel out with an empty diff', () => {
+    const add = [...header, '@@ -1,2 +1,3 @@', ' a', '+x', ' b'].join('\n')
+    const undo = [...header, '@@ -1,3 +1,2 @@', ' a', '-x', ' b'].join('\n')
+    expect(
+      filesChanged([tool('e1', 'edit', { diff: add }), tool('e2', 'edit', { diff: undo })], ROOT)
+    ).toEqual([{ path: 'src/a.ts', status: 'edited', added: 0, removed: 0, diff: '' }])
   })
 
   it('falls back to tool paths and totals without a diff', () => {

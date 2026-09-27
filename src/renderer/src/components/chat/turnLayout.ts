@@ -1,5 +1,5 @@
 import type { ChatSegment, ChatToolCall } from '@shared/ipc'
-import { parseUnifiedDiff } from './diff'
+import { composeDiffs, formatUnifiedDiff, parseUnifiedDiff, type DiffFile } from './diff'
 import { looksLikePath, projectRelative } from './paths'
 import { isHiddenTool, toolKind } from './toolPresentation'
 import type { UIChatMessage } from './types'
@@ -164,41 +164,91 @@ export interface FileChange {
   status: FileChangeStatus
   added?: number
   removed?: number
+  /**
+   * What the turn did to the file, as a unified diff: its net change when every
+   * edit's diff was recorded and they line up, else each recorded edit in turn.
+   * Empty when the edits cancel out; absent when no diff was recorded.
+   */
+  diff?: string
+  /** `diff` lists the edits one by one because they couldn't be combined. */
+  stepwise?: boolean
+  /** Some edits to the file have no recorded diff, or only a shortened one. */
+  partial?: boolean
+}
+
+interface FileEntry {
+  change: FileChange
+  /** The file's part of each edit's diff, in order. */
+  diffs: DiffFile[]
+  /** Some edit to the file has no full diff. */
+  gaps: boolean
+}
+
+function withPath(file: DiffFile, path: string, projectPath: string): DiffFile {
+  const rel = (p: string | null): string | null =>
+    p == null ? null : projectRelative(p, projectPath) || p
+  return { ...file, path, oldPath: rel(file.oldPath), newPath: rel(file.newPath) }
+}
+
+function summarize({ change, diffs, gaps }: FileEntry, projectPath: string): FileChange {
+  if (diffs.length === 0) return change
+  const net = gaps ? null : composeDiffs(diffs)
+  if (net) {
+    const diff = net.hunks.length
+      ? formatUnifiedDiff([withPath(net, change.path, projectPath)])
+      : ''
+    return { ...change, added: net.added, removed: net.removed, diff }
+  }
+  const diff = formatUnifiedDiff(diffs.map((f) => withPath(f, change.path, projectPath)))
+  return {
+    ...change,
+    diff,
+    ...(diffs.length > 1 ? { stepwise: true } : {}),
+    ...(gaps ? { partial: true } : {})
+  }
 }
 
 /**
  * Files a turn changed, from its successful edit/create/patch steps, in the
- * order they were first touched. Paths outside the project (such as Copilot's
- * own session notes) are left out.
+ * order they were first touched, each with the diff of what the turn did to
+ * it. Paths outside the project (such as Copilot's own session notes) are left
+ * out.
  */
 export function filesChanged(tools: readonly ChatToolCall[], projectPath: string): FileChange[] {
-  const byPath = new Map<string, FileChange>()
-  const note = (raw: string, status: FileChangeStatus, added?: number, removed?: number): void => {
+  const byPath = new Map<string, FileEntry>()
+  const note = (
+    raw: string,
+    status: FileChangeStatus,
+    added?: number,
+    removed?: number
+  ): FileEntry | undefined => {
     const path = projectRelative(raw, projectPath)
-    if (!path) return
+    if (!path) return undefined
     const prev = byPath.get(path)
     if (!prev) {
-      byPath.set(path, { path, status, added, removed })
-      return
+      const entry: FileEntry = { change: { path, status, added, removed }, diffs: [], gaps: false }
+      byPath.set(path, entry)
+      return entry
     }
     const sum = (a?: number, b?: number): number | undefined =>
       a == null && b == null ? undefined : (a ?? 0) + (b ?? 0)
-    prev.added = sum(prev.added, added)
-    prev.removed = sum(prev.removed, removed)
-    if (status === 'deleted') prev.status = 'deleted'
-    else if (prev.status === 'deleted') prev.status = status
+    const c = prev.change
+    c.added = sum(c.added, added)
+    c.removed = sum(c.removed, removed)
+    if (status === 'deleted') c.status = 'deleted'
+    else if (c.status === 'deleted') c.status = status
+    return prev
   }
   for (const t of tools) {
     if (t.state !== 'success') continue
     const kind = toolKind(t.name)
     if (kind !== 'edit' && kind !== 'create' && kind !== 'delete') continue
-    const diffFiles = t.diff ? parseUnifiedDiff(t.diff) : []
+    const diffFiles = t.diff ? parseUnifiedDiff(t.diff).filter((f) => f.path) : []
     if (diffFiles.length > 0 && !t.diffTruncated) {
       for (const f of diffFiles) {
-        if (!f.path) continue
         const status =
           f.status === 'added' ? 'created' : f.status === 'deleted' ? 'deleted' : 'edited'
-        note(f.path, status, f.added, f.removed)
+        note(f.path, status, f.added, f.removed)?.diffs.push(f)
       }
       continue
     }
@@ -209,16 +259,19 @@ export function filesChanged(tools: readonly ChatToolCall[], projectPath: string
     const title = t.title?.trim() ?? ''
     const titlePath = title && title !== t.name && looksLikePath(title) ? [title] : []
     const paths = t.paths?.length ? t.paths : titlePath
-    paths.forEach((p) =>
-      note(
+    for (const p of paths) {
+      const entry = note(
         p,
         status,
         paths.length === 1 ? t.added : undefined,
         paths.length === 1 ? t.removed : undefined
       )
-    )
+      if (entry) entry.gaps = true
+    }
+    // A shortened diff still shows what it has.
+    for (const f of diffFiles) byPath.get(projectRelative(f.path, projectPath) ?? '')?.diffs.push(f)
   }
-  return [...byPath.values()]
+  return [...byPath.values()].map((entry) => summarize(entry, projectPath))
 }
 
 /** How long a work log took: the turn's duration for a sole log, else from step times. */
