@@ -474,7 +474,8 @@ pub struct DeployResult {
 
 /// Result of starting a project's Vite dev server for the live local preview
 /// (experimental). `outcome` is one of `running` (started or already running),
-/// `unsupported` (no local Vite / Node), or `error`.
+/// `unsupported` (no local Vite / Node), `port-busy` (every sign-in-ready port
+/// is taken; see `conflict`), or `error`.
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct DevServerResult {
@@ -485,6 +486,52 @@ pub struct DevServerResult {
   pub url: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conflict: Option<PortConflict>,
+}
+
+/// A process listening on a local port the live preview needs.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortOccupant {
+  pub pid: u32,
+  /// Executable name, e.g. `node.exe`.
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub path: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub command_line: Option<String>,
+}
+
+/// Why the live preview can't start on a sign-in-ready port, and the ways out.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PortConflict {
+  /// The preferred registered port that is taken.
+  pub port: u16,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub occupant: Option<PortOccupant>,
+  /// Another project in this window whose live preview holds `port`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub own_project: Option<String>,
+  /// Fabricator may offer to stop `occupant`.
+  pub can_stop: bool,
+  /// The next free port to register instead.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub suggested_port: Option<u16>,
+  /// Registering `suggested_port` pushes rayfin.yml to the Fabric backend first.
+  pub needs_push: bool,
+}
+
+/// Where the live preview can start: a ready `port`, or a `conflict` to resolve.
+/// Both are absent when the project can't run a local preview at all.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DevPortPlan {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub port: Option<u16>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conflict: Option<PortConflict>,
 }
 
 #[derive(Serialize, Clone)]

@@ -301,7 +301,7 @@ export default function SettingsModal({
                   />
                   <ToggleRow
                     label="Live local preview"
-                    hint="While an agent turn runs, show edits live from the project's installed Vite."
+                    hint="While an agent turn runs, show edits live from the project's installed Vite. If its sign-in port is taken, Fabricator offers to stop the other app or register another port."
                     checked={Boolean(settings.experiments?.localDevPreview)}
                     onChange={(v) => onChange({ experiments: { localDevPreview: v } })}
                   />

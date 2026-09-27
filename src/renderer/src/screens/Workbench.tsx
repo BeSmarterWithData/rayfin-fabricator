@@ -17,6 +17,7 @@ import {
   type ChatTurnResult,
   type DeployResult,
   type DevServerResult,
+  type PortConflict,
   type ProjectsState,
   type RayfinVersionInfo,
   type StudioProject
@@ -27,6 +28,10 @@ import HomeView from '../components/HomeView'
 import ManageProjectModal from '../components/ManageProjectModal'
 import DeleteProjectModal from '../components/DeleteProjectModal'
 import ConfirmModal from '../components/ConfirmModal'
+import PortConflictModal, {
+  hasPortChoice,
+  type PortPromptContext
+} from '../components/PortConflictModal'
 import SettingsModal from '../components/SettingsModal'
 import { applyUiScale, UI_SCALES } from '../theme'
 import ChatPanel, { type UIChatMessage, type OutboundPrompt } from '../components/ChatPanel'
@@ -255,6 +260,21 @@ export default function Workbench({
   >({})
   const devServersRef = useRef(devServers)
   devServersRef.current = devServers
+  /** Live local preview: a port conflict waiting on the user's choice. */
+  const [portPrompt, setPortPrompt] = useState<{
+    projectId: string
+    context: PortPromptContext
+    conflict: PortConflict
+    busy: 'register' | 'stop' | null
+    error: string | null
+    log: string[]
+  } | null>(null)
+  const portPromptRef = useRef(portPrompt)
+  portPromptRef.current = portPrompt
+  /** Resolves the open port prompt with the chosen port, or null to skip. */
+  const portResolveRef = useRef<((port: number | null) => void) | null>(null)
+  /** Projects whose running turn goes without a live preview (skipped or unavailable). */
+  const previewSkippedRef = useRef<Set<string>>(new Set())
   /** Region screenshots staged per project for the next chat message. */
   const [shots, setShots] = useState<Record<string, PendingShot[]>>({})
   /** Composer drafts staged per project — a typed-but-unsent prompt persists here
@@ -364,6 +384,10 @@ export default function Workbench({
   // Keep sign-in/reset diagnostics alongside the failed deploy, including late log events.
   useEffect(() => {
     const off = window.api.onProcLog((event) => {
+      if (event.channel === 'dev:register') {
+        setPortPrompt((prompt) => prompt && { ...prompt, log: [...prompt.log, event.data] })
+        return
+      }
       const refreshing = event.channel === 'refresh:rayfin'
       if (refreshing) setAuthRefreshLog((log) => [...log, event.data])
       if (!refreshing && event.channel !== 'deploy:run' && event.channel !== 'login:rayfin') return
@@ -537,20 +561,130 @@ export default function Workbench({
     [refreshProjects, refreshAuthWithFeedback]
   )
 
+  /** Close the port prompt, handing the chosen port (or null) to its waiter. */
+  const settlePortPrompt = useCallback((port: number | null): void => {
+    const resolve = portResolveRef.current
+    portResolveRef.current = null
+    setPortPrompt(null)
+    resolve?.(port)
+  }, [])
+
+  // Settle a prompt left open when the workbench unmounts, so no turn waits forever.
+  useEffect(() => () => portResolveRef.current?.(null), [])
+
+  /**
+   * Pick the live preview's port. A free port that sign-in accepts is used
+   * straight away; when every one is taken the user chooses (register another
+   * port, or stop the process holding one). Resolves null to go without.
+   */
+  const resolveLocalPort = useCallback(
+    async (projectId: string, context: PortPromptContext): Promise<number | null> => {
+      const plan = await window.api.dev.plan(projectId)
+      if (plan.port !== undefined) return plan.port
+      const conflict = plan.conflict
+      if (!conflict) return null
+      if (!hasPortChoice(conflict, context)) {
+        toast.info(
+          `localhost:${conflict.port} is in use, so this turn shows your deployed app. Fabricator will ask again with your next message.`,
+          { title: 'Live preview skipped' }
+        )
+        return null
+      }
+      portResolveRef.current?.(null)
+      return new Promise<number | null>((resolve) => {
+        portResolveRef.current = resolve
+        setPortPrompt({ projectId, context, conflict, busy: null, error: null, log: [] })
+      })
+    },
+    [toast]
+  )
+
+  /** "Use port N": register it in rayfin.yml and push it to Fabric, then use it. */
+  const registerPromptPort = useCallback(async (): Promise<void> => {
+    const prompt = portPromptRef.current
+    const port = prompt?.conflict.suggestedPort
+    if (!prompt || port === undefined || prompt.busy) return
+    setPortPrompt((p) => p && { ...p, busy: 'register', error: null, log: [] })
+    const register = (): Promise<DeployResult> => window.api.dev.registerPort(prompt.projectId, port)
+    let result: DeployResult
+    try {
+      result = await register()
+      // Retry once, only after sign-in and its app-level verification succeed.
+      if (!result.ok && result.outcome === 'not-signed-in') {
+        const login = await window.api.auth.loginRayfin(undefined, prompt.projectId)
+        if (login.ok) {
+          await onAuthChanged()
+          result = await register()
+        } else {
+          result = {
+            ...result,
+            error: authErrorMessage(login.error, 'Fabric sign-in did not complete. Please try again.')
+          }
+        }
+      }
+    } catch (reason) {
+      result = { ok: false, outcome: 'error', error: authErrorMessage(reason, 'The port could not be registered.') }
+    }
+    if (!mountedRef.current) return
+    setGitRefresh((n) => n + 1)
+    if (!result.ok) {
+      setPortPrompt((p) => p && { ...p, busy: null, error: result.error ?? 'The port could not be registered.' })
+      if (result.outcome === 'not-signed-in' || result.outcome === 'auth-cache-error') {
+        void refreshAuthWithFeedback()
+      }
+      return
+    }
+    settlePortPrompt(port)
+  }, [onAuthChanged, refreshAuthWithFeedback, settlePortPrompt])
+
+  /** "Stop …": end the process holding the preferred port, then use that port. */
+  const stopPromptOccupant = useCallback(async (): Promise<void> => {
+    const prompt = portPromptRef.current
+    const pid = prompt?.conflict.occupant?.pid
+    if (!prompt || pid === undefined || prompt.busy) return
+    setPortPrompt((p) => p && { ...p, busy: 'stop', error: null })
+    try {
+      await window.api.dev.freePort(prompt.conflict.port, pid)
+    } catch (reason) {
+      if (!mountedRef.current) return
+      setPortPrompt((p) => p && { ...p, busy: null, error: authErrorMessage(reason, 'That process could not be stopped.') })
+      return
+    }
+    settlePortPrompt(prompt.conflict.port)
+  }, [settlePortPrompt])
+
   // Kick off the live local preview (experiment) when a turn starts: run the
   // project's Vite dev server so edits show live at localhost for the turn's
-  // duration. No-op unless the experiment is on and the project supports it — the
-  // backend reports `unsupported` for projects without a `dev` script.
+  // duration. No-op unless the experiment is on and the project supports it. A
+  // fresh turn waits for this (ChatPanel awaits `onTurnStart`) so a port
+  // conflict is settled — and any new port pushed — before Copilot starts;
+  // `plan` runs mid-turn, when nothing can be pushed.
   const handleTurnStart = useCallback(
-    (projectId: string): void => {
+    async (projectId: string, context: PortPromptContext = 'turn'): Promise<void> => {
       if (!settings?.experiments?.localDevPreview) return
       if (deployingIdRef.current === projectId) return // a deploy owns the surface
       if (devServersRef.current[projectId]) return // already starting / running
+      if (previewSkippedRef.current.has(projectId)) return // skipped for this turn
+      let port: number | null
+      try {
+        port = await resolveLocalPort(projectId, context)
+      } catch (reason) {
+        onDevServerError(reason)
+        return
+      }
+      if (port === null) {
+        previewSkippedRef.current.add(projectId)
+        return
+      }
+      if (!mountedRef.current || devServersRef.current[projectId]) return
+      // A mid-turn prompt may outlast the turn; don't start a server it can't stop.
+      const turnRunning = (chatsRef.current[projectId] ?? []).some((m) => m.role === 'assistant' && m.pending)
+      if (context === 'plan' && !turnRunning) return
       setDevServers((all) => ({ ...all, [projectId]: { status: 'starting' } }))
       void (async () => {
         let res: DevServerResult
         try {
-          res = await window.api.dev.start(projectId)
+          res = await window.api.dev.start(projectId, port)
         } catch (err) {
           res = {
             ok: false,
@@ -558,7 +692,7 @@ export default function Workbench({
             error: err instanceof Error ? err.message : String(err)
           }
         }
-        if (!res.ok && res.outcome === 'error') {
+        if (!res.ok && res.outcome !== 'unsupported') {
           toast.error(res.error ?? 'The local Vite server could not be started.', {
             title: 'Local preview failed'
           })
@@ -576,13 +710,16 @@ export default function Workbench({
         })
       })()
     },
-    [settings, toast]
+    [settings, toast, resolveLocalPort, onDevServerError]
   )
 
   // After a chat turn, persist the transcript and auto-deploy when the agent left
   // undeployed changes.
   const handleTurnComplete = useCallback(
     async (projectId: string, result: ChatTurnResult): Promise<void> => {
+      previewSkippedRef.current.delete(projectId)
+      const prompt = portPromptRef.current
+      if (prompt?.projectId === projectId && prompt.context === 'plan' && !prompt.busy) settlePortPrompt(null)
       // Stop the live local preview (if any) first, so the surface returns to the
       // deployed app and the after-turn deploy can take the stage (DeployStage).
       if (devServersRef.current[projectId]) {
@@ -626,7 +763,7 @@ export default function Workbench({
         )
       }
     },
-    [refreshProjects, refreshRayfinVer, runDeploy, onDevServerError, toast]
+    [refreshProjects, refreshRayfinVer, runDeploy, onDevServerError, toast, settlePortPrompt]
   )
 
   // Hydrate persisted chat history for the active project.
@@ -1228,7 +1365,7 @@ export default function Workbench({
                           onChange={(updater) => setMessagesFor(active.id, updater)}
                           onTurnComplete={(result) => void handleTurnComplete(active.id, result)}
                           onTurnStart={() => handleTurnStart(active.id)}
-                          onPlanExecutionStart={() => handleTurnStart(active.id)}
+                          onPlanExecutionStart={() => void handleTurnStart(active.id, 'plan')}
                           attachments={shots[active.id] ?? []}
                           onAddAttachment={(shot) => addShot(active.id, shot)}
                           onRemoveAttachment={(path) => removeShot(active.id, path)}
@@ -1451,6 +1588,19 @@ export default function Workbench({
           onSignedIn={onAuthChanged}
           onRemoved={(next) => setProjects(next)}
           onClose={() => setConfirmDelete(null)}
+        />
+      )}
+
+      {portPrompt && (
+        <PortConflictModal
+          conflict={portPrompt.conflict}
+          context={portPrompt.context}
+          busy={portPrompt.busy}
+          error={portPrompt.error}
+          log={portPrompt.log}
+          onUsePort={() => void registerPromptPort()}
+          onStop={() => void stopPromptOccupant()}
+          onSkip={() => settlePortPrompt(null)}
         />
       )}
 

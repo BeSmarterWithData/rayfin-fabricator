@@ -440,6 +440,7 @@ export type ProcStreamId =
   | 'clone:project'
   | 'deploy:run'
   | 'dev:run'
+  | 'dev:register'
 
 export interface ProcLogEvent {
   channel: ProcStreamId
@@ -564,14 +565,49 @@ export interface DeployStatus {
 /**
  * Result of starting a project's Vite dev server for the live local preview
  * (experimental). `outcome` is `running` (started, or already up), `unsupported`
- * (the project has no `dev` script / no local Vite), or `error`.
+ * (the project has no `dev` script / no local Vite), `port-busy` (every port the
+ * app's sign-in accepts is taken; see `conflict`), or `error`.
  */
 export interface DevServerResult {
   ok: boolean
-  outcome: 'running' | 'unsupported' | 'error'
+  outcome: 'running' | 'unsupported' | 'port-busy' | 'error'
   /** The `localhost` URL Vite is serving on, when it started successfully. */
   url?: string
   error?: string
+  conflict?: PortConflict
+}
+
+/** A process listening on a local port the live preview needs. */
+export interface PortOccupant {
+  pid: number
+  /** Executable name, e.g. `node.exe`. */
+  name: string
+  path?: string
+  commandLine?: string
+}
+
+/** Why the live preview can't start on a sign-in-ready port, and the ways out. */
+export interface PortConflict {
+  /** The preferred registered port that is taken. */
+  port: number
+  occupant?: PortOccupant
+  /** Another project in this window whose live preview holds `port`. */
+  ownProject?: string
+  /** Fabricator may offer to stop `occupant`. */
+  canStop: boolean
+  /** The next free port to register instead. */
+  suggestedPort?: number
+  /** Registering `suggestedPort` pushes rayfin.yml to the Fabric backend first. */
+  needsPush: boolean
+}
+
+/**
+ * Where the live preview can start: a ready `port`, or a `conflict` to resolve.
+ * Both are absent when the project can't run a local preview.
+ */
+export interface DevPortPlan {
+  port?: number
+  conflict?: PortConflict
 }
 
 /** One Fabric deployment recorded for a project (`rayfin up list`). */
@@ -1993,20 +2029,38 @@ export interface RayfinStudioApi {
   /**
    * Live local preview (experimental, opt-in via {@link ExperimentFlags.localDevPreview}).
    * Runs the project's Vite dev server directly (no `rayfin up`) so edits show
-   * live at `localhost` during an agent turn; stopped at turn end. Output streams
-   * on the `dev:run` channel (see {@link onProcLog}).
+   * live at `localhost` during an agent turn; stopped at turn end. It serves on a
+   * port listed in rayfin.yml's `allowedRedirectUris` so sign-in works. Output
+   * streams on the `dev:run` channel (see {@link onProcLog}).
    */
   dev: {
     /**
-     * Start (or reuse) the project's Vite dev server. Resolves once Vite is
-     * serving with its `localhost` URL, or with `unsupported` / `error`. The
-     * process keeps running until {@link stop}.
+     * Where the preview would start: a free, sign-in-ready port, or the
+     * conflict to put to the user. Probes only; starts nothing.
      */
-    start: (projectId: string) => Promise<DevServerResult>
+    plan: (projectId: string) => Promise<DevPortPlan>
+    /**
+     * Start (or reuse) the project's Vite dev server, on `port` when given (it
+     * must be free and registered) or the first free registered port. Resolves
+     * once Vite is serving with its `localhost` URL, or with `unsupported` /
+     * `port-busy` / `error`. The process keeps running until {@link stop}.
+     */
+    start: (projectId: string, port?: number) => Promise<DevServerResult>
     /** Stop the project's dev server (no-op when none is running). */
     stop: (projectId: string) => Promise<void>
     /** True when the project has a locally installed Vite. */
     supported: (projectId: string) => Promise<boolean>
+    /**
+     * Stop the process the user chose to stop on `port`, only while `pid` still
+     * owns it. Rejects with a readable reason otherwise.
+     */
+    freePort: (port: number, pid: number) => Promise<void>
+    /**
+     * Add `http://localhost:{port}` to rayfin.yml's allowed redirect URIs and,
+     * when the app is deployed, push the settings to Fabric without rebuilding
+     * the app. A failed push undoes the rayfin.yml edit. Streams on `dev:register`.
+     */
+    registerPort: (projectId: string, port: number) => Promise<DeployResult>
   }
 
   /**

@@ -762,7 +762,10 @@ export default function PreviewPane({
             <span className="preview-status-label">{statusLabel(running, status)}</span>
           </span>
           {isLocal && (
-            <span className="preview-local-badge" title="Live local preview — your app is running from a local Vite dev server for this turn">
+            <span
+              className="preview-local-badge"
+              title={`Live local preview — your app is running from a local Vite dev server at ${localPreviewUrl} for this turn`}
+            >
               Local
             </span>
           )}

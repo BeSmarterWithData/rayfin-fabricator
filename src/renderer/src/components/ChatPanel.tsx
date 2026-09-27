@@ -93,8 +93,10 @@ interface Props {
   /** Called after a turn completes (used later to trigger deploy/preview refresh). */
   onTurnComplete?: (result: ChatTurnResult) => void
   /** Called when a fresh turn starts (a new send/retry/resume — not an interjection).
-   *  Lets the host kick off the live local preview for the turn's duration. */
-  onTurnStart?: () => void
+   *  Lets the host kick off the live local preview for the turn's duration. The
+   *  turn is sent once a returned promise settles (the host may ask the user to
+   *  resolve a port conflict first); a rejection never blocks the turn. */
+  onTurnStart?: () => void | Promise<void>
   /** Called when a reviewed Plan begins executing within its existing turn.
    *  Lets the host ensure live local preview is running for the edit phase. */
   onPlanExecutionStart?: () => void
@@ -822,6 +824,24 @@ export default function ChatPanel({
     if (filesRequested.current) void refreshFiles()
   }
 
+  /**
+   * Let the host prepare a fresh turn before it's sent (the live preview may need
+   * the user to settle a port conflict). A failure there never blocks the turn,
+   * and time spent waiting isn't counted as the turn's own work.
+   */
+  async function beginTurn(assistantId: string): Promise<void> {
+    const started = Date.now()
+    try {
+      await onTurnStart?.()
+    } catch (error) {
+      console.error('Turn start hook failed', error)
+    }
+    if (Date.now() - started > 250) {
+      const now = Date.now()
+      onChange((prev) => prev.map((m) => (m.id === assistantId ? { ...m, startedAt: now } : m)))
+    }
+  }
+
   /** Append a fresh turn and stream its result. Shared by send + retry. `extra`
    *  carries a Design turn's transcript card and the prompt reruns re-send. */
   async function dispatch(
@@ -864,7 +884,7 @@ export default function ChatPanel({
     }
     onChange((prev) => [...prev, userMsg, assistantMsg])
     setSending(true)
-    onTurnStart?.()
+    await beginTurn(assistantId)
     try {
       const result = await window.api.chat.send(
         project.id,
@@ -937,7 +957,7 @@ export default function ChatPanel({
     }
     onChange((prev) => [...prev.filter((m) => m.id !== assistantId), assistantMsg])
     setSending(true)
-    onTurnStart?.()
+    await beginTurn(assistantMsg.id)
     try {
       const result = await window.api.chat.send(project.id, turnId, original, [], activeMode)
       finishTurn(turnId, result)

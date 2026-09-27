@@ -6614,6 +6614,21 @@ code {
   word-break: break-all;
 }
 
+/* Live preview port conflict: the occupant's (often long) command line. */
+.port-conflict-command {
+  max-height: 64px;
+  overflow: auto;
+}
+
+.port-conflict-options {
+  margin: 0 0 10px;
+  padding-left: 18px;
+}
+
+.port-conflict-options li + li {
+  margin-top: 6px;
+}
+
 .update-modal__lead {
   font-weight: 600;
 }

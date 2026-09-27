@@ -9,6 +9,15 @@
 //! [`dev_start`] returns once Vite prints its `Local:` URL but leaves the process
 //! running under a per-project handle until [`dev_stop`] (or app exit) tree-kills
 //! it. Locally installed Vite is sufficient; no `dev` script is required.
+//!
+//! Ports: Fabric sign-in only accepts origins listed in rayfin.yml's
+//! `services.auth.allowedRedirectUris` and pushed to the backend, so a preview
+//! serves on the first listed `http://localhost:N` port that is free (Rayfin's
+//! default is 5173). When every listed port is taken, [`dev_port_plan`] reports
+//! the conflict and the user chooses: [`dev_register_port`] adds another port and
+//! pushes it, or [`dev_free_port`] stops the process they were shown. Nothing
+//! untracked is ever stopped or adopted without that explicit choice. Each
+//! project's server has its own port, so several can run at once.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,18 +31,17 @@ use tauri::{AppHandle, Manager, State};
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::services::exec::{self, CancelToken, RunOptions, Stream};
-use crate::services::{emit, store};
-use crate::types::DevServerResult;
+use crate::services::{emit, local_ports, redirect_uris, store};
+use crate::types::{DeployResult, DevPortPlan, DevServerResult, PortConflict, StudioProject};
 
 /// UI log channel for streamed dev-server output (matches `IpcChannels` `dev:run`).
 const DEV_CHANNEL: &str = "dev:run";
-/// The canonical local dev port for Rayfin apps: their auth redirect URI and
-/// backend CORS are pinned to `localhost:5173`, so the preview must serve there
-/// (Fabricator's own renderer dev server is moved off 5173 to keep it free).
-const LOCAL_PORT: &str = "5173";
-const LOCAL_URL: &str = "http://localhost:5173";
+/// UI log channel for registering a new port (matches `IpcChannels` `dev:register`).
+const REGISTER_CHANNEL: &str = "dev:register";
+/// Where the search for an unregistered port starts when every listed one is taken.
+const FIRST_ALTERNATE_PORT: u16 = 5174;
 /// Max time to wait for Vite to print its `Local:` URL before giving up.
 const READY_TIMEOUT_MS: u64 = 60_000;
 /// Best-effort timeout for the pre-step that refreshes `.env` (no deploy).
@@ -55,16 +63,122 @@ pub fn parse_local_url(text: &str) -> Option<String> {
     Some(raw.trim_end_matches('/').to_string())
 }
 
-/// A page title is not provenance. Never adopt an untracked process, even if
-/// it looks like the same template; let its owner stop it explicitly.
-async fn unowned_port_in_use() -> bool {
-    tokio::task::spawn_blocking(|| {
-        ["127.0.0.1:5173", "[::1]:5173"].iter().any(|address| {
-            std::net::TcpStream::connect_timeout(
-                &address.parse().expect("fixed loopback address"), Duration::from_millis(500),
-            ).is_ok()
-        })
-    }).await.unwrap_or(true)
+fn local_url(port: u16) -> String {
+    format!("http://localhost:{port}")
+}
+
+/// The ports a project's preview may use, in preference order.
+struct PortChoice {
+    /// Listed `http://localhost:N` ports (Rayfin's default when none are).
+    registered: Vec<u16>,
+    /// Auth is on, so only `registered` ports can sign in.
+    needs_registration: bool,
+}
+
+fn port_choice(project_dir: &Path) -> PortChoice {
+    match redirect_uris::read(project_dir) {
+        Ok(origins) => PortChoice {
+            registered: if origins.ports.is_empty() { vec![redirect_uris::DEFAULT_PORT] } else { origins.ports },
+            needs_registration: origins.auth_enabled,
+        },
+        // An unreadable rayfin.yml keeps the historical behavior: 5173 only.
+        Err(_) => PortChoice { registered: vec![redirect_uris::DEFAULT_PORT], needs_registration: true },
+    }
+}
+
+/// The first usable port, or `None` when every sign-in-ready port is taken.
+/// `taken` holds ports owned by this window's other previews.
+fn pick_port(choice: &PortChoice, taken: &[u16], is_free: impl Fn(u16) -> bool) -> Option<u16> {
+    let usable = |port: &u16| !taken.contains(port) && is_free(*port);
+    if let Some(port) = choice.registered.iter().copied().find(usable) {
+        return Some(port);
+    }
+    // Without sign-in, any free port works.
+    (!choice.needs_registration).then(|| (FIRST_ALTERNATE_PORT..=FIRST_ALTERNATE_PORT + 100).find(usable)).flatten()
+}
+
+/// The project has a Fabric backend that settings can be pushed to.
+fn has_backend(project: &StudioProject) -> bool {
+    if project.last_deploy.as_ref().is_some_and(|d| d.api_url.is_some() || d.url.is_some()) {
+        return true;
+    }
+    let file = Path::new(&project.path).join("rayfin").join(".deployments.json");
+    let Some(json) = std::fs::read_to_string(file).ok().and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+    else {
+        return false;
+    };
+    json.get("active")
+        .and_then(|active| active.as_str())
+        .is_some_and(|active| json.get("deployments").and_then(|all| all.get(active)).is_some())
+}
+
+/// Where this project's preview can start, probing ports but starting nothing.
+fn plan_for(servers: &DevServers, project: &StudioProject) -> DevPortPlan {
+    let dir = Path::new(&project.path);
+    if !dev_supported(dir) {
+        return DevPortPlan::default();
+    }
+    if let Some(port) = servers.running_port(&project.id) {
+        return DevPortPlan { port: Some(port), conflict: None };
+    }
+    let choice = port_choice(dir);
+    let others = servers.ports_held_by_others(&project.id);
+    let taken: Vec<u16> = others.iter().map(|(port, _)| *port).collect();
+    if let Some(port) = pick_port(&choice, &taken, local_ports::is_free) {
+        return DevPortPlan { port: Some(port), conflict: None };
+    }
+    let port = choice.registered[0];
+    let own_project = others
+        .iter()
+        .find(|(held, _)| *held == port)
+        .map(|(_, id)| store::find_project(id).map(|p| p.name).unwrap_or_else(|| "another project".into()));
+    let occupant = if own_project.is_some() { None } else { local_ports::occupant(port) };
+    let protected = servers.pids();
+    let can_stop = occupant.as_ref().is_some_and(|o| local_ports::stoppable(o.pid, &protected));
+    let skip: Vec<u16> = choice.registered.iter().chain(&taken).copied().collect();
+    DevPortPlan {
+        port: None,
+        conflict: Some(PortConflict {
+            port,
+            occupant,
+            own_project,
+            can_stop,
+            suggested_port: local_ports::next_free(FIRST_ALTERNATE_PORT, &skip),
+            needs_push: has_backend(project),
+        }),
+    }
+}
+
+/// The port [`start_server`] should use: an explicit `requested` one must still
+/// be free and sign-in-ready (just registered, or just freed by the user).
+fn resolve_port(servers: &DevServers, project: &StudioProject, requested: Option<u16>) -> Result<u16, DevServerResult> {
+    let Some(port) = requested else {
+        let plan = plan_for(servers, project);
+        return match plan.port {
+            Some(port) => Ok(port),
+            None => Err(DevServerResult {
+                ok: false,
+                outcome: "port-busy".into(),
+                url: None,
+                error: Some(format!(
+                    "localhost:{} is in use, and so is every other port this app's sign-in accepts.",
+                    plan.conflict.as_ref().map_or(redirect_uris::DEFAULT_PORT, |c| c.port)
+                )),
+                conflict: plan.conflict,
+            }),
+        };
+    };
+    let choice = port_choice(Path::new(&project.path));
+    if choice.needs_registration && !choice.registered.contains(&port) {
+        return Err(failed(&format!(
+            "localhost:{port} isn't in rayfin.yml's allowed redirect URIs, so sign-in wouldn't work there."
+        )));
+    }
+    let held = servers.ports_held_by_others(&project.id).iter().any(|(other, _)| *other == port);
+    if held || !local_ports::is_free(port) {
+        return Err(failed(&format!("localhost:{port} is in use again. Send your message again to pick another port.")));
+    }
+    Ok(port)
 }
 
 /// True when a project has Vite installed locally — the one requirement for the
@@ -128,6 +242,8 @@ struct DevHandle {
     pid: Option<u32>,
     /// Cooperative cancel that wakes the monitor task to tree-kill the process.
     cancel: CancelToken,
+    /// The `localhost` port this server was started on.
+    port: u16,
     /// The resolved `localhost` URL once Vite is ready.
     url: Option<String>,
 }
@@ -142,11 +258,31 @@ pub struct DevServers {
 }
 
 impl DevServers {
-    /// Whether this project has a live, Fabricator-started server on the
-    /// canonical local port.
+    /// Whether this project has a live, Fabricator-started server on its port.
     pub fn owns_project(&self, project_id: &str) -> bool {
-        self.inner.lock().unwrap().get(project_id)
-            .is_some_and(|h| !h.cancel.is_cancelled() && h.url.as_deref() == Some(LOCAL_URL))
+        self.inner.lock().unwrap().get(project_id).is_some_and(|h| {
+            !h.cancel.is_cancelled() && h.url.as_deref() == Some(local_url(h.port).as_str())
+        })
+    }
+
+    fn running_port(&self, project_id: &str) -> Option<u16> {
+        self.owns_project(project_id).then(|| self.inner.lock().unwrap().get(project_id).map(|h| h.port)).flatten()
+    }
+
+    /// Ports held by other projects' servers in this window, with their ids.
+    fn ports_held_by_others(&self, project_id: &str) -> Vec<(u16, String)> {
+        self.inner
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(id, _)| id.as_str() != project_id)
+            .map(|(id, h)| (h.port, id.clone()))
+            .collect()
+    }
+
+    /// Every tracked server's pid. These are never offered for stopping.
+    fn pids(&self) -> Vec<u32> {
+        self.inner.lock().unwrap().values().filter_map(|h| h.pid).collect()
     }
 }
 
@@ -155,7 +291,8 @@ type SharedReady = Arc<Mutex<Option<ReadySender>>>;
 
 /// Read `reader` to EOF, streaming each chunk to the UI log channel and scanning
 /// for Vite's `Local:` URL. On the first match it fires `ready` (once) and records
-/// the URL on the project's handle.
+/// the URL on the project's handle. Any URL other than `expected` fails the start.
+#[allow(clippy::too_many_arguments)]
 async fn pump<R>(
     mut reader: R,
     stream: Stream,
@@ -164,6 +301,7 @@ async fn pump<R>(
     servers: DevServers,
     project_id: String,
     token: CancelToken,
+    expected: String,
 ) where
     R: AsyncReadExt + Unpin,
 {
@@ -177,9 +315,9 @@ async fn pump<R>(
                 renderer(stream, &chunk);
                 acc.push_str(&chunk);
                 if let Some(url) = parse_local_url(&acc) {
-                    if url != LOCAL_URL {
+                    if url != expected {
                         if let Some(tx) = ready.lock().unwrap().take() {
-                            let _ = tx.send(Err("Vite did not bind to the required localhost:5173 address.".into()));
+                            let _ = tx.send(Err(format!("Vite did not bind to the required {expected} address.")));
                         }
                         continue;
                     }
@@ -205,33 +343,33 @@ async fn pump<R>(
 }
 
 /// Start (or reuse) the project's Vite dev server for the live local preview.
+/// Serves on `port` when given (it must be free and sign-in-ready), otherwise on
+/// the first free registered port; reports `port-busy` when there is none.
 /// Resolves once Vite is serving; the process keeps running until [`dev_stop`].
 #[tauri::command]
 pub async fn dev_start(
     app: AppHandle,
     state: State<'_, DevServers>,
     project_id: String,
+    port: Option<u16>,
 ) -> AppResult<DevServerResult> {
     // Run in a task that owns the lifecycle, so the server bookkeeping completes
     // even if the invoking renderer stops awaiting this IPC call.
     let servers = state.inner().clone();
-    tokio::spawn(async move { start_server(app, servers, project_id).await })
-        .await.map_err(|e| crate::error::AppError::Msg(format!("Local preview task failed: {e}")))?
+    tokio::spawn(async move { start_server(app, servers, project_id, port).await })
+        .await.map_err(|e| AppError::Msg(format!("Local preview task failed: {e}")))?
 }
 
-async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> AppResult<DevServerResult> {
+async fn start_server(app: AppHandle, state: DevServers, project_id: String, requested: Option<u16>) -> AppResult<DevServerResult> {
     let _lifecycle = state.lifecycle.lock().await;
     // Idempotent: if a server is already up for this project, return its URL.
     {
         let handles = state.inner.lock().unwrap();
         if let Some(h) = handles.get(&project_id) {
             if let Some(url) = h.url.clone().filter(|_| !h.cancel.is_cancelled()) {
-                return Ok(DevServerResult { ok: true, outcome: "running".into(), url: Some(url), error: None });
+                return Ok(DevServerResult { ok: true, outcome: "running".into(), url: Some(url), error: None, conflict: None });
             }
             return Ok(failed("The local preview is still starting or stopping. Retry after it finishes."));
-        }
-        if !handles.is_empty() {
-            return Ok(failed("Another Fabricator project's local preview owns localhost:5173. Wait for its chat turn to finish, then retry."));
         }
     }
 
@@ -249,14 +387,25 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
     };
 
     let renderer = emit::proc_streamer(&app, DEV_CHANNEL);
-    if unowned_port_in_use().await {
-        let reason = "Port 5173 is already in use by an unowned process. Fabricator cannot establish which project it serves and will not attach or kill it. Stop that server yourself, then retry.";
-        renderer(Stream::System, &format!("{reason}\n"));
-        return Ok(failed(reason));
-    }
+    let resolved = {
+        let (servers, project) = (state.clone(), project.clone());
+        tokio::task::spawn_blocking(move || resolve_port(&servers, &project, requested))
+            .await
+            .map_err(|e| AppError::Msg(format!("Local preview port check failed: {e}")))?
+    };
+    let port = match resolved {
+        Ok(port) => port,
+        Err(result) => {
+            if let Some(reason) = &result.error {
+                renderer(Stream::System, &format!("{reason}\n"));
+            }
+            return Ok(result);
+        }
+    };
+    let expected = local_url(port);
     renderer(
         Stream::System,
-        &format!("Starting local preview for {}…\n", project.name),
+        &format!("Starting local preview for {} on {expected}…\n", project.name),
     );
 
     // Refresh `.env` (VITE_* config) in the BACKGROUND so it never delays the swap
@@ -288,9 +437,9 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
 
     let mut cmd = tokio::process::Command::new(&node);
     cmd.arg(&vite_script)
-        // Pin to 5173 (the app's auth-redirect / CORS port) and fail rather than
-        // silently fall back to 5174 — a fallback port would load but break sign-in.
-        .args(["--host", "localhost", "--port", LOCAL_PORT, "--strictPort"])
+        // Pin the sign-in-ready port and fail rather than let Vite silently fall
+        // back to another one — an unregistered port would load but break sign-in.
+        .args(["--host", "localhost", "--port", &port.to_string(), "--strictPort"])
         .current_dir(&project_dir)
         .env("NO_COLOR", "1")
         .env("FORCE_COLOR", "0")
@@ -307,12 +456,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
         Ok(c) => c,
         Err(e) => {
             renderer(Stream::System, &format!("\nFailed to start Vite: {e}\n"));
-            return Ok(DevServerResult {
-                ok: false,
-                outcome: "error".into(),
-                url: None,
-                error: Some(e.to_string()),
-            });
+            return Ok(failed(&e.to_string()));
         }
     };
     let pid = child.id();
@@ -323,6 +467,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
         DevHandle {
             pid,
             cancel: cancel.clone(),
+            port,
             url: None,
         },
     );
@@ -338,6 +483,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
     {
         let (renderer, ready, servers, project_id) =
             (renderer.clone(), ready.clone(), servers.clone(), project_id.clone());
+        let expected = expected.clone();
         tokio::spawn(async move {
             if let Some(s) = stdout {
                 tokio::spawn(pump(
@@ -348,6 +494,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
                     servers.clone(),
                     project_id.clone(),
                     cancel.clone(),
+                    expected.clone(),
                 ));
             }
             if let Some(s) = stderr {
@@ -359,6 +506,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
                     servers.clone(),
                     project_id.clone(),
                     cancel.clone(),
+                    expected.clone(),
                 ));
             }
             tokio::select! {
@@ -370,7 +518,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
             }
             // If it never reached "ready", unblock the waiter with a failure.
             if let Some(tx) = ready.lock().unwrap().take() {
-                let _ = tx.send(Err("Vite exited before it was ready. Check the preview log; if localhost:5173 is occupied, stop its owner yourself and retry.".into()));
+                let _ = tx.send(Err(format!("Vite exited before it was ready. Check the local preview log; if {expected} was just taken, send your message again.")));
             }
             let mut handles = servers.inner.lock().unwrap();
             if handles.get(&project_id).is_some_and(|h| h.cancel.same(&cancel)) {
@@ -396,27 +544,18 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String) -> 
                 outcome: "running".into(),
                 url: Some(url),
                 error: None,
+                conflict: None,
             })
         }
         Ok(Ok(Err(reason))) => {
             stop_project(&state, &project_id);
-            Ok(DevServerResult {
-                ok: false,
-                outcome: "error".into(),
-                url: None,
-                error: Some(reason),
-            })
+            Ok(failed(&reason))
         }
         // Sender dropped, or timed out: give up and tear the process down.
         Ok(Err(_)) | Err(_) => {
             stop_project(&state, &project_id);
             renderer(Stream::System, "\nLocal preview didn't become ready in time.\n");
-            Ok(DevServerResult {
-                ok: false,
-                outcome: "error".into(),
-                url: None,
-                error: Some("Timed out waiting for Vite to start.".into()),
-            })
+            Ok(failed("Timed out waiting for Vite to start."))
         }
     }
 }
@@ -434,11 +573,104 @@ pub async fn dev_stop(state: State<'_, DevServers>, project_id: String) -> AppRe
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
     while state.inner.lock().unwrap().contains_key(&project_id) {
         if tokio::time::Instant::now() >= deadline {
-            return Err(crate::error::AppError::Msg("The local Vite process is still stopping. Retry shortly; no unowned process was killed.".into()));
+            return Err(AppError::Msg("The local Vite process is still stopping. Retry shortly; no unowned process was killed.".into()));
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     Ok(())
+}
+
+/// Where the project's live preview would start: a free, sign-in-ready port, or
+/// the conflict to put to the user. Probes ports; starts and stops nothing.
+#[tauri::command]
+pub async fn dev_port_plan(state: State<'_, DevServers>, project_id: String) -> AppResult<DevPortPlan> {
+    let servers = state.inner().clone();
+    let Some(project) = store::find_project(&project_id) else {
+        return Ok(DevPortPlan::default());
+    };
+    tokio::task::spawn_blocking(move || plan_for(&servers, &project))
+        .await
+        .map_err(|e| AppError::Msg(format!("Local preview port check failed: {e}")))
+}
+
+/// Stop the process the user chose to stop on `port`, so a preview can use it.
+/// Only while `pid` still owns the port, and never one of Fabricator's own
+/// servers, this app, or a system process.
+#[tauri::command]
+pub async fn dev_free_port(app: AppHandle, state: State<'_, DevServers>, port: u16, pid: u32) -> AppResult<()> {
+    let protected = state.pids();
+    let renderer = emit::proc_streamer(&app, DEV_CHANNEL);
+    renderer(Stream::System, &format!("Stopping PID {pid} to free {}…\n", local_url(port)));
+    let result = tokio::task::spawn_blocking(move || local_ports::stop(port, pid, &protected))
+        .await
+        .map_err(|e| AppError::Msg(format!("Stopping the process failed: {e}")))?;
+    if let Err(reason) = &result {
+        renderer(Stream::System, &format!("{reason}\n"));
+    }
+    result.map_err(AppError::Msg)
+}
+
+/// Let this project's preview sign in on `http://localhost:{port}`: add it to
+/// rayfin.yml's `allowedRedirectUris` and, when the app has a Fabric backend,
+/// push the settings there without rebuilding the app. A failed push reverts
+/// the rayfin.yml edit. Holds the deploy lease, so it never overlaps a chat turn
+/// or deployment.
+#[tauri::command]
+pub async fn dev_register_port(app: AppHandle, project_id: String, port: u16) -> DeployResult {
+    match tokio::spawn(async move { register_port(app, project_id, port).await }).await {
+        Ok(result) => result,
+        Err(error) => register_result(false, "error", Some(format!("Registering the port failed: {error}"))),
+    }
+}
+
+async fn register_port(app: AppHandle, project_id: String, port: u16) -> DeployResult {
+    if port < 1024 {
+        return register_result(false, "error", Some(format!("Port {port} is reserved; choose one above 1023.")));
+    }
+    let Some(project) = store::find_project(&project_id) else {
+        return register_result(false, "not-found", Some("Project not found.".into()));
+    };
+    let app_state = app.state::<crate::state::AppState>();
+    let _lease = match app_state.mutations.deploy(&project_id) {
+        Ok(lease) => lease,
+        Err(error) => return register_result(false, "error", Some(error)),
+    };
+    let dir = PathBuf::from(&project.path);
+    let renderer = emit::proc_streamer(&app, REGISTER_CHANNEL);
+    let origin = redirect_uris::origin(port);
+    match redirect_uris::read(&dir) {
+        Ok(origins) if !origins.auth_enabled => return register_result(true, "success", None),
+        Ok(_) => {}
+        Err(error) => return register_result(false, "error", Some(error)),
+    }
+    let edit = match redirect_uris::add(&dir, port) {
+        Ok(edit) => edit,
+        Err(error) => {
+            renderer(Stream::System, &format!("{error}\n"));
+            return register_result(false, "error", Some(error));
+        }
+    };
+    if edit.is_some() {
+        renderer(Stream::System, &format!("Added {origin} to rayfin/rayfin.yml.\n"));
+    }
+    if !has_backend(&project) {
+        renderer(Stream::System, "This app isn't deployed yet; its first deploy registers the new port.\n");
+        return register_result(true, "success", None);
+    }
+    renderer(Stream::System, "Pushing sign-in settings to Fabric (the app isn't rebuilt)…\n");
+    let result = crate::commands::deploy::push_runtime_settings(&project, renderer.clone()).await;
+    if result.ok {
+        renderer(Stream::System, &format!("\n✅ Sign-in now accepts {origin}.\n"));
+    } else if let Some(edit) = &edit {
+        if redirect_uris::revert(&dir, edit) {
+            renderer(Stream::System, "\nThe push failed, so the rayfin.yml change was undone.\n");
+        }
+    }
+    result
+}
+
+fn register_result(ok: bool, outcome: &str, error: Option<String>) -> DeployResult {
+    DeployResult { ok, outcome: outcome.into(), url: None, api_url: None, portal_url: None, error }
 }
 
 /// Whether the project supports the live local preview (has installed Vite).
@@ -477,11 +709,12 @@ fn unsupported(msg: &str) -> DevServerResult {
         outcome: "unsupported".into(),
         url: None,
         error: Some(msg.to_string()),
+        conflict: None,
     }
 }
 
 fn failed(msg: &str) -> DevServerResult {
-    DevServerResult { ok: false, outcome: "error".into(), url: None, error: Some(msg.to_string()) }
+    DevServerResult { ok: false, outcome: "error".into(), url: None, error: Some(msg.to_string()), conflict: None }
 }
 
 #[cfg(test)]
@@ -512,21 +745,118 @@ mod tests {
     }
 
     #[test]
-    fn owns_project_only_for_a_live_server_on_the_canonical_port() {
+    fn owns_project_only_for_a_live_server_on_its_own_port() {
         let servers = DevServers::default();
         let cancel = CancelToken::new();
         servers.inner.lock().unwrap().insert("p".into(), DevHandle {
-            pid: None, cancel: cancel.clone(), url: Some(LOCAL_URL.into()),
+            pid: Some(11), cancel: cancel.clone(), port: 5174, url: Some(local_url(5174)),
         });
         servers.inner.lock().unwrap().insert("starting".into(), DevHandle {
-            pid: None, cancel: CancelToken::new(), url: None,
+            pid: Some(12), cancel: CancelToken::new(), port: 5173, url: None,
+        });
+        servers.inner.lock().unwrap().insert("mismatch".into(), DevHandle {
+            pid: None, cancel: CancelToken::new(), port: 5175, url: Some(local_url(5173)),
         });
         assert!(servers.owns_project("p"));
+        assert_eq!(servers.running_port("p"), Some(5174));
         assert!(!servers.owns_project("starting"));
+        assert!(!servers.owns_project("mismatch"));
         assert!(!servers.owns_project("untracked"));
+        let mut others = servers.ports_held_by_others("p");
+        others.sort();
+        assert_eq!(others, vec![(5173, "starting".to_string()), (5175, "mismatch".to_string())]);
+        let mut pids = servers.pids();
+        pids.sort();
+        assert_eq!(pids, vec![11, 12]);
         stop_project(&servers, "p");
         assert!(cancel.is_cancelled());
         assert!(!servers.owns_project("p"));
+        assert_eq!(servers.running_port("p"), None);
+    }
+
+    #[test]
+    fn picks_the_first_free_registered_port_and_skips_other_previews() {
+        let choice = PortChoice { registered: vec![5173, 5174], needs_registration: true };
+        assert_eq!(pick_port(&choice, &[], |_| true), Some(5173));
+        assert_eq!(pick_port(&choice, &[], |port| port != 5173), Some(5174));
+        assert_eq!(pick_port(&choice, &[5173], |_| true), Some(5174));
+        // Every registered port is busy: sign-in needs a registration, so no pick.
+        assert_eq!(pick_port(&choice, &[5174], |port| port != 5173), None);
+    }
+
+    #[test]
+    fn apps_without_sign_in_use_any_free_port() {
+        let choice = PortChoice { registered: vec![5173], needs_registration: false };
+        assert_eq!(pick_port(&choice, &[], |_| true), Some(5173));
+        assert_eq!(pick_port(&choice, &[5174], |port| port != 5173), Some(5175));
+    }
+
+    fn project_at(dir: &Path) -> StudioProject {
+        serde_json::from_value(serde_json::json!({
+            "id": "p", "name": "App", "path": dir.to_string_lossy(), "addedAt": "2026-01-01T00:00:00.000Z"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn registered_ports_come_from_rayfin_yml() {
+        let dir = std::env::temp_dir().join(format!("rayfin-ports-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("rayfin")).unwrap();
+        // Unreadable config keeps the historical 5173-only behavior.
+        let missing = port_choice(&dir);
+        assert_eq!((missing.registered, missing.needs_registration), (vec![5173], true));
+
+        std::fs::write(
+            dir.join("rayfin").join("rayfin.yml"),
+            "services:\n  auth:\n    enabled: true\n    allowedRedirectUris:\n      - https://app.example.net\n      - http://localhost:5180\n",
+        )
+        .unwrap();
+        let listed = port_choice(&dir);
+        assert_eq!((listed.registered, listed.needs_registration), (vec![5180], true));
+
+        std::fs::write(dir.join("rayfin").join("rayfin.yml"), "services:\n  auth:\n    allowedRedirectUris:\n      - https://app.example.net\n").unwrap();
+        let none_local = port_choice(&dir);
+        assert_eq!((none_local.registered, none_local.needs_registration), (vec![5173], false));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_backend_exists_once_deployed_or_recorded_on_disk() {
+        let dir = std::env::temp_dir().join(format!("rayfin-backend-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("rayfin")).unwrap();
+        let mut project = project_at(&dir);
+        assert!(!has_backend(&project));
+
+        std::fs::write(dir.join("rayfin").join(".deployments.json"), r#"{"active":"ws","deployments":{}}"#).unwrap();
+        assert!(!has_backend(&project));
+        std::fs::write(dir.join("rayfin").join(".deployments.json"), r#"{"active":"ws","deployments":{"ws":{}}}"#).unwrap();
+        assert!(has_backend(&project));
+
+        std::fs::remove_file(dir.join("rayfin").join(".deployments.json")).unwrap();
+        project.last_deploy = Some(crate::types::DeployInfo { api_url: Some("https://api".into()), ..Default::default() });
+        assert!(has_backend(&project));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_requested_port_must_be_registered_when_the_app_signs_in() {
+        let dir = std::env::temp_dir().join(format!("rayfin-request-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(dir.join("rayfin")).unwrap();
+        std::fs::write(
+            dir.join("rayfin").join("rayfin.yml"),
+            "services:\n  auth:\n    enabled: true\n    allowedRedirectUris:\n      - http://localhost:5173\n",
+        )
+        .unwrap();
+        let servers = DevServers::default();
+        let error = resolve_port(&servers, &project_at(&dir), Some(5199)).unwrap_err();
+        assert!(error.error.unwrap().contains("isn't in rayfin.yml"));
+
+        servers.inner.lock().unwrap().insert("other".into(), DevHandle {
+            pid: None, cancel: CancelToken::new(), port: 5173, url: None,
+        });
+        let error = resolve_port(&servers, &project_at(&dir), Some(5173)).unwrap_err();
+        assert!(error.error.unwrap().contains("in use again"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

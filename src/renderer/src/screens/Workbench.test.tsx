@@ -2,9 +2,11 @@ import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type {
+  AppSettings,
   AuthStatus,
   ChatTurnResult,
   DeployResult,
+  PortConflict,
   ProcLogEvent,
   ProcResult,
   StudioProject
@@ -568,5 +570,185 @@ describe('Workbench after-turn deployment', () => {
     await act(async () => changed.resolve(true))
 
     expect(api.deploy.run).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Live local preview ports: a turn starts Vite on a port the app's sign-in
+ * accepts. When every such port is taken, the turn waits while the user
+ * registers another port (rayfin.yml + a settings push) or stops the process.
+ */
+describe('Workbench live preview ports', () => {
+  const settings: AppSettings = { theme: 'system', experiments: { localDevPreview: true } }
+  const conflict: PortConflict = {
+    port: 5173,
+    occupant: { pid: 4321, name: 'node.exe', commandLine: 'node C:\\other-app\\node_modules\\vite\\bin\\vite.js' },
+    canStop: true,
+    suggestedPort: 5174,
+    needsPush: true
+  }
+
+  function installDev(api: ReturnType<typeof installApi>) {
+    const dev = {
+      plan: vi.fn().mockResolvedValue({ conflict }),
+      start: vi.fn().mockResolvedValue({ ok: true, outcome: 'running', url: 'http://localhost:5174' }),
+      stop: vi.fn().mockResolvedValue(undefined),
+      freePort: vi.fn().mockResolvedValue(undefined),
+      registerPort: vi.fn().mockResolvedValue({ ok: true, outcome: 'success' })
+    }
+    Object.assign(api, { dev })
+    return dev
+  }
+
+  async function mount() {
+    const api = installApi(true)
+    const dev = installDev(api)
+    render(<Workbench {...makeProps({ settings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    return { api, dev }
+  }
+
+  /** Start a fresh turn the way ChatPanel does. `turn` settles once it may be sent. */
+  async function beginTurn(): Promise<{ turn: Promise<void> }> {
+    const start = chatProps.mock.lastCall?.[0].onTurnStart
+    if (!start) throw new Error('Chat turn-start handler is not mounted')
+    let turn!: Promise<void>
+    await act(async () => {
+      turn = Promise.resolve(start())
+    })
+    return { turn }
+  }
+
+  it('starts straight away on a free port that sign-in accepts', async () => {
+    const { dev } = await mount()
+    dev.plan.mockResolvedValue({ port: 5174 })
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    expect(dev.start).toHaveBeenCalledWith(project.id, 5174)
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('holds the turn until another port is registered and pushed, then starts on it', async () => {
+    const { api, dev } = await mount()
+    const pushed = deferred<DeployResult>()
+    dev.registerPort.mockReturnValueOnce(pushed.promise)
+    let sent = false
+    const { turn } = await beginTurn()
+    void turn.then(() => {
+      sent = true
+    })
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.textContent).toContain('localhost:5173 is in use')
+    expect(dialog.textContent).toContain('node.exe')
+    expect(dialog.textContent).toContain('PID 4321')
+    expect(dialog.textContent).toContain('vite.js')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use port 5174' }))
+    expect(dev.registerPort).toHaveBeenCalledWith(project.id, 5174)
+    act(() => api.onProcLog.mock.calls[0][0]({ channel: 'dev:register', stream: 'system', data: 'Pushing sign-in settings\n' }))
+    expect(screen.getByLabelText('Port registration log').textContent).toContain('Pushing sign-in settings')
+    await act(async () => {})
+    expect(sent).toBe(false)
+    expect(dev.start).not.toHaveBeenCalled()
+
+    await act(async () => {
+      pushed.resolve({ ok: true, outcome: 'success' })
+      await turn
+    })
+    expect(sent).toBe(true)
+    expect(dev.start).toHaveBeenCalledWith(project.id, 5174)
+    expect(dev.freePort).not.toHaveBeenCalled()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('stops the process holding the port when asked, then starts on that port', async () => {
+    const { dev } = await mount()
+    const { turn } = await beginTurn()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop node.exe' }))
+    await act(async () => turn)
+    expect(dev.freePort).toHaveBeenCalledWith(5173, 4321)
+    expect(dev.registerPort).not.toHaveBeenCalled()
+    expect(dev.start).toHaveBeenCalledWith(project.id, 5173)
+  })
+
+  it.each([
+    ['stopping', 'Stop node.exe', 'Access is denied.'],
+    ['pushing', 'Use port 5174', 'Workspace not found']
+  ])('keeps the prompt open with the reason when %s fails, and skipping still sends the turn', async (_, action, reason) => {
+    const { dev } = await mount()
+    dev.freePort.mockRejectedValueOnce(reason)
+    dev.registerPort.mockResolvedValueOnce({ ok: false, outcome: 'error', error: reason })
+    const { turn } = await beginTurn()
+    fireEvent.click(screen.getByRole('button', { name: action }))
+    await waitFor(() => expect(screen.getByRole('dialog').textContent).toContain(reason))
+    expect(dev.start).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skip live preview' }))
+    await act(async () => turn)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(dev.start).not.toHaveBeenCalled()
+  })
+
+  it('signs in and retries once when the push finds an expired Fabric session', async () => {
+    const { api, dev } = await mount()
+    dev.registerPort.mockResolvedValueOnce({ ok: false, outcome: 'not-signed-in', error: 'Unauthorized' })
+    const { turn } = await beginTurn()
+    fireEvent.click(screen.getByRole('button', { name: 'Use port 5174' }))
+    await act(async () => turn)
+    expect(api.auth.loginRayfin).toHaveBeenCalledWith(undefined, project.id)
+    expect(dev.registerPort).toHaveBeenCalledTimes(2)
+    expect(dev.start).toHaveBeenCalledWith(project.id, 5174)
+  })
+
+  it('does not ask again in a turn the user skipped, but does on the next turn', async () => {
+    const { dev } = await mount()
+    const { turn } = await beginTurn()
+    fireEvent.click(screen.getByRole('button', { name: 'Skip live preview' }))
+    await act(async () => turn)
+    await act(async () => chatProps.mock.lastCall?.[0].onPlanExecutionStart?.())
+    expect(dev.plan).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    await act(async () => completeTurn())
+    await beginTurn()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(dev.plan).toHaveBeenCalledTimes(2)
+  })
+
+  it('offers only stopping mid-turn, since a new port would need a push', async () => {
+    const { dev } = await mount()
+    act(() => {
+      chatProps.mock.lastCall?.[0].onChange(() => [
+        { id: 'a1', role: 'assistant', text: '', tools: [], pending: true }
+      ] as never)
+    })
+    await act(async () => chatProps.mock.lastCall?.[0].onPlanExecutionStart?.())
+    const dialog = screen.getByRole('dialog')
+    expect(screen.queryByRole('button', { name: 'Use port 5174' })).toBeNull()
+    expect(dialog.textContent).toContain('while Copilot is working')
+    fireEvent.click(screen.getByRole('button', { name: 'Stop node.exe' }))
+    await waitFor(() => expect(dev.start).toHaveBeenCalledWith(project.id, 5173))
+    expect(dev.registerPort).not.toHaveBeenCalled()
+  })
+
+  it('skips with a notice when there is nothing to offer', async () => {
+    const { dev } = await mount()
+    dev.plan.mockResolvedValue({ conflict: { port: 5173, canStop: false, needsPush: true } })
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(await screen.findByText('Live preview skipped')).toBeTruthy()
+    expect(dev.start).not.toHaveBeenCalled()
+  })
+
+  it('never asks when the experiment is off', async () => {
+    const api = installApi(true)
+    const dev = installDev(api)
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    expect(dev.plan).not.toHaveBeenCalled()
+    expect(dev.start).not.toHaveBeenCalled()
   })
 })

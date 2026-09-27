@@ -18,9 +18,10 @@ use crate::commands::auth::get_cached_identity;
 use crate::commands::util::{annotate_state, now_iso};
 use crate::services::exec::{self, OnData, RunOptions, RunResult, Stream};
 use crate::services::{crashlog, emit, fabric_auth, store, telemetry};
-use crate::types::{DeployInfo, DeployResult, DeployStatus, FabricDeployment, ProjectsState};
+use crate::types::{DeployInfo, DeployResult, DeployStatus, FabricDeployment, ProjectsState, StudioProject};
 
 const DEPLOY_TIMEOUT_MS: u64 = 20 * 60_000;
+const SETTINGS_PUSH_TIMEOUT_MS: u64 = 10 * 60_000;
 const DEPLOY_CHANNEL: &str = "deploy:run";
 
 static GUID_RE: Lazy<Regex> =
@@ -57,6 +58,15 @@ fn workspace_args(workspace: Option<&str>) -> Vec<String> {
 /// Pull a `Hosting URL:` value out of human deploy output.
 fn scrape_hosting_url(text: &str) -> Option<String> {
   HOSTING_RE.captures(text).and_then(|c| c.get(1)).map(|m| m.as_str().trim().to_string())
+}
+
+/// `rayfin up` arguments that push runtime settings (auth redirect URIs
+/// included) and the data model, but don't build or upload the app.
+fn settings_push_args(workspace: Option<&str>) -> Vec<String> {
+  let mut args: Vec<String> =
+    ["up", "-y", "--force", "--exclude-services", "staticHosting"].into_iter().map(String::from).collect();
+  args.extend(workspace_args(workspace));
+  args
 }
 
 /// Best URL to load in the preview, in priority order.
@@ -352,6 +362,49 @@ pub(crate) async fn run_deploy(
 
 fn deployment_error(error: String) -> DeployResult {
   DeployResult { ok: false, outcome: "error".into(), url: None, api_url: None, portal_url: None, error: Some(error) }
+}
+
+/// Push rayfin.yml's runtime settings to the project's Fabric backend without
+/// rebuilding or uploading the app (`rayfin up --exclude-services staticHosting`).
+/// The caller holds the project's deploy lease. The recorded deployment (URL,
+/// status, deployed commit) is left alone, so the app itself still ships with
+/// the next regular deploy.
+pub(crate) async fn push_runtime_settings(project: &StudioProject, on_data: OnData) -> DeployResult {
+  let dir = Path::new(&project.path);
+  if let Err(error) = exec::ensure_project_dependencies(dir, Some(on_data.clone())).await {
+    return deployment_error(error);
+  }
+  let _auth_guard = crate::commands::auth::rayfin_auth_read().await;
+  let captured = Arc::new(Mutex::new(String::new()));
+  let on_output: OnData = {
+    let captured = captured.clone();
+    Arc::new(move |stream: Stream, chunk: &str| {
+      captured.lock().unwrap().push_str(chunk);
+      on_data(stream, chunk);
+    })
+  };
+  let workspace = project.workspace.as_deref().map(str::trim).filter(|w| !w.is_empty());
+  let args = settings_push_args(workspace);
+  let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+  let result = exec::run_project_rayfin(
+    dir,
+    &arg_refs,
+    RunOptions {
+      cwd: Some(dir.to_path_buf()),
+      on_data: Some(on_output),
+      timeout_ms: Some(SETTINGS_PUSH_TIMEOUT_MS),
+      ..Default::default()
+    },
+  )
+  .await;
+  if result.ok {
+    return DeployResult { ok: true, outcome: "success".into(), url: None, api_url: None, portal_url: None, error: None };
+  }
+  let captured_text = captured.lock().unwrap().clone();
+  let error = error_text(&result, &captured_text, "rayfin up couldn't push the sign-in settings. Check the log above.");
+  let outcome = if result.not_found { "not-found" } else { failure_outcome(&error) };
+  crashlog::log_error("settings-push", &format!("exit={:?} outcome={outcome}: {error}", result.exit_code));
+  DeployResult { ok: false, outcome: outcome.into(), url: None, api_url: None, portal_url: None, error: Some(error) }
 }
 
 async fn run_deploy_inner(
@@ -1006,6 +1059,15 @@ mod tests {
       vec!["--workspace-id".to_string(), "3fa85f64-5717-4562-b3fc-2c963f66afa6".to_string()]
     );
     assert_eq!(workspace_args(Some("My Workspace")), vec!["-w".to_string(), "My Workspace".to_string()]);
+  }
+
+  #[test]
+  fn settings_push_skips_the_app_build_and_keeps_the_workspace_target() {
+    assert_eq!(settings_push_args(None), ["up", "-y", "--force", "--exclude-services", "staticHosting"]);
+    assert_eq!(
+      settings_push_args(Some("3fa85f64-5717-4562-b3fc-2c963f66afa6"))[5..],
+      ["--workspace-id", "3fa85f64-5717-4562-b3fc-2c963f66afa6"]
+    );
   }
 
   #[test]

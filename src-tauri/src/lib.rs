@@ -324,6 +324,9 @@ pub fn run() {
             services::dev_server::dev_start,
             services::dev_server::dev_stop,
             services::dev_server::dev_supported_cmd,
+            services::dev_server::dev_port_plan,
+            services::dev_server::dev_free_port,
+            services::dev_server::dev_register_port,
       // preview
       services::preview::preview_show_url,
       services::preview::preview_navigate,

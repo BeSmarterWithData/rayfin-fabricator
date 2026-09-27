@@ -25,9 +25,10 @@ export default defineConfig({
   envPrefix: ['VITE_', 'TAURI_ENV_'],
   server: {
     // Fabricator's own renderer dev server uses 1420 (Tauri's default) so that
-    // port 5173 stays free for a project's live local-preview Vite server — Rayfin
-    // apps pin their auth redirect URI / CORS to localhost:5173. Keep in sync with
-    // `src-tauri/tauri.conf.json` (`build.devUrl`).
+    // port 5173 stays free for a project's live local-preview Vite server — it's
+    // Rayfin's default allowed sign-in origin; any other port must be registered
+    // in the app's rayfin.yml. Keep in sync with `src-tauri/tauri.conf.json`
+    // (`build.devUrl`).
     port: 1420,
     strictPort: true,
     host: host || false,

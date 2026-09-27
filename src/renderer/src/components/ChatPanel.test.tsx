@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ChatEventEnvelope, ChatPlanArtifact, ChatPlanQuestion } from '@shared/ipc'
 import { makeProject } from '../../test/harness'
+import { deferred } from '../../test/deferred'
 import type { DesignItem } from '@shared/design'
 import type { DesignTurn } from '../design/useDesignSession'
 import ChatPanel, { reduceChatMessage, type UIChatMessage } from './ChatPanel'
@@ -808,6 +809,54 @@ describe('ChatPanel onTurnStart (live local preview hook)', () => {
       fireEvent.keyDown(ta, { key: 'Enter' })
     })
     expect(onTurnStart).not.toHaveBeenCalled()
+  })
+
+  // The host may ask the user to settle a port conflict (and push a new port to
+  // Fabric) before Copilot starts, so the turn waits for the hook.
+  it('sends the turn only after an async onTurnStart settles', async () => {
+    const gate = deferred<void>()
+    const onTurnStart = vi.fn(() => gate.promise)
+    const send = (window as unknown as { api: { chat: { send: ReturnType<typeof vi.fn> } } }).api.chat.send
+    await act(async () => {
+      render(
+        <ChatPanel project={makeProject('p1')} messages={[]} onChange={() => {}} draft="" onTurnStart={onTurnStart} />
+      )
+    })
+    const ta = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
+    await act(async () => {
+      fireEvent.change(ta, { target: { value: 'add a bar chart' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(ta, { key: 'Enter' })
+    })
+    expect(onTurnStart).toHaveBeenCalledTimes(1)
+    expect(send).not.toHaveBeenCalled()
+
+    await act(async () => {
+      gate.resolve()
+    })
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+  })
+
+  it('still sends the turn when onTurnStart fails', async () => {
+    const onTurnStart = vi.fn(() => Promise.reject(new Error('port check failed')))
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const send = (window as unknown as { api: { chat: { send: ReturnType<typeof vi.fn> } } }).api.chat.send
+    await act(async () => {
+      render(
+        <ChatPanel project={makeProject('p1')} messages={[]} onChange={() => {}} draft="" onTurnStart={onTurnStart} />
+      )
+    })
+    const ta = screen.getByPlaceholderText(PLACEHOLDER) as HTMLTextAreaElement
+    await act(async () => {
+      fireEvent.change(ta, { target: { value: 'add a bar chart' } })
+    })
+    await act(async () => {
+      fireEvent.keyDown(ta, { key: 'Enter' })
+    })
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+    expect(logged).toHaveBeenCalled()
+    logged.mockRestore()
   })
 })
 

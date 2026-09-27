@@ -263,9 +263,12 @@ export const api: RayfinStudioApi = {
   },
 
   dev: {
-    start: (projectId: string) => invoke('dev_start', { projectId }),
+    plan: (projectId: string) => invoke('dev_port_plan', { projectId }),
+    start: (projectId: string, port?: number) => invoke('dev_start', { projectId, port }),
     stop: (projectId: string) => invoke('dev_stop', { projectId }),
-    supported: (projectId: string) => invoke('dev_supported_cmd', { projectId })
+    supported: (projectId: string) => invoke('dev_supported_cmd', { projectId }),
+    freePort: (port: number, pid: number) => invoke('dev_free_port', { port, pid }),
+    registerPort: (projectId: string, port: number) => invoke('dev_register_port', { projectId, port })
   },
 
   design: {
