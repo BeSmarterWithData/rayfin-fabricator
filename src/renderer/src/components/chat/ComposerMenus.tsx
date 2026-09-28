@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChatMode, CopilotModel, ReasoningEffort } from '@shared/ipc'
 import { isFastModel, useCopilotModels } from '@renderer/copilotModels'
+import { moveMenuFocus } from '@renderer/menuFocus'
 import { Codicon, ImageIcon } from '../icons'
 import { ModeIcon } from './icons'
 import { EFFORT_OPTIONS, EFFORT_ORDER, MODES } from './modes'
@@ -15,26 +16,6 @@ function usePopover(): [boolean, (open: boolean | ((o: boolean) => boolean)) => 
     return () => window.removeEventListener('click', close)
   }, [open])
   return [open, setOpen]
-}
-
-/** Arrow / Home / End navigation across a menu's items. */
-function moveFocus(e: KeyboardEvent<HTMLElement>, selector: string): void {
-  if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
-  const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>(selector)).filter(
-    (b) => !b.disabled
-  )
-  if (!items.length) return
-  e.preventDefault()
-  const current = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement))
-  const next =
-    e.key === 'Home'
-      ? 0
-      : e.key === 'End'
-        ? items.length - 1
-        : e.key === 'ArrowDown'
-          ? (current + 1) % items.length
-          : (current - 1 + items.length) % items.length
-  items[next].focus()
 }
 
 /** Agent / Plan / Autopilot selector (experimental). */
@@ -78,7 +59,7 @@ export function ModeMenu({
           close()
           return
         }
-        if (open) moveFocus(e, '[role="menuitemradio"]')
+        if (open) moveMenuFocus(e, '[role="menuitemradio"]')
       }}
     >
       <button
@@ -297,7 +278,7 @@ export function ModelMenu({
               role="listbox"
               aria-label="Model"
               ref={listRef}
-              onKeyDown={(e) => moveFocus(e, '[role="option"]')}
+              onKeyDown={(e) => moveMenuFocus(e, '[role="option"]')}
             >
               {!query && option('', 'Auto', 'Recommended')}
               {savedMissing && !query && option(model, model, 'Unavailable')}
@@ -322,7 +303,7 @@ export function ModelMenu({
                 className="effort-seg"
                 role="radiogroup"
                 aria-label="Reasoning effort"
-                onKeyDown={(e) => moveFocus(e, '[role="radio"]')}
+                onKeyDown={(e) => moveMenuFocus(e, '[role="radio"]')}
               >
                 {(['', ...effortOptions] as (ReasoningEffort | '')[]).map((e) => (
                   <button
@@ -388,7 +369,7 @@ export function AddMenu({
           requestAnimationFrame(() => triggerRef.current?.focus())
           return
         }
-        if (open) moveFocus(e, '[role="menuitem"]')
+        if (open) moveMenuFocus(e, '[role="menuitem"]')
       }}
     >
       <button

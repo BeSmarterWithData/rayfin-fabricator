@@ -2,7 +2,7 @@ import type { HTMLAttributes, SVGProps } from 'react'
 
 /**
  * Small, monochrome line icons shared across the app's control clusters
- * (titlebar, deployment control, preview toolbar). They all stroke with
+ * (app bar, deployment control, preview toolbar). They all stroke with
  * `currentColor` and default to the `.btn-ico` size so they inherit a button's
  * text color and sit beside a label. Pass a `className` to resize (e.g. icon-only
  * segments bump these to 16px via `.seg-btn--icon .btn-ico`).

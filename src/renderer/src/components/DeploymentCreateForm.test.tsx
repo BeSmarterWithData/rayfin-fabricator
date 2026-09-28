@@ -49,7 +49,7 @@ describe('DeploymentCreateForm Fabric reauth', () => {
     await waitFor(() => expect(loginRayfin).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(onReload).toHaveBeenCalledTimes(1))
     // The parent must be told a sign-in happened so it can refresh the app-level
-    // Fabric auth state (e.g. the workbench titlebar), not just reload workspaces.
+    // Fabric auth state (e.g. the app bar's account menu), not just reload workspaces.
     await waitFor(() => expect(onSignedIn).toHaveBeenCalledTimes(1))
   })
 

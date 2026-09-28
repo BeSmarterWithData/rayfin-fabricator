@@ -27,13 +27,14 @@ function installApi(ensureDependencies: ReturnType<typeof vi.fn>): void {
   }
 }
 
-function renderGuard(onSwitchProjects = vi.fn()): void {
+function renderGuard(onSwitchProjects = vi.fn(), onReadyChange?: ReturnType<typeof vi.fn>): void {
   render(
     <OverlayProvider>
       <ProjectDependencyGuard
         project={makeProject()}
         onSwitchProjects={onSwitchProjects}
         hidden={false}
+        onReadyChange={onReadyChange}
       >
         <p>Project tools are ready</p>
       </ProjectDependencyGuard>
@@ -81,5 +82,36 @@ describe('ProjectDependencyGuard', () => {
 
     await waitFor(() => expect(ensureDependencies).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('Project tools are ready')).toBeTruthy()
+  })
+
+  it('reports readiness so chrome outside the guard can follow the same gate', async () => {
+    const preparation = deferred<{ ok: boolean }>()
+    installApi(vi.fn(() => preparation.promise))
+    const onReadyChange = vi.fn()
+
+    renderGuard(vi.fn(), onReadyChange)
+
+    await screen.findByRole('status', { name: 'Preparing Cloned app' })
+    expect(onReadyChange.mock.calls).toEqual([['project-1', false]])
+
+    await act(async () => {
+      preparation.resolve({ ok: true })
+    })
+
+    await screen.findByText('Project tools are ready')
+    expect(onReadyChange).toHaveBeenLastCalledWith('project-1', true)
+    cleanup()
+    expect(onReadyChange).toHaveBeenLastCalledWith('project-1', false)
+  })
+
+  it('never reports a failed install as ready', async () => {
+    installApi(vi.fn().mockResolvedValue({ ok: false, error: 'npm install failed (exit code 1).' }))
+    const onReadyChange = vi.fn()
+
+    renderGuard(vi.fn(), onReadyChange)
+
+    expect(await screen.findByRole('alert', { name: 'Could not prepare Cloned app' })).toBeTruthy()
+    expect(onReadyChange).not.toHaveBeenCalledWith('project-1', true)
+    expect(onReadyChange).toHaveBeenLastCalledWith('project-1', false)
   })
 })

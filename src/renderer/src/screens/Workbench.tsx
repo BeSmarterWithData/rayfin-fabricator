@@ -52,23 +52,20 @@ import ModelTab from '../components/ModelTab'
 import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
 import { reportIssue as runReportIssue } from './reportIssue'
-import { InfoIcon, GearIcon, SignOutIcon, CompareIcon, ReloadIcon } from '../components/icons'
+import { InfoIcon, GearIcon } from '../components/icons'
 import { FabricatorMark } from '../components/FabricatorMark'
+import AccountMenu from '../components/AccountMenu'
+import {
+  BackToProject,
+  ProjectSwitcher,
+  ProjectTabs,
+  type ProjectView
+} from '../components/AppBar'
 import { DeploymentQueue } from '../deploymentQueue'
 import { useDesignSession, type DesignSurface } from '../design/useDesignSession'
 
 // Monaco is heavy (~7 MB); only load the code viewer when the Code tab is opened.
 const CodeViewer = lazy(() => import('../components/CodeViewer'))
-
-/** Up-to-two-letter initials for the signed-in user's avatar, derived from their
- * email (e.g. "first.last@…" → "FL", "sapatney@…" → "SA"). */
-function avatarInitials(email: string | null | undefined): string {
-  if (!email) return '?'
-  const local = email.split('@')[0] ?? email
-  const parts = local.split(/[.\-_]+/).filter(Boolean)
-  const letters = parts.length >= 2 ? `${parts[0][0]}${parts[1][0]}` : local.slice(0, 2)
-  return letters.toUpperCase() || '?'
-}
 
 /** Hydrate a persisted message into a live (non-pending) UI message. */
 function toUi(m: ChatMessage): UIChatMessage {
@@ -187,6 +184,12 @@ export default function Workbench({
    * different project is opened. Going to the launcher never deactivates a project;
    * only opening a *different* one closes the current. */
   const [showHome, setShowHome] = useState(false)
+  /** The project whose dependencies are prepared (reported by ProjectDependencyGuard),
+   *  so the app bar's tabs and deploy control follow the same gate as the pane. */
+  const [depsReadyId, setDepsReadyId] = useState<string | null>(null)
+  const onDepsReadyChange = useCallback((projectId: string, ready: boolean): void => {
+    setDepsReadyId((current) => (ready ? projectId : current === projectId ? null : current))
+  }, [])
   /** Launcher project-management and local-trash confirmation state. */
   const [managingProject, setManagingProject] = useState<StudioProject | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<StudioProject | null>(null)
@@ -209,7 +212,7 @@ export default function Workbench({
     null
   )
   /** Project content view: the build loop (chat + preview) or the code browser. */
-  const [viewMode, setViewMode] = useState<'build' | 'code' | 'model' | 'advisor'>('build')
+  const [viewMode, setViewMode] = useState<ProjectView>('build')
   /** A pending request to open a specific file (and line) in the Code tab. */
   const [codeOpen, setCodeOpen] = useState<{ path: string; line?: number; nonce: number } | null>(null)
   /** Build-view focus: expand a single pane to fill the area (null = split). */
@@ -500,7 +503,7 @@ export default function Workbench({
             title: 'Project refresh failed'
           })
         }
-        // Failures can reveal an expired session; never leave the titlebar stale.
+        // Failures can reveal an expired session; never leave the app bar's account stale.
         await refreshAuthWithFeedback()
         return result
       } finally {
@@ -1136,55 +1139,80 @@ export default function Workbench({
 
   const fabricAuthBusy =
     signingIn || signingOut || refreshingAuth || Object.values(deploys).some((d) => d.running)
+  /** The active project's own screen — not the launcher or a fullscreen flow. */
+  const onProjectScreen = Boolean(active) && !showHome && !createMode && !showClone
+  /** Tabs and deploys unlock with the project's dependencies, like the pane below. */
+  const projectToolsReady = onProjectScreen && depsReadyId === active?.id
 
   return (
     <div className="app-shell">
-      <header className="titlebar">
-        <div className="brand">
-          <FabricatorMark className="brand-mark" />
-          <span className="brand-name">Fabricator</span>
-        </div>
-        <div className="titlebar-status">
-          {auth.rayfin.signedIn && (
-            <div
-              className="who-avatar"
-              title={auth.rayfin.user ?? 'Signed in'}
-              aria-label={auth.rayfin.user ? `Signed in as ${auth.rayfin.user}` : 'Signed in'}
+      <header className="app-bar">
+        <div className="app-bar-row">
+          <div className="app-bar-start">
+            {active && onProjectScreen ? (
+              <ProjectSwitcher project={active} onClick={goHome} />
+            ) : active && showHome && !createMode && !showClone ? (
+              <BackToProject name={active.name} onClick={() => setShowHome(false)} />
+            ) : null}
+          </div>
+          <div className="app-bar-center">
+            {projectToolsReady && (
+              <ProjectTabs
+                view={viewMode}
+                onChange={setViewMode}
+                advisorBadge={advisor.derived.badge}
+              />
+            )}
+          </div>
+          <div className="app-bar-end">
+            {active && projectToolsReady && (
+              <DeploymentsControl
+                project={active}
+                running={Boolean(deploys[active.id]?.running)}
+                reconciling={reconciling.has(active.id)}
+                onCreate={(name, workspaceId) => {
+                  setViewMode('build')
+                  void (async () => {
+                    try {
+                      await window.api.deploy.setName(active.id, workspaceId, name)
+                    } catch {
+                      /* naming is best-effort; deploy anyway */
+                    }
+                    await requestUserDeploy(active.id, workspaceId)
+                  })()
+                }}
+                onRedeploy={() => {
+                  setViewMode('build')
+                  void requestUserDeploy(active.id)
+                }}
+                onSwitch={(workspace, byId) => switchDeployment(active.id, workspace, byId)}
+                onChanged={() => void refreshProjects()}
+                onSignedIn={onAuthChanged}
+              />
+            )}
+            <button
+              type="button"
+              className="icon-btn app-bar-settings"
+              onClick={() => setShowSettings(true)}
+              title="Settings"
+              aria-label="Settings"
             >
-              {avatarInitials(auth.rayfin.user)}
-            </div>
-          )}
-          <div className="seg seg--toolbar">
-            <button className="seg-btn" onClick={() => setShowSettings(true)} title="Settings">
-              <GearIcon />
-              Settings
+              <GearIcon className="app-bar-settings-icon" />
             </button>
-            {active && (
-              <button
-                className="seg-btn"
-                disabled={fabricAuthBusy}
-                onClick={() => openAuthRefresh(active)}
-                title="Clear the shared Rayfin CLI credentials and sign in again"
-              >
-                <ReloadIcon />
-                {refreshingAuth ? 'Refreshing authentication…' : 'Refresh Fabric authentication'}
-              </button>
-            )}
-            {auth.rayfin.signedIn ? (
-              <button
-                className="seg-btn"
-                disabled={fabricAuthBusy}
-                onClick={signOut}
-                title="Sign out"
-              >
-                <SignOutIcon />
-                {signingOut ? 'Signing out…' : 'Sign out'}
-              </button>
-            ) : (
-              <button className="seg-btn" disabled={fabricAuthBusy} onClick={signIn}>
-                {signingIn ? 'Signing in…' : 'Sign in to Fabric'}
-              </button>
-            )}
+            <AccountMenu
+              signedIn={auth.rayfin.signedIn}
+              user={auth.rayfin.user}
+              busy={fabricAuthBusy}
+              signingIn={signingIn}
+              signingOut={signingOut}
+              refreshing={refreshingAuth}
+              canRefresh={Boolean(active)}
+              onSignIn={() => void signIn()}
+              onSignOut={() => void signOut()}
+              onRefresh={() => {
+                if (active) openAuthRefresh(active)
+              }}
+            />
           </div>
         </div>
       </header>
@@ -1229,96 +1257,13 @@ export default function Workbench({
           <main className="content">
             {notice && <div className="alert alert--error content-alert">{notice}</div>}
             {active ? (
-              <ProjectDependencyGuard project={active} onSwitchProjects={goHome} hidden={showHome}>
+              <ProjectDependencyGuard
+                project={active}
+                onSwitchProjects={goHome}
+                hidden={showHome}
+                onReadyChange={onDepsReadyChange}
+              >
                 <div className={`project-pane${showHome ? ' project-pane--hidden' : ''}`}>
-                  <div className="project-header">
-                    <div className="project-id">
-                      <button
-                        className="switch-projects-btn"
-                        onClick={goHome}
-                        title="Switch projects — open a recent project or create a new one (keeps this project running)"
-                      >
-                        <CompareIcon />
-                        Switch projects
-                      </button>
-                      <div className="project-id-text">
-                        <h1 className="project-title">{active.name}</h1>
-                        <span className="project-subpath">{active.path}</span>
-                      </div>
-                    </div>
-                    <div className="project-tabs" role="tablist">
-                      <button
-                        className={`project-tab${viewMode === 'build' ? ' project-tab--active' : ''}`}
-                        role="tab"
-                        aria-selected={viewMode === 'build'}
-                        onClick={() => setViewMode('build')}
-                      >
-                        Build
-                      </button>
-                      <button
-                        className={`project-tab${viewMode === 'code' ? ' project-tab--active' : ''}`}
-                        role="tab"
-                        aria-selected={viewMode === 'code'}
-                        onClick={() => setViewMode('code')}
-                      >
-                        Code
-                      </button>
-                      <button
-                        className={`project-tab${viewMode === 'model' ? ' project-tab--active' : ''}`}
-                        role="tab"
-                        aria-selected={viewMode === 'model'}
-                        onClick={() => setViewMode('model')}
-                      >
-                        Model
-                      </button>
-                      <button
-                        className={`project-tab${viewMode === 'advisor' ? ' project-tab--active' : ''}`}
-                        role="tab"
-                        aria-selected={viewMode === 'advisor'}
-                        onClick={() => setViewMode('advisor')}
-                        title={
-                          advisor.derived.badge
-                            ? `Advisor — ${advisor.derived.badge.count} open high or medium issue${advisor.derived.badge.count === 1 ? '' : 's'}`
-                            : 'Advisor'
-                        }
-                      >
-                        Advisor
-                        {advisor.derived.badge && (
-                          <span
-                            className={`project-tab-badge project-tab-badge--${advisor.derived.badge.severity}`}
-                            aria-label={`${advisor.derived.badge.count} open ${advisor.derived.badge.count === 1 ? 'issue' : 'issues'}`}
-                          >
-                            {advisor.derived.badge.count}
-                          </span>
-                        )}
-                      </button>
-                    </div>
-                    <div className="project-meta">
-                      <DeploymentsControl
-                        project={active}
-                        running={Boolean(deploys[active.id]?.running)}
-                        reconciling={reconciling.has(active.id)}
-                        onCreate={(name, workspaceId) => {
-                          setViewMode('build')
-                          void (async () => {
-                            try {
-                              await window.api.deploy.setName(active.id, workspaceId, name)
-                            } catch {
-                              /* naming is best-effort; deploy anyway */
-                            }
-                            await requestUserDeploy(active.id, workspaceId)
-                          })()
-                        }}
-                        onRedeploy={() => {
-                          setViewMode('build')
-                          void requestUserDeploy(active.id)
-                        }}
-                        onSwitch={(workspace, byId) => switchDeployment(active.id, workspace, byId)}
-                        onChanged={() => void refreshProjects()}
-                        onSignedIn={onAuthChanged}
-                      />
-                    </div>
-                  </div>
                   {viewMode === 'code' ? (
                     <Suspense fallback={<div className="code-empty">Loading editor…</div>}>
                       <CodeViewer

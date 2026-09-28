@@ -1,6 +1,6 @@
 import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
   AppSettings,
   AuthStatus,
@@ -19,6 +19,8 @@ import type ChatPanel from '../components/ChatPanel'
 import Workbench from './Workbench'
 
 const chatProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof ChatPanel>) => void>())
+/** Whether the mocked dependency guard reports the project's tools as unlocked. */
+const guardState = vi.hoisted(() => ({ ready: true }))
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: () => ({ setTitle: vi.fn().mockResolvedValue(undefined) })
 }))
@@ -32,9 +34,24 @@ vi.mock('../advisor/store', () => ({
 vi.mock('../components/GitControl', () => ({ default: () => null }))
 vi.mock('../components/WorkspaceStatus', () => ({ default: () => null }))
 vi.mock('../components/RayfinVersionControl', () => ({ default: () => null }))
-vi.mock('../components/ProjectDependencyGuard', () => ({
-  default: ({ children }: { children: ReactNode }) => <>{children}</>
-}))
+vi.mock('../components/ProjectDependencyGuard', async () => {
+  const { useLayoutEffect } = await import('react')
+  return {
+    default: function GuardMock({
+      children,
+      project,
+      onReadyChange
+    }: {
+      children: ReactNode
+      project: StudioProject
+      onReadyChange?: (projectId: string, ready: boolean) => void
+    }) {
+      const ready = guardState.ready
+      useLayoutEffect(() => onReadyChange?.(project.id, ready), [onReadyChange, project.id, ready])
+      return ready ? <>{children}</> : <div role="status">Preparing {project.name}</div>
+    }
+  }
+})
 vi.mock('../components/DeploymentsControl', () => ({
   default: ({
     running,
@@ -149,8 +166,17 @@ function completeTurn(
   callback(result)
 }
 
+/** Opens the app bar's account menu (unless it already is) and returns an item. */
+function accountAction(name: string): HTMLButtonElement {
+  if (!screen.queryByRole('menu', { name: 'Fabric account' })) {
+    fireEvent.click(screen.getByRole('button', { name: /^Account/ }))
+  }
+  return screen.getByRole('menuitem', { name }) as HTMLButtonElement
+}
+
 beforeEach(() => {
   chatProps.mockClear()
+  guardState.ready = true
 })
 
 afterEach(() => {
@@ -163,7 +189,8 @@ describe('Workbench authentication recovery', () => {
   it('requires confirmation before clearing shared Fabric credentials', async () => {
     const api = installApi(true)
     render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
-    fireEvent.click(await screen.findByRole('button', { name: 'Refresh Fabric authentication' }))
+    await screen.findByLabelText('Chat draft')
+    fireEvent.click(accountAction('Refresh Fabric authentication'))
     expect(screen.getByRole('dialog').textContent).toContain('shared across projects')
     expect(api.auth.refreshRayfin).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
@@ -179,11 +206,11 @@ describe('Workbench authentication recovery', () => {
     const view = render(<Workbench {...props} />, { wrapper: Wrapper })
     const draft = (await screen.findByLabelText('Chat draft')) as HTMLTextAreaElement
     fireEvent.change(draft, { target: { value: 'Keep this draft' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Refresh Fabric authentication' }))
+    fireEvent.click(accountAction('Refresh Fabric authentication'))
     view.rerender(<Workbench {...props} auth={{ ...auth, rayfin: { ...auth.rayfin, tenant: 'tenant-two' } }} />)
     fireEvent.click(screen.getByRole('button', { name: 'Clear credentials and sign in' }))
     expect(api.auth.refreshRayfin).toHaveBeenCalledWith(project.id, 'tenant-one')
-    expect((screen.getByRole('button', { name: 'Sign out' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(accountAction('Sign out').disabled).toBe(true)
 
     const log = 'Removed a stale token-cache lock left by an interrupted sign-in\n'
     act(() => api.onProcLog.mock.calls[0][0]({ channel: 'refresh:rayfin', stream: 'stderr', data: log }))
@@ -217,7 +244,7 @@ describe('Workbench authentication recovery', () => {
       } else {
         vi.mocked(props.onAuthChanged).mockRejectedValueOnce('Credential refresh failed')
       }
-      fireEvent.click(screen.getByRole('button', { name: 'Refresh Fabric authentication' }))
+      fireEvent.click(accountAction('Refresh Fabric authentication'))
       fireEvent.click(screen.getByRole('button', { name: 'Clear credentials and sign in' }))
 
       expect((await screen.findByRole('alert')).textContent).toContain('Credential refresh failed')
@@ -277,7 +304,8 @@ describe('Workbench authentication recovery', () => {
     api.auth.refreshRayfin.mockReturnValueOnce(refreshed.promise)
     const props = makeProps()
     const view = render(<Workbench {...props} />, { wrapper: Wrapper })
-    fireEvent.click(await screen.findByRole('button', { name: 'Refresh Fabric authentication' }))
+    await screen.findByLabelText('Chat draft')
+    fireEvent.click(accountAction('Refresh Fabric authentication'))
     fireEvent.click(screen.getByRole('button', { name: 'Clear credentials and sign in' }))
     vi.mocked(props.onAuthChanged).mockClear()
     view.unmount()
@@ -301,14 +329,10 @@ describe('Workbench authentication recovery', () => {
       }
       const props = makeProps()
       render(<Workbench {...props} />, { wrapper: Wrapper })
-      fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+      fireEvent.click(accountAction('Sign out'))
 
       expect((await screen.findByRole('alert')).textContent).toContain('Logout failed')
-      await waitFor(() =>
-        expect(
-          (screen.getByRole('button', { name: 'Sign out' }) as HTMLButtonElement).disabled
-        ).toBe(false)
-      )
+      await waitFor(() => expect(accountAction('Sign out').disabled).toBe(false))
       expect(props.onSignOut).not.toHaveBeenCalled()
       expect(props.onAuthChanged).toHaveBeenCalledTimes(1)
       expect(screen.getByTestId('home')).toBeTruthy()
@@ -320,16 +344,14 @@ describe('Workbench authentication recovery', () => {
     const refreshed = deferred<void>()
     const props = makeProps({ onSignOut: vi.fn(() => refreshed.promise) })
     render(<Workbench {...props} />, { wrapper: Wrapper })
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    fireEvent.click(accountAction('Sign out'))
 
     await waitFor(() => expect(props.onSignOut).toHaveBeenCalledTimes(1))
-    expect(
-      (screen.getByRole('button', { name: 'Signing out…' }) as HTMLButtonElement).disabled
-    ).toBe(true)
+    expect(screen.getByRole('alertdialog', { name: 'Signing out' })).toBeTruthy()
+    expect(accountAction('Signing out…').disabled).toBe(true)
     await act(async () => refreshed.resolve(undefined))
-    expect((screen.getByRole('button', { name: 'Sign out' }) as HTMLButtonElement).disabled).toBe(
-      false
-    )
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(accountAction('Sign out').disabled).toBe(false)
   })
 
   it.each(['login', 'verification'])(
@@ -362,7 +384,7 @@ describe('Workbench authentication recovery', () => {
     const view = render(<Workbench {...props} />, { wrapper: Wrapper })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in to Fabric' }))
     view.rerender(<Workbench {...props} auth={auth} />)
-    const signOut = screen.getByRole('button', { name: 'Sign out' }) as HTMLButtonElement
+    const signOut = accountAction('Sign out')
     expect(signOut.disabled).toBe(true)
     fireEvent.click(signOut)
     expect(api.auth.logoutRayfin).not.toHaveBeenCalled()
@@ -452,6 +474,66 @@ describe('Workbench authentication recovery', () => {
     await waitFor(() => expect(props.onAuthChanged).toHaveBeenCalledTimes(1))
     expect(api.projects.state).not.toHaveBeenCalled()
     expect(props.onSignOut).not.toHaveBeenCalled()
+  })
+})
+
+describe('Workbench app bar', () => {
+  it('puts the project, its views, deploys and the account on one bar without the brand', async () => {
+    installApi(true)
+    const { container } = render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    const bar = container.querySelector('header.app-bar') as HTMLElement
+    expect(container.querySelectorAll('header')).toHaveLength(1)
+    expect(bar.textContent).not.toContain('Fabricator')
+    const inBar = within(bar)
+    expect(inBar.getByRole('button', { name: 'Project One — Switch projects' })).toBeTruthy()
+    expect(inBar.getByRole('tablist', { name: 'Project views' })).toBeTruthy()
+    expect(inBar.getByRole('button', { name: 'Test deploy' })).toBeTruthy()
+    expect(inBar.getByRole('button', { name: 'Settings' })).toBeTruthy()
+    expect(inBar.getByRole('button', { name: 'Account: dev@example.com' })).toBeTruthy()
+  })
+
+  it('opens the launcher from the project name and returns to the still-open project', async () => {
+    installApi(true)
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    const draft = await screen.findByLabelText('Chat draft')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project One — Switch projects' }))
+    expect(screen.getByTestId('home')).toBeTruthy()
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Test deploy' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Project One' }))
+    expect(screen.queryByTestId('home')).toBeNull()
+    expect(screen.getByRole('tablist', { name: 'Project views' })).toBeTruthy()
+    expect(screen.getByLabelText('Chat draft')).toBe(draft)
+  })
+
+  it('keeps tabs and deploys locked until the project dependencies are ready', async () => {
+    guardState.ready = false
+    installApi(true)
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+
+    expect(await screen.findByText('Preparing Project One')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Project One — Switch projects' })).toBeTruthy()
+    expect(screen.queryByRole('tablist')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Test deploy' })).toBeNull()
+  })
+
+  it('keeps credential refresh reachable while signed out of Fabric', async () => {
+    const api = installApi(true)
+    render(<Workbench {...makeProps({ auth: { ...auth, rayfin: { signedIn: false } } })} />, {
+      wrapper: Wrapper
+    })
+    await screen.findByLabelText('Chat draft')
+
+    expect(screen.queryByRole('button', { name: /^Account/ })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Sign in to Fabric' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'More sign-in options' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Refresh Fabric authentication' }))
+    expect(screen.getByRole('dialog').textContent).toContain('shared across projects')
+    expect(api.auth.refreshRayfin).not.toHaveBeenCalled()
   })
 })
 

@@ -70,7 +70,7 @@ interface Props {
 
 /**
  * The presentational "pick a workspace and deploy" form. Extracted so the
- * project-header deployments popover and the fullscreen create/deploy flow share
+ * app bar's deployments popover and the fullscreen create/deploy flow share
  * one consistent picker (eligible F-SKU/P-SKU list, greyed-out ineligible rows
  * with reasons, search, optional name, and the no-capacity / error empty states).
  * It owns only its transient input state; the workspace data is supplied (and

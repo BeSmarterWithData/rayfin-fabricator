@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type {
   DeployResult,
   FabricDeployment,
@@ -39,7 +40,7 @@ function skuText(w: FabricWorkspace): string {
 }
 
 /**
- * The single deployment control for the project header. It replaces the old
+ * The single deployment control for the app bar. It replaces the old
  * standalone workspace picker: deployments and workspaces are the same idea, so
  * this lists the project's deployments (switch / rename) and lets the user
  * create a new named one by picking an eligible (F-SKU / P-SKU) workspace —
@@ -69,6 +70,11 @@ export default function DeploymentsControl({
   const [renameValue, setRenameValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [sharing, setSharing] = useState<FabricDeployment | null>(null)
+  /** Share was clicked and the deployment it targets is still loading. */
+  const [openingShare, setOpeningShare] = useState(false)
+  const openingShareRef = useRef(false)
+  const projectIdRef = useRef(project.id)
+  projectIdRef.current = project.id
   const wsBusyRef = useRef(false)
   const wsSeqRef = useRef(0)
   const depsSeqRef = useRef(0)
@@ -185,8 +191,6 @@ export default function DeploymentsControl({
     undefined
   const activeLabel = activeDep ? activeDep.name || activeDep.workspaceName : fallbackName
   const hasDeployment = Boolean(activeDep || project.lastDeploy?.url || project.workspace)
-  const activeUrl =
-    activeDep?.hostingUrl || activeDep?.apiUrl || project.lastDeploy?.url || undefined
 
   function startCreate(): void {
     setCreating(true)
@@ -243,14 +247,20 @@ export default function DeploymentsControl({
     }
   }
 
-  /** Open the Share dialog for the active deployment (loading the list first if
-   * the popover hasn't populated it yet). */
+  /** Open the Share dialog for the active deployment. Loading the list first (when
+   * the popover hasn't) runs the Rayfin CLI and takes a moment, so the button
+   * shows progress meanwhile and ignores repeat clicks. */
   async function openShareForActive(): Promise<void> {
-    if (running) return
+    if (running || openingShareRef.current) return
+    const projectId = project.id
+    openingShareRef.current = true
+    setOpeningShare(true)
     try {
       let deps = deployments
       if (!deps) {
-        deps = await window.api.deploy.list(project.id)
+        deps = await window.api.deploy.list(projectId)
+        // The user moved on to another project while this loaded.
+        if (projectIdRef.current !== projectId) return
         setDeployments(deps)
       }
       const target =
@@ -262,20 +272,13 @@ export default function DeploymentsControl({
       setOpen(false)
       setSharing(target)
     } catch (reason) {
+      if (projectIdRef.current !== projectId) return
       toast.error(authErrorMessage(reason, 'Could not load the deployment to share. Please retry.'), {
         title: 'Deployment check failed'
       })
-    }
-  }
-
-  /** Copy the active deployment's app URL to the clipboard. */
-  async function copyUrl(): Promise<void> {
-    if (!activeUrl) return
-    try {
-      await navigator.clipboard.writeText(activeUrl)
-      toast.success('App URL copied to clipboard.', { title: 'Copied' })
-    } catch {
-      toast.error('Could not copy the URL.', { title: 'Copy failed' })
+    } finally {
+      openingShareRef.current = false
+      setOpeningShare(false)
     }
   }
 
@@ -313,25 +316,24 @@ export default function DeploymentsControl({
           {running ? 'Deploying…' : hasDeployment ? 'Redeploy' : 'Deploy'}
         </button>
         <button
-          className="seg-btn dep-share-btn"
+          className={`seg-btn dep-share-btn${openingShare ? ' is-busy' : ''}`}
           disabled={running || reconciling || !hasDeployment}
+          aria-busy={openingShare || undefined}
           title={
-            hasDeployment
-              ? 'Share this app with people in your tenant'
-              : 'Deploy this app before sharing'
+            openingShare
+              ? 'Opening the share dialog…'
+              : hasDeployment
+                ? 'Share this app with people in your tenant'
+                : 'Deploy this app before sharing'
           }
           onClick={() => void openShareForActive()}
         >
-          <Codicon name="person-add" /> Share
-        </button>
-        <button
-          className="seg-btn seg-btn--icon dep-copy-btn"
-          disabled={!activeUrl}
-          title={activeUrl ? `Copy app URL — ${activeUrl}` : 'Deploy this app to get a URL'}
-          aria-label="Copy app URL"
-          onClick={() => void copyUrl()}
-        >
-          <Codicon name="link" />
+          {openingShare ? (
+            <Codicon name="loading" className="codicon-modifier-spin" />
+          ) : (
+            <Codicon name="person-add" />
+          )}
+          <span className="dep-share-label">Share</span>
         </button>
       </div>
 
@@ -458,14 +460,18 @@ export default function DeploymentsControl({
         </div>
       )}
 
-      {sharing && (
-        <ShareDeploymentModal
-          project={project}
-          deployment={sharing}
-          onClose={() => setSharing(null)}
-          onSignedIn={onSignedIn}
-        />
-      )}
+      {/* Rendered at the document root so the dialog always overlays the whole
+          window, independent of the app bar's layout. */}
+      {sharing &&
+        createPortal(
+          <ShareDeploymentModal
+            project={project}
+            deployment={sharing}
+            onClose={() => setSharing(null)}
+            onSignedIn={onSignedIn}
+          />,
+          document.body
+        )}
     </div>
   )
 }

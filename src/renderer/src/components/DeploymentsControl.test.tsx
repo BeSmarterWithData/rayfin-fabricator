@@ -44,7 +44,10 @@ describe('DeploymentsControl chip', () => {
 
   function installApi() {
     const api = {
-      fabric: { listWorkspaces: vi.fn().mockResolvedValue({ ok: true, workspaces: [] }) },
+      fabric: {
+        listWorkspaces: vi.fn().mockResolvedValue({ ok: true, workspaces: [] }),
+        projectSemanticModels: vi.fn().mockResolvedValue([])
+      },
       auth: { loginRayfin: vi.fn().mockResolvedValue({ ok: true, exitCode: 0 }) },
       deploy: { list: vi.fn().mockResolvedValue([]) }
     }
@@ -154,9 +157,7 @@ describe('DeploymentsControl chip', () => {
     })
   })
 
-  it('copies the active deployment URL to the clipboard', async () => {
-    const writeText = vi.fn(() => Promise.resolve())
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+  it('offers no separate copy-link control', () => {
     render(
       <OverlayProvider>
         <DeploymentsControl
@@ -171,9 +172,68 @@ describe('DeploymentsControl chip', () => {
         />
       </OverlayProvider>
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Copy app URL' }))
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith('https://sales.example.app/')
-    )
+    expect(screen.queryByRole('button', { name: 'Copy app URL' })).toBeNull()
+  })
+
+  describe('DeploymentsControl share', () => {
+    function renderDeployed(): HTMLElement {
+      const { container } = render(
+        <ToastProvider>
+          <OverlayProvider>
+            <DeploymentsControl
+              project={makeProject({
+                workspace: 'ws1',
+                lastDeploy: { url: 'https://sales.example.app/', status: 'success' }
+              })}
+              running={false}
+              onCreate={vi.fn()}
+              onRedeploy={vi.fn()}
+              onSwitch={vi.fn()}
+              onChanged={vi.fn()}
+            />
+          </OverlayProvider>
+        </ToastProvider>
+      )
+      return container
+    }
+
+    it('shows progress while the deployment loads and opens the dialog once', async () => {
+      const api = installApi()
+      const list = deferred<unknown[]>()
+      api.deploy.list.mockReturnValueOnce(list.promise)
+      const container = renderDeployed()
+      const share = screen.getByRole('button', { name: 'Share' })
+
+      fireEvent.click(share)
+      expect(share.getAttribute('aria-busy')).toBe('true')
+      expect(share.querySelector('.codicon-loading')).toBeTruthy()
+      fireEvent.click(share)
+      expect(api.deploy.list).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('dialog')).toBeNull()
+
+      await act(async () =>
+        list.resolve([
+          { workspaceName: 'Sales', name: 'Production', workspaceId: 'ws1', active: true }
+        ])
+      )
+      const dialogs = screen.getAllByRole('dialog')
+      expect(dialogs).toHaveLength(1)
+      // Rendered at the document root, outside the app bar.
+      expect(container.contains(dialogs[0])).toBe(false)
+      expect(share.getAttribute('aria-busy')).toBeNull()
+      expect(share.querySelector('.codicon-loading')).toBeNull()
+    })
+
+    it('clears the progress when loading the deployment fails', async () => {
+      const api = installApi()
+      api.deploy.list.mockRejectedValueOnce(new Error('Fabric sign-in required'))
+      renderDeployed()
+      const share = screen.getByRole('button', { name: 'Share' })
+
+      fireEvent.click(share)
+      expect((await screen.findByRole('alert')).textContent).toContain('Fabric sign-in required')
+      expect(share.getAttribute('aria-busy')).toBeNull()
+      expect(screen.queryByRole('dialog')).toBeNull()
+    })
   })
 })

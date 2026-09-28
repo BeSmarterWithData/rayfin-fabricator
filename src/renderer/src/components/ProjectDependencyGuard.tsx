@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import type { StudioProject } from '@shared/ipc'
 import { useSuppressPreview } from '../overlay'
 
@@ -7,6 +7,9 @@ interface Props {
   children: ReactNode
   onSwitchProjects: () => void
   hidden: boolean
+  /** Reports whether `project`'s tools are unlocked, so chrome outside the guard
+   *  (the app bar's tabs and deploy control) can follow the same gate. */
+  onReadyChange?: (projectId: string, ready: boolean) => void
 }
 
 type Readiness =
@@ -28,7 +31,8 @@ export default function ProjectDependencyGuard({
   project,
   children,
   onSwitchProjects,
-  hidden
+  hidden,
+  onReadyChange
 }: Props): JSX.Element {
   const [attempt, setAttempt] = useState(0)
   const [readiness, setReadiness] = useState<Readiness>({
@@ -42,6 +46,16 @@ export default function ProjectDependencyGuard({
   // The guard replaces the preview while dependencies install, so hide the native
   // webview that otherwise paints above every DOM element.
   useSuppressPreview(!ready)
+
+  // Report in a layout effect so the app bar and the unlocked pane update in the
+  // same paint. The ref keeps an inline callback from re-firing every render.
+  const onReadyChangeRef = useRef(onReadyChange)
+  onReadyChangeRef.current = onReadyChange
+  useLayoutEffect(() => {
+    onReadyChangeRef.current?.(project.id, ready)
+    if (!ready) return
+    return () => onReadyChangeRef.current?.(project.id, false)
+  }, [project.id, ready])
 
   useEffect(() => {
     let cancelled = false
