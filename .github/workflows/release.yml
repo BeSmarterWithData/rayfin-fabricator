@@ -95,7 +95,10 @@ jobs:
 
       - name: Install Azure Artifact Signing CLI
         if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
-        run: cargo install artifact-signing-cli --version 0.11.0
+        # --locked builds the tool with the dependency versions it was published
+        # with. Without it, the v1.6.2 build picked up tokio-rustls 0.26.6 the day
+        # it was released, and that build's signing step failed.
+        run: cargo install artifact-signing-cli --version 0.11.0 --locked
 
       - name: Generate signing configuration (Windows)
         if: runner.os == 'Windows' && steps.signing.outputs.enabled == 'true'
@@ -148,7 +151,9 @@ jobs:
         run: |
           if [ "${{ steps.signing.outputs.enabled }}" = "true" ]; then
             echo "Building signed installer…"
-            npm run tauri:build -- --bundles ${{ matrix.bundles }} --config src-tauri/tauri.signing.conf.json
+            # --verbose shows the signing tool's own output; without it a failed
+            # signature only reports "failed to run artifact-signing-cli".
+            npm run tauri:build -- --bundles ${{ matrix.bundles }} --config src-tauri/tauri.signing.conf.json --verbose
           else
             echo "Building unsigned installer…"
             npm run tauri:build -- --bundles ${{ matrix.bundles }}
