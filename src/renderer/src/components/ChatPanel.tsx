@@ -10,6 +10,7 @@ import {
   type DragEvent
 } from 'react'
 import {
+  type ChatAdvisorSummary,
   type ChatMode,
   type ChatPlanArtifact,
   type ChatTurnResult,
@@ -65,12 +66,18 @@ function rerunPrompt(user: UIChatMessage): string | null {
   return user.text
 }
 
-/** A Design message's card and prompt, carried to its rerun (without the
- *  captures — those were deleted once the original turn used them). */
-function rerunExtra(
-  user: UIChatMessage
-): { design?: ChatDesignSummary; storedPrompt?: string } | undefined {
-  if (!user.prompt && !user.design) return undefined
+/** What a user message carries beyond its text: a Design or Advisor card, and
+ *  the prompt reruns re-send. */
+interface TurnExtra {
+  design?: ChatDesignSummary
+  advisor?: ChatAdvisorSummary
+  storedPrompt?: string
+}
+
+/** A Design or Advisor message's card and prompt, carried to its rerun (without
+ *  the captures — those were deleted once the original turn used them). */
+function rerunExtra(user: UIChatMessage): TurnExtra | undefined {
+  if (!user.prompt && !user.design && !user.advisor) return undefined
   return {
     design: user.design
       ? {
@@ -82,6 +89,7 @@ function rerunExtra(
           }))
         }
       : undefined,
+    advisor: user.advisor,
     storedPrompt: user.prompt
   }
 }
@@ -117,6 +125,9 @@ interface Props {
   /** Called once an outbound prompt has been consumed so the parent can clear it
    * (prevents the one-shot prompt from replaying when the panel remounts). */
   onOutboundConsumed?: () => void
+  /** A message that handed Advisor findings to Copilot is being re-run (Retry,
+   *  Try again, Resume), so the host can record the hand-off again. */
+  onAdvisorRerun?: (summary: ChatAdvisorSummary) => void
   /** True when chat is expanded to fill the build view (preview hidden). */
   focused?: boolean
   /** Toggle chat focus (full-width chat ⇄ split with preview). */
@@ -176,6 +187,7 @@ export default function ChatPanel({
   onOptionsChanged,
   outbound,
   onOutboundConsumed,
+  onAdvisorRerun,
   focused,
   onToggleFocus,
   deployLock = false,
@@ -843,14 +855,14 @@ export default function ChatPanel({
   }
 
   /** Append a fresh turn and stream its result. Shared by send + retry. `extra`
-   *  carries a Design turn's transcript card and the prompt reruns re-send. */
+   *  carries a Design or Advisor turn's transcript card and the prompt reruns re-send. */
   async function dispatch(
     displayText: string,
     prompt: string,
     shots: PendingShot[],
     modeOverride?: ChatMode,
     initialPlan?: ChatPlanArtifact,
-    extra?: { design?: ChatDesignSummary; storedPrompt?: string }
+    extra?: TurnExtra
   ): Promise<void> {
     const turnId = uid()
     const assistantId = uid()
@@ -866,6 +878,7 @@ export default function ChatPanel({
       attachments: shots.length || undefined,
       attachmentThumbs: shots.length ? shots.map((s) => s.thumb) : undefined,
       design: extra?.design,
+      advisor: extra?.advisor,
       prompt: extra?.storedPrompt
     }
     const assistantMsg: UIChatMessage = {
@@ -913,6 +926,7 @@ export default function ChatPanel({
     if (idx <= 0) return
     const user = messages[idx - 1]
     if (!user || user.role !== 'user' || !rerunPrompt(user)) return
+    if (user.advisor) onAdvisorRerun?.(user.advisor)
     await dispatch(user.text, rerunPrompt(user)!, [], undefined, undefined, rerunExtra(user))
   }
 
@@ -926,6 +940,7 @@ export default function ChatPanel({
     const user = messages[idx - 1]
     const original = user?.role === 'user' ? rerunPrompt(user) : null
     if (!original) return
+    if (user.advisor) onAdvisorRerun?.(user.advisor)
     await dispatch(user.text, tryAgainPrompt(original), [], undefined, undefined, rerunExtra(user))
   }
 
@@ -942,6 +957,7 @@ export default function ChatPanel({
     const user = messages[idx - 1]
     const original = user?.role === 'user' ? rerunPrompt(user) : null
     if (!original) return
+    if (user.advisor) onAdvisorRerun?.(user.advisor)
     const turnId = uid()
     const now = Date.now()
     const assistantMsg: UIChatMessage = {
@@ -1376,7 +1392,12 @@ export default function ChatPanel({
       setInput(outbound.prompt)
       taRef.current?.focus()
     } else {
-      void dispatch(outbound.display, outbound.prompt, [])
+      // Keep the full prompt when the bubble shows a short label, so Retry,
+      // Try again, and Resume re-send what Copilot actually received.
+      void dispatch(outbound.display, outbound.prompt, [], undefined, undefined, {
+        advisor: outbound.advisor,
+        storedPrompt: outbound.prompt !== outbound.display ? outbound.prompt : undefined
+      })
     }
     onOutboundConsumed?.()
   }, [outbound?.id])
@@ -1399,6 +1420,8 @@ export default function ChatPanel({
         const canRetry = Boolean(m.error) && !m.plan && rerunnable
         const canResume = Boolean(m.interrupted) && !m.plan && !m.pending && rerunnable
         const latest = m.role === 'assistant' && i === messages.length - 1
+        const next = messages[i + 1]
+        const working = m.role === 'user' && next?.role === 'assistant' && next.pending
         const canTryAgain =
           latest &&
           rerunnable &&
@@ -1414,6 +1437,7 @@ export default function ChatPanel({
             projectName={project.name}
             projectPath={project.path}
             latest={latest}
+            working={working}
             canRetry={canRetry}
             onRetry={onRetry}
             canResume={canResume}

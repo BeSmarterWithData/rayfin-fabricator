@@ -9,10 +9,12 @@ import {
   deriveAdvisor,
   dismiss,
   emptyState,
+  fixOutcomes,
   markHandoffsApplied,
   markHandoffsStarted,
   mute,
   recordHandoffs,
+  undismiss,
   type DeriveInput
 } from './lifecycle'
 import { isCurrent, normalizeSnapshot } from './legacy'
@@ -188,6 +190,39 @@ describe('deep-review lifecycle', () => {
     })
     expect(view.items.map((i) => i.finding.id)).toEqual(['new'])
     expect(view.rules.get('policy/sensitive-field-exposed')!.status).toBe('running')
+  })
+})
+
+describe('fix outcomes for the chat’s fix cards', () => {
+  it('follows handed-off findings from fixing to fixed or still detected', () => {
+    const quick = (ranAt: string, ids: string[]) => ({ findings: ids.map((id) => finding(id)), results: [], ranAt })
+    let state = applyQuickRun(emptyState(), [finding('a'), finding('b')], T0)
+    state = recordHandoffs(state, [finding('a'), finding('b')], T0)
+    let outcomes = fixOutcomes(derive({ quick: quick(T0, ['a', 'b']), state }))
+    expect([outcomes.get('a'), outcomes.get('b')]).toEqual(['fixing', 'fixing'])
+    state = markHandoffsApplied(markHandoffsStarted(state), T1)
+    expect(fixOutcomes(derive({ quick: quick(T0, ['a', 'b']), state })).get('a')).toBe('checking')
+    state = applyQuickRun(state, [finding('b')], T2)
+    outcomes = fixOutcomes(derive({ quick: quick(T2, ['b']), state }))
+    expect([outcomes.get('a'), outcomes.get('b')]).toEqual(['fixed', 'still'])
+    expect(outcomes.get('unknown')).toBeUndefined()
+  })
+
+  it('reports applied, dismissed, and muted findings, and a finding found again as still there', () => {
+    const x = finding('x', { source: 'ai', ruleId: 'queries/unpaginated-list', category: 'queries' })
+    const y = finding('y', { source: 'ai', ruleId: 'queries/count-method', category: 'queries' })
+    let state = recordHandoffs(emptyState(), [x, y], T0)
+    state = markHandoffsApplied(markHandoffsStarted(state), T1)
+    expect(fixOutcomes(derive({ deep: snap([x, y]), state })).get('x')).toBe('applied')
+    // A later review that still finds it drops the hand-off.
+    state = applyReview(state, [x, y], [x, y], [], T2)
+    expect(fixOutcomes(derive({ deep: snap([x, y]), state })).get('x')).toBe('still')
+    state = mute(dismiss(state, x, 'false-positive', T3), 'queries/count-method', T3)
+    let outcomes = fixOutcomes(derive({ deep: snap([x, y]), state }))
+    expect([outcomes.get('x'), outcomes.get('y')]).toEqual(['dismissed', 'muted'])
+    state = undismiss(state, 'x')
+    outcomes = fixOutcomes(derive({ deep: snap([x, y]), state }))
+    expect(outcomes.get('x')).toBe('still')
   })
 })
 

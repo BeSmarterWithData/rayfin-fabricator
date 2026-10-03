@@ -93,7 +93,7 @@ export interface AdvisorController {
   unmute: (ruleId: string) => void
   clearResolved: () => void
   /** Record findings just handed to the Build chat. */
-  handOff: (findings: AdvisorFinding[]) => void
+  handOff: (findings: Pick<AdvisorFinding, 'id' | 'source'>[]) => void
   explains: Record<string, ExplainState>
   explaining: string | null
   explain: (f: AdvisorFinding) => void
@@ -461,7 +461,8 @@ export function useAdvisor(
       mute: (ruleId: string, note?: string) => setState((s) => mute(s, ruleId, now(), note)),
       unmute: (ruleId: string) => setState((s) => unmute(s, ruleId)),
       clearResolved: () => setState((s) => clearResolved(s)),
-      handOff: (findings: AdvisorFinding[]) => setState((s) => recordHandoffs(s, findings, now()))
+      handOff: (findings: Pick<AdvisorFinding, 'id' | 'source'>[]) =>
+        setState((s) => recordHandoffs(s, findings, now()))
     }),
     []
   )

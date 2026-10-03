@@ -1,9 +1,10 @@
 /**
  * Prompts that hand Advisor findings to the Build chat for Copilot to fix.
  */
-import type { AdvisorFinding } from '@shared/ipc'
+import type { AdvisorFinding, ChatAdvisorFix, ChatAdvisorSummary } from '@shared/ipc'
 import { categoryById, ruleById, severityLabel, severityRank } from '@shared/advisor/catalog'
 import { langFromPath } from '../syntax'
+import { recordOf } from './lifecycle'
 
 const GUIDANCE =
   'Before changing Rayfin APIs, confirm them in the version-matched docs — ' +
@@ -43,9 +44,25 @@ function describe(f: AdvisorFinding): string[] {
   return lines
 }
 
+/** What the chat message's card shows for one finding. */
+function fixOf(f: AdvisorFinding): ChatAdvisorFix {
+  const places = 1 + (f.locations?.length ?? 0)
+  return { ...recordOf(f), id: f.id, line: f.line, places: places > 1 ? places : undefined }
+}
+
+export interface FixHandOff {
+  /** The user-bubble text (also what Copy copies). */
+  display: string
+  /** What Copilot receives. */
+  prompt: string
+  /** The findings, in the prompt's order, for the message's card. */
+  summary: ChatAdvisorSummary
+}
+
 /** A chat hand-off for one or more findings, most severe first. */
-export function fixPrompt(findings: AdvisorFinding[]): { display: string; prompt: string } {
+export function fixPrompt(findings: AdvisorFinding[]): FixHandOff {
   const sorted = [...findings].sort((a, b) => severityRank(a.severity) - severityRank(b.severity))
+  const summary: ChatAdvisorSummary = { fixes: sorted.map(fixOf) }
   if (sorted.length === 1) {
     const f = sorted[0]
     const docs = docsOf(f)
@@ -57,7 +74,7 @@ export function fixPrompt(findings: AdvisorFinding[]): { display: string; prompt
       '',
       GUIDANCE
     ].join('\n')
-    return { display: `Fix: ${f.title}`, prompt }
+    return { display: `Fix: ${f.title}`, prompt, summary }
   }
   const blocks = sorted.map((f, i) =>
     describe(f)
@@ -73,7 +90,7 @@ export function fixPrompt(findings: AdvisorFinding[]): { display: string; prompt
     '',
     GUIDANCE
   ].join('\n')
-  return { display: `Fix ${sorted.length} Advisor issues`, prompt }
+  return { display: `Fix ${sorted.length} Advisor issues`, prompt, summary }
 }
 
 /** Version findings go through the dedicated Rayfin upgrade hand-off instead. */

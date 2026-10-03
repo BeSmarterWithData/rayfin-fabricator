@@ -1,4 +1,4 @@
-import type { ChatMessage } from '@shared/ipc'
+import type { ChatAdvisorSummary, ChatMessage } from '@shared/ipc'
 
 export interface UIChatMessage extends ChatMessage {
   /** Correlates streamed events to the active assistant bubble (live only). */
@@ -40,4 +40,6 @@ export interface OutboundPrompt {
    * `display` and `prompt` are ignored.
    */
   design?: boolean
+  /** Advisor findings this prompt hands to Copilot, shown as the message's card. */
+  advisor?: ChatAdvisorSummary
 }

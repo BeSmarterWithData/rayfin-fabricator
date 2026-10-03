@@ -22,6 +22,8 @@ interface Props {
   /** Hand findings to the Build chat for Copilot to fix. */
   onFix: (findings: AdvisorFinding[]) => void
   onOpenFile: (path: string, line?: number) => void
+  /** Show this finding (e.g. from a fix card in the Build chat); a new nonce re-opens it. */
+  openRequest?: { id: string; nonce: number }
 }
 
 function matchesQuery(item: FindingItem, q: string): boolean {
@@ -46,7 +48,14 @@ function isActionable(item: FindingItem): boolean {
  * runs on demand and streams findings in. Issues can be fixed with Copilot (one,
  * selected, or all), explained, verified after a fix, or dismissed.
  */
-export default function AdvisorView({ project, advisor, chatBusy, onFix, onOpenFile }: Props): JSX.Element {
+export default function AdvisorView({
+  project,
+  advisor,
+  chatBusy,
+  onFix,
+  onOpenFile,
+  openRequest
+}: Props): JSX.Element {
   const [tab, setTab] = useState<IssueTab>('open')
   const [query, setQuery] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -112,9 +121,9 @@ export default function AdvisorView({ project, advisor, chatBusy, onFix, onOpenF
   }
   const openUrl = (url: string): void => void window.api.openExternal(url)
 
-  // Jump from an area's checklist to the issue it found.
-  const showIssue = (id: string): void => {
-    setTab('open')
+  // Jump to an issue (from an area's checklist, or a fix card in the chat).
+  const showIssue = (id: string, where: IssueTab = 'open'): void => {
+    setTab(where)
     setQuery('')
     setOpenId(id)
     requestAnimationFrame(() => {
@@ -125,6 +134,19 @@ export default function AdvisorView({ project, advisor, chatBusy, onFix, onOpenF
       row?.focus({ preventScroll: true })
     })
   }
+
+  // Declared after the per-project reset above so a request that mounts the view wins.
+  useEffect(() => {
+    if (!openRequest) return
+    const { id } = openRequest
+    if (derived.open.some((i) => i.finding.id === id)) showIssue(id)
+    else if (derived.hidden.some((i) => i.finding.id === id)) showIssue(id, 'dismissed')
+    else if (derived.resolved.some((r) => r.id === id)) {
+      setTab('resolved')
+      setQuery('')
+      setOpenId(null)
+    }
+  }, [openRequest?.nonce])
 
   const counts: Record<IssueTab, number> = {
     open: lists.open.length,

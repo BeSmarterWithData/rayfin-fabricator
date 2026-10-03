@@ -2,6 +2,7 @@ import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
+  AdvisorFinding,
   AppSettings,
   AuthStatus,
   ChatTurnResult,
@@ -16,9 +17,22 @@ import { OverlayProvider } from '../overlay'
 import { deferred } from '../../test/deferred'
 import type { DeployUiState } from '../components/PreviewPane'
 import type ChatPanel from '../components/ChatPanel'
+import type AdvisorView from '../components/advisor/AdvisorView'
+import type { AdvisorFixLinks } from '../components/advisor/AdvisorFixSummary'
+import type { DerivedAdvisor } from '../advisor/lifecycle'
 import Workbench from './Workbench'
 
 const chatProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof ChatPanel>) => void>())
+const advisorProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof AdvisorView>) => void>())
+/** The Advisor state the mocked `useAdvisor` reports, and what the chat's fix cards see. */
+const advisorMock = vi.hoisted(() => ({
+  derived: { badge: null, items: [], open: [], resolved: [] } as Pick<
+    DerivedAdvisor,
+    'badge' | 'items' | 'open' | 'resolved'
+  >,
+  handOff: vi.fn(),
+  links: null as AdvisorFixLinks | null
+}))
 /** Whether the mocked dependency guard reports the project's tools as unlocked. */
 const guardState = vi.hoisted(() => ({ ready: true }))
 vi.mock('@tauri-apps/api/window', () => ({
@@ -27,9 +41,14 @@ vi.mock('@tauri-apps/api/window', () => ({
 vi.mock('../chatEventStore', () => ({ useChatEventStore: () => {} }))
 vi.mock('../components/HomeView', () => ({ default: () => <div data-testid="home">Home</div> }))
 vi.mock('../components/ModelTab', () => ({ default: () => null }))
-vi.mock('../components/advisor/AdvisorView', () => ({ default: () => null }))
+vi.mock('../components/advisor/AdvisorView', () => ({
+  default: (props: ComponentProps<typeof AdvisorView>) => {
+    advisorProps(props)
+    return null
+  }
+}))
 vi.mock('../advisor/store', () => ({
-  useAdvisor: () => ({ derived: { badge: null }, handOff: vi.fn() })
+  useAdvisor: () => ({ derived: advisorMock.derived, handOff: advisorMock.handOff })
 }))
 vi.mock('../components/GitControl', () => ({ default: () => null }))
 vi.mock('../components/WorkspaceStatus', () => ({ default: () => null }))
@@ -78,18 +97,23 @@ vi.mock('../components/PreviewPane', () => ({
     </>
   )
 }))
-vi.mock('../components/ChatPanel', () => ({
-  default: (props: ComponentProps<typeof ChatPanel>) => {
-    chatProps(props)
-    return (
-      <textarea
-        aria-label="Chat draft"
-        value={props.draft}
-        onChange={(event) => props.onDraftChange?.(event.target.value)}
-      />
-    )
+vi.mock('../components/ChatPanel', async () => {
+  const { useContext } = await import('react')
+  const { AdvisorFixContext } = await import('../components/advisor/AdvisorFixSummary')
+  return {
+    default: function ChatPanelMock(props: ComponentProps<typeof ChatPanel>) {
+      chatProps(props)
+      advisorMock.links = useContext(AdvisorFixContext)
+      return (
+        <textarea
+          aria-label="Chat draft"
+          value={props.draft}
+          onChange={(event) => props.onDraftChange?.(event.target.value)}
+        />
+      )
+    }
   }
-}))
+})
 
 const auth: AuthStatus = {
   copilot: { signedIn: true, user: 'octocat' },
@@ -176,6 +200,10 @@ function accountAction(name: string): HTMLButtonElement {
 
 beforeEach(() => {
   chatProps.mockClear()
+  advisorProps.mockClear()
+  advisorMock.derived = { badge: null, items: [], open: [], resolved: [] }
+  advisorMock.handOff.mockClear()
+  advisorMock.links = null
   guardState.ready = true
 })
 
@@ -832,5 +860,69 @@ describe('Workbench live preview ports', () => {
     await act(async () => turn)
     expect(dev.plan).not.toHaveBeenCalled()
     expect(dev.start).not.toHaveBeenCalled()
+  })
+})
+
+describe('Workbench Advisor fixes', () => {
+  const finding: AdvisorFinding = {
+    id: 'quick:data-model/text-without-max',
+    ruleId: 'data-model/text-without-max',
+    category: 'data-model',
+    severity: 'high',
+    source: 'quick',
+    title: 'Text field has no maximum length',
+    detail: '`title` has no maximum length.',
+    recommendation: 'Add `max` to the `@text` decorator.',
+    file: 'rayfin/data/Todo.ts',
+    line: 7
+  }
+
+  it('hands findings to the chat with a card that follows them and opens them in the Advisor', async () => {
+    const api = installApi(true)
+    const item = { finding, status: 'fixing' as const, isNew: false }
+    advisorMock.derived = { badge: null, items: [item], open: [item], resolved: [] }
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Advisor' }))
+    await waitFor(() => expect(advisorProps).toHaveBeenCalled())
+    act(() => advisorProps.mock.lastCall![0].onFix([finding]))
+
+    const chat = chatProps.mock.lastCall![0]
+    expect(chat.outbound).toMatchObject({
+      display: 'Fix: Text field has no maximum length',
+      advisor: { fixes: [expect.objectContaining({ id: finding.id, file: 'rayfin/data/Todo.ts', line: 7 })] }
+    })
+    expect(chat.outbound?.prompt).toContain('The Advisor flagged an issue in this app.')
+    expect(advisorMock.handOff).toHaveBeenCalledWith([finding])
+    expect(advisorMock.links?.outcome(finding.id)).toBe('fixing')
+
+    // Re-running the message hands only the still-open findings off again.
+    advisorMock.handOff.mockClear()
+    const gone = { ...chat.outbound!.advisor!.fixes[0], id: 'quick:gone' }
+    act(() => chat.onAdvisorRerun?.({ fixes: [...chat.outbound!.advisor!.fixes, gone] }))
+    expect(advisorMock.handOff).toHaveBeenCalledWith([expect.objectContaining({ id: finding.id })])
+
+    // The card and full prompt survive saving the transcript.
+    const sentMessage = {
+      id: 'u1',
+      role: 'user' as const,
+      text: chat.outbound!.display,
+      tools: [],
+      pending: false,
+      advisor: chat.outbound!.advisor,
+      prompt: chat.outbound!.prompt
+    }
+    act(() =>
+      chat.onChange(() => [sentMessage, { id: 'a1', role: 'assistant', text: 'Done.', tools: [], pending: false }])
+    )
+    await act(async () => completeTurn())
+    const saved = api.chat.saveHistory.mock.lastCall?.[1] as { advisor?: unknown; prompt?: string }[]
+    expect(saved[0]).toMatchObject({ advisor: sentMessage.advisor, prompt: sentMessage.prompt })
+
+    // A card's row opens its finding in the Advisor.
+    act(() => advisorMock.links!.show(finding.id))
+    expect(screen.getByRole('tab', { name: 'Advisor' }).getAttribute('aria-selected')).toBe('true')
+    expect(advisorProps.mock.lastCall?.[0].openRequest).toMatchObject({ id: finding.id })
   })
 })

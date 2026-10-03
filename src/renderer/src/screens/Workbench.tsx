@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent
@@ -13,6 +14,7 @@ import {
   type AppSettings,
   type AppVersions,
   type AuthStatus,
+  type ChatAdvisorSummary,
   type ChatMessage,
   type ChatTurnResult,
   type DeployResult,
@@ -46,7 +48,9 @@ import WorkspaceStatus from '../components/WorkspaceStatus'
 import { SuppressPreview } from '../overlay'
 import RayfinVersionControl from '../components/RayfinVersionControl'
 import AdvisorView from '../components/advisor/AdvisorView'
+import { AdvisorFixContext, type AdvisorFixLinks } from '../components/advisor/AdvisorFixSummary'
 import { useAdvisor } from '../advisor/store'
+import { fixOutcomes } from '../advisor/lifecycle'
 import { fixPrompt, isVersionFinding } from '../advisor/prompts'
 import ModelTab from '../components/ModelTab'
 import { useToast } from '../toast'
@@ -104,6 +108,7 @@ function toStored(messages: UIChatMessage[]): ChatMessage[] {
       plan,
       questions,
       design,
+      advisor,
       prompt
     }) => {
       const cutOff = (role === 'assistant' && pending) || interrupted
@@ -130,6 +135,7 @@ function toStored(messages: UIChatMessage[]): ChatMessage[] {
           : questions,
         interrupted: cutOff ? true : undefined,
         design,
+        advisor,
         prompt
       }
     }
@@ -215,6 +221,8 @@ export default function Workbench({
   const [viewMode, setViewMode] = useState<ProjectView>('build')
   /** A pending request to open a specific file (and line) in the Code tab. */
   const [codeOpen, setCodeOpen] = useState<{ path: string; line?: number; nonce: number } | null>(null)
+  /** A pending request to show a specific finding in the Advisor tab. */
+  const [advisorOpen, setAdvisorOpen] = useState<{ id: string; nonce: number } | null>(null)
   /** Build-view focus: expand a single pane to fill the area (null = split). */
   const [focusPane, setFocusPane] = useState<'chat' | 'preview' | null>(null)
   /** Project-load overlay state, reported by PreviewPane, rendered centered over
@@ -833,14 +841,30 @@ export default function Workbench({
         handOffFindings(findings)
         return
       }
-      const { display, prompt } = fixPrompt(findings)
+      const { display, prompt, summary } = fixPrompt(findings)
       setViewMode('build')
       setFocusPane(null)
-      setChatOutbound({ id: `advisor-fix-${Date.now()}`, projectId: id, display, prompt })
+      setChatOutbound({ id: `advisor-fix-${Date.now()}`, projectId: id, display, prompt, advisor: summary })
       handOffFindings(findings)
     },
     [handOffFindings, rayfinVer, requestRayfinUpdate]
   )
+  // A fix card's row opens its finding in the Advisor.
+  const showAdvisorFinding = useCallback((findingId: string): void => {
+    setAdvisorOpen({ id: findingId, nonce: Date.now() })
+    setViewMode('advisor')
+  }, [])
+  // Fix cards in the Build chat follow their findings through the Advisor live.
+  const advisorFixLinks = useMemo<AdvisorFixLinks>(() => {
+    const outcomes = fixOutcomes(advisor.derived)
+    return { outcome: (findingId) => outcomes.get(findingId), show: showAdvisorFinding }
+  }, [advisor.derived, showAdvisorFinding])
+  // Re-running a fix hands its still-open findings to Copilot again.
+  const rerunAdvisorFix = (summary: ChatAdvisorSummary): void => {
+    const open = new Set(advisor.derived.open.map((item) => item.finding.id))
+    const again = summary.fixes.filter((fix) => open.has(fix.id))
+    if (again.length) handOffFindings(again)
+  }
   // Hand a slice of git history (a commit, a file's change, or a comparison) to
   // the Build chat so Copilot can act on it. Mirrors `fixWithCopilot`'s handoff,
   // but stages the context in the composer so the user adds their own request.
@@ -963,6 +987,7 @@ export default function Workbench({
   useEffect(() => {
     setViewMode('build')
     setAdvisorMounted(false)
+    setAdvisorOpen(null)
     setShowHome(false)
   }, [active?.id])
 
@@ -1301,45 +1326,48 @@ export default function Workbench({
                       }
                     >
                       <section className="pane pane--chat">
-                        <ChatPanel
-                          key={active.id}
-                          project={active}
-                          copilotAuth={auth.copilot}
-                          onCopilotAuthChanged={onAuthChanged}
-                          messages={chats[active.id] ?? []}
-                          onChange={(updater) => setMessagesFor(active.id, updater)}
-                          onTurnComplete={(result) => void handleTurnComplete(active.id, result)}
-                          onTurnStart={() => handleTurnStart(active.id)}
-                          onPlanExecutionStart={() => void handleTurnStart(active.id, 'plan')}
-                          attachments={shots[active.id] ?? []}
-                          onAddAttachment={(shot) => addShot(active.id, shot)}
-                          onRemoveAttachment={(path) => removeShot(active.id, path)}
-                          onAttachmentsConsumed={() => clearShots(active.id)}
-                          onClearHistory={() => void window.api.chat.saveHistory(active.id, [])}
-                          onOptionsChanged={() => void refreshProjects()}
-                          outbound={chatOutbound?.projectId === active.id ? chatOutbound : null}
-                          onOutboundConsumed={() => setChatOutbound(null)}
-                          focused={focusPane === 'chat'}
-                          onToggleFocus={() => setFocusPane((f) => (f === 'chat' ? null : 'chat'))}
-                          deployLock={active.awaitingFirstDeploy === true}
-                          deploying={Boolean(deploys[active.id]?.running)}
-                          blockSubmitWhileDeploying={Boolean(
-                            settings?.experiments?.localDevPreview
-                          )}
-                          onRequestDeploy={() => setCreateMode('deploy')}
-                          modeSelectorEnabled={Boolean(settings?.experiments?.chatModeSelector)}
-                          eventsManagedExternally
-                          onOpenMention={openMention}
-                          draft={drafts[active.id] ?? ''}
-                          onDraftChange={(value) => setDraftFor(active.id, value)}
-                          designItems={design.items}
-                          designSending={design.sending}
-                          onDesignRemove={design.removeItem}
-                          onDesignFocus={design.focusItem}
-                          onDesignClear={design.clear}
-                          buildDesignTurn={design.buildTurn}
-                          onDesignSent={design.finishSend}
-                        />
+                        <AdvisorFixContext.Provider value={advisorFixLinks}>
+                          <ChatPanel
+                            key={active.id}
+                            project={active}
+                            copilotAuth={auth.copilot}
+                            onCopilotAuthChanged={onAuthChanged}
+                            messages={chats[active.id] ?? []}
+                            onChange={(updater) => setMessagesFor(active.id, updater)}
+                            onTurnComplete={(result) => void handleTurnComplete(active.id, result)}
+                            onTurnStart={() => handleTurnStart(active.id)}
+                            onPlanExecutionStart={() => void handleTurnStart(active.id, 'plan')}
+                            attachments={shots[active.id] ?? []}
+                            onAddAttachment={(shot) => addShot(active.id, shot)}
+                            onRemoveAttachment={(path) => removeShot(active.id, path)}
+                            onAttachmentsConsumed={() => clearShots(active.id)}
+                            onClearHistory={() => void window.api.chat.saveHistory(active.id, [])}
+                            onOptionsChanged={() => void refreshProjects()}
+                            outbound={chatOutbound?.projectId === active.id ? chatOutbound : null}
+                            onOutboundConsumed={() => setChatOutbound(null)}
+                            onAdvisorRerun={rerunAdvisorFix}
+                            focused={focusPane === 'chat'}
+                            onToggleFocus={() => setFocusPane((f) => (f === 'chat' ? null : 'chat'))}
+                            deployLock={active.awaitingFirstDeploy === true}
+                            deploying={Boolean(deploys[active.id]?.running)}
+                            blockSubmitWhileDeploying={Boolean(
+                              settings?.experiments?.localDevPreview
+                            )}
+                            onRequestDeploy={() => setCreateMode('deploy')}
+                            modeSelectorEnabled={Boolean(settings?.experiments?.chatModeSelector)}
+                            eventsManagedExternally
+                            onOpenMention={openMention}
+                            draft={drafts[active.id] ?? ''}
+                            onDraftChange={(value) => setDraftFor(active.id, value)}
+                            designItems={design.items}
+                            designSending={design.sending}
+                            onDesignRemove={design.removeItem}
+                            onDesignFocus={design.focusItem}
+                            onDesignClear={design.clear}
+                            buildDesignTurn={design.buildTurn}
+                            onDesignSent={design.finishSend}
+                          />
+                        </AdvisorFixContext.Provider>
                       </section>
                       {!focusPane && (
                         <div
@@ -1428,6 +1456,7 @@ export default function Workbench({
                         chatBusy={activeChatBusy}
                         onFix={fixFindings}
                         onOpenFile={openFileInCode}
+                        openRequest={advisorOpen ?? undefined}
                       />
                     </div>
                   )}

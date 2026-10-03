@@ -29,7 +29,8 @@ import type {
   AdvisorRunRequest,
   AdvisorSnapshot,
   AdvisorUiState,
-  AdvisorVerdict
+  AdvisorVerdict,
+  ChatAdvisorSummary
 } from './advisor/types'
 
 export interface AppVersions {
@@ -1320,7 +1321,9 @@ export type {
   AdvisorSource,
   AdvisorUiState,
   AdvisorVerdict,
-  AdvisorVerdictStatus
+  AdvisorVerdictStatus,
+  ChatAdvisorFix,
+  ChatAdvisorSummary
 } from './advisor/types'
 
 /** Streamed advisor events (main -> renderer). */
@@ -1421,9 +1424,12 @@ export interface ChatMessage {
   questions?: ChatPlanQuestion[]
   /** The Design changes a (user) message carried, shown as a card in the transcript. */
   design?: ChatDesignSummary
+  /** The Advisor findings a (user) message handed to Copilot, shown as a card in the transcript. */
+  advisor?: ChatAdvisorSummary
   /**
    * The prompt Copilot received when it differs from `text` (a Design turn's
-   * structured changes); re-sent by Retry / Try again / Resume.
+   * structured changes, or a hand-off's full instructions); re-sent by Retry /
+   * Try again / Resume.
    */
   prompt?: string
 }

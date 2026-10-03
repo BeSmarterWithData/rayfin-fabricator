@@ -273,6 +273,20 @@ export interface AdvisorFindingRecord {
   file?: string
 }
 
+/** One finding a chat message handed to Copilot, as the message's card shows it. */
+export interface ChatAdvisorFix extends AdvisorFindingRecord {
+  /** The finding's id, used to follow where it stands in the Advisor. */
+  id: string
+  line?: number
+  /** How many places the issue occurs, when more than one. */
+  places?: number
+}
+
+/** The Advisor findings a (user) message handed to Copilot to fix, most severe first. */
+export interface ChatAdvisorSummary {
+  fixes: ChatAdvisorFix[]
+}
+
 export interface AdvisorResolved extends AdvisorFindingRecord {
   at: string
   /** How the resolution was noticed. */

@@ -1,12 +1,20 @@
 import { useMemo, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { ChatEventEnvelope, ChatPlanArtifact, ChatPlanQuestion } from '@shared/ipc'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import type {
+  ChatAdvisorFix,
+  ChatAdvisorSummary,
+  ChatEventEnvelope,
+  ChatPlanArtifact,
+  ChatPlanQuestion
+} from '@shared/ipc'
 import { makeProject } from '../../test/harness'
 import { deferred } from '../../test/deferred'
 import type { DesignItem } from '@shared/design'
 import type { DesignTurn } from '../design/useDesignSession'
-import ChatPanel, { reduceChatMessage, type UIChatMessage } from './ChatPanel'
+import type { FixOutcome } from '../advisor/lifecycle'
+import { AdvisorFixContext, type AdvisorFixLinks } from './advisor/AdvisorFixSummary'
+import ChatPanel, { reduceChatMessage, type OutboundPrompt, type UIChatMessage } from './ChatPanel'
 import { tryAgainPrompt } from './chat/prompts'
 
 vi.mock('../monaco', () => ({}))
@@ -1160,5 +1168,162 @@ describe('ChatPanel Design changes', () => {
     const cards = screen.getAllByRole('group', { name: 'Design changes (1)' })
     expect(cards).toHaveLength(2)
     expect(cards[1].querySelector('img')).toBeNull()
+  })
+})
+
+/**
+ * Advisor hand-offs: the message shows a card listing the issues Copilot is
+ * fixing (not the raw prompt), says it's fixing while its turn runs, and then
+ * follows each issue through the Advisor.
+ */
+describe('ChatPanel Advisor fixes', () => {
+  const MAX: ChatAdvisorFix = {
+    id: 'quick:data-model/text-without-max',
+    ruleId: 'data-model/text-without-max',
+    title: 'Text field has no maximum length',
+    severity: 'high',
+    category: 'data-model',
+    source: 'quick',
+    file: 'rayfin/data/Todo.ts',
+    line: 7,
+    places: 2
+  }
+  const LABEL: ChatAdvisorFix = {
+    id: 'ai:accessibility/control-label',
+    ruleId: 'accessibility/control-label',
+    title: 'Form control has no label',
+    severity: 'medium',
+    category: 'accessibility',
+    source: 'ai',
+    file: 'src/App.tsx',
+    line: 12
+  }
+  const SUMMARY: ChatAdvisorSummary = { fixes: [MAX, LABEL] }
+  const PROMPT = 'The Advisor found 2 issues in this app. Please fix all of them, most severe first.'
+
+  function AdvisorHarness({
+    initial = [],
+    outbound = null,
+    links = null,
+    onAdvisorRerun
+  }: {
+    initial?: UIChatMessage[]
+    outbound?: OutboundPrompt | null
+    links?: AdvisorFixLinks | null
+    onAdvisorRerun?: (summary: ChatAdvisorSummary) => void
+  }): JSX.Element {
+    const [messages, setMessages] = useState<UIChatMessage[]>(initial)
+    return (
+      <AdvisorFixContext.Provider value={links}>
+        <ChatPanel
+          project={makeProject('p1')}
+          messages={messages}
+          onChange={(update) => setMessages(update)}
+          draft=""
+          outbound={outbound}
+          onAdvisorRerun={onAdvisorRerun}
+        />
+      </AdvisorFixContext.Provider>
+    )
+  }
+
+  function sent(advisor: ChatAdvisorSummary = SUMMARY, extra: Partial<UIChatMessage> = {}): UIChatMessage[] {
+    return [
+      { id: 'u1', role: 'user', text: 'Fix 2 Advisor issues', tools: [], pending: false, advisor, prompt: PROMPT },
+      { id: 'a1', role: 'assistant', text: 'Fixed both.', tools: [], pending: false, ...extra }
+    ]
+  }
+
+  it('shows what Copilot is fixing as a card instead of the raw prompt', async () => {
+    const api = installApi()
+    const turn = deferred<{ ok: boolean; filesModified: string[]; ranDeploy: boolean }>()
+    api.chat.send.mockImplementationOnce(() => turn.promise)
+    render(
+      <AdvisorHarness
+        outbound={{ id: 'fix-1', display: 'Fix 2 Advisor issues', prompt: PROMPT, advisor: SUMMARY }}
+      />
+    )
+    await waitFor(() => expect(api.chat.send).toHaveBeenCalledOnce())
+    expect((api.chat.send.mock.calls[0] as unknown[])[2]).toBe(PROMPT)
+
+    const card = screen.getByRole('group', { name: 'Advisor issues to fix (2)' })
+    expect(within(card).getByText('Fix 2 Advisor issues')).toBeTruthy()
+    expect(within(card).getByText('Fixing…')).toBeTruthy()
+    const rows = card.querySelectorAll('.adv-fix-row')
+    expect(rows).toHaveLength(2)
+    expect(rows[0].textContent).toContain('Text field has no maximum length×2')
+    expect(rows[0].textContent).toContain('Data model·rayfin/data/Todo.ts:7')
+    expect(within(rows[0] as HTMLElement).getByRole('img', { name: 'High severity' })).toBeTruthy()
+    expect(rows[1].textContent).toContain('Accessibility·src/App.tsx:12')
+    // The card replaces the bubble; the full prompt sits behind a disclosure.
+    expect(document.querySelector('.user-bubble')).toBeNull()
+    expect(card.querySelector('details pre')?.textContent).toBe(PROMPT)
+
+    await act(async () => turn.resolve({ ok: true, filesModified: [], ranDeploy: false }))
+    expect(within(card).queryByText('Fixing…')).toBeNull()
+  })
+
+  it('follows each issue through the Advisor and opens it there from its row', async () => {
+    installApi()
+    const show = vi.fn()
+    const outcomes: Record<string, FixOutcome> = { [MAX.id]: 'fixed', [LABEL.id]: 'still' }
+    const links: AdvisorFixLinks = { outcome: (id) => outcomes[id], show }
+    const { rerender } = render(<AdvisorHarness initial={sent()} links={links} />)
+    const card = screen.getByRole('group', { name: 'Advisor issues to fix (2)' })
+    expect(within(card).getByText('1 of 2 fixed')).toBeTruthy()
+    expect(within(card).getByText('Fixed')).toBeTruthy()
+    expect(within(card).getByText('Still detected')).toBeTruthy()
+
+    fireEvent.click(within(card).getByRole('button', { name: /Form control has no label/ }))
+    expect(show).toHaveBeenCalledWith(LABEL.id)
+
+    outcomes[LABEL.id] = 'fixed'
+    rerender(<AdvisorHarness initial={sent()} links={{ ...links }} />)
+    expect(within(card).getByText('All 2 fixed')).toBeTruthy()
+    expect(within(card).getAllByText('Fixed')).toHaveLength(2)
+  })
+
+  it('folds a long list behind “Show more”', async () => {
+    installApi()
+    const many: ChatAdvisorSummary = {
+      fixes: Array.from({ length: 8 }, (_, i) => ({ ...LABEL, id: `ai:rule-${i}`, title: `Issue ${i + 1}` }))
+    }
+    render(<AdvisorHarness initial={sent(many)} />)
+    const card = screen.getByRole('group', { name: 'Advisor issues to fix (8)' })
+    expect(card.querySelectorAll('.adv-fix-row')).toHaveLength(5)
+    // Without the Advisor wired up, rows are plain text, not buttons.
+    expect(card.querySelector('button.adv-fix-row')).toBeNull()
+    fireEvent.click(within(card).getByRole('button', { name: 'Show 3 more' }))
+    expect(card.querySelectorAll('.adv-fix-row')).toHaveLength(8)
+    expect(within(card).getByRole('button', { name: 'Show fewer' })).toBeTruthy()
+  })
+
+  it('re-sends the full prompt on Try again, keeps the card, and hands the issues off again', async () => {
+    const api = installApi()
+    const rerun = vi.fn()
+    render(<AdvisorHarness initial={sent()} onAdvisorRerun={rerun} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
+    })
+    await waitFor(() => expect(api.chat.send).toHaveBeenCalledOnce())
+    expect((api.chat.send.mock.calls[0] as unknown[])[2]).toBe(tryAgainPrompt(PROMPT))
+    expect(rerun).toHaveBeenCalledWith(SUMMARY)
+    expect(screen.getAllByRole('group', { name: 'Advisor issues to fix (2)' })).toHaveLength(2)
+  })
+
+  it('keeps a hand-off’s full prompt so Retry re-sends what Copilot received', async () => {
+    const api = installApi()
+    api.chat.send.mockImplementationOnce(() =>
+      Promise.resolve({ ok: false, error: 'The model is unavailable.', filesModified: [], ranDeploy: false })
+    )
+    const upgrade = 'Please upgrade this app’s Rayfin packages to the latest version.'
+    render(<AdvisorHarness outbound={{ id: 'up-1', display: 'Update Rayfin to 1.36.2', prompt: upgrade }} />)
+    const retry = await screen.findByRole('button', { name: /Retry/ })
+    expect(screen.getByText('Update Rayfin to 1.36.2')).toBeTruthy()
+    await act(async () => {
+      fireEvent.click(retry)
+    })
+    await waitFor(() => expect(api.chat.send).toHaveBeenCalledTimes(2))
+    expect((api.chat.send.mock.calls[1] as unknown[])[2]).toBe(upgrade)
   })
 })

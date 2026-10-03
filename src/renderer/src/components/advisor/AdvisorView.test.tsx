@@ -110,11 +110,18 @@ function controller(
   }
 }
 
-function renderView(advisor: AdvisorController, chatBusy = false) {
+function renderView(advisor: AdvisorController, chatBusy = false, openRequest?: { id: string; nonce: number }) {
   const onFix = vi.fn()
   const onOpenFile = vi.fn()
   const utils = render(
-    <AdvisorView project={project} advisor={advisor} chatBusy={chatBusy} onFix={onFix} onOpenFile={onOpenFile} />
+    <AdvisorView
+      project={project}
+      advisor={advisor}
+      chatBusy={chatBusy}
+      onFix={onFix}
+      onOpenFile={onOpenFile}
+      openRequest={openRequest}
+    />
   )
   return { ...utils, onFix, onOpenFile }
 }
@@ -174,6 +181,43 @@ describe('AdvisorView', () => {
     renderView(controller(await quickFor(BROKEN)), true)
     expect((screen.getByRole('button', { name: /Fix 2 with Copilot/ }) as HTMLButtonElement).disabled).toBe(true)
     expect(screen.getByText(/Fix is paused until it finishes/)).toBeTruthy()
+  })
+
+  it('opens the issue a chat fix card asks for, or the list it moved to', async () => {
+    const quick = await quickFor(BROKEN)
+    const id = quick.findings.find((f) => f.ruleId === 'data-model/text-without-max')!.id
+    const { rerender } = renderView(controller(quick), false, { id, nonce: 1 })
+    expect(screen.getByRole('article', { name: 'Text field has no maximum length' })).toBeTruthy()
+
+    const resolved = controller(quick, {
+      state: {
+        ...emptyState(),
+        resolved: {
+          'quick:gone': {
+            title: 'Old issue',
+            ruleId: 'config/data-dialect',
+            severity: 'medium',
+            category: 'config',
+            source: 'quick',
+            at: new Date().toISOString(),
+            via: 'quick',
+            fixedByCopilot: true
+          }
+        }
+      }
+    })
+    rerender(
+      <AdvisorView
+        project={project}
+        advisor={resolved}
+        chatBusy={false}
+        onFix={vi.fn()}
+        onOpenFile={vi.fn()}
+        openRequest={{ id: 'quick:gone', nonce: 2 }}
+      />
+    )
+    expect(screen.getByRole('tab', { name: /Resolved/ }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText('Old issue')).toBeTruthy()
   })
 
   it('lists an area’s checks and jumps to the issue a check found', async () => {

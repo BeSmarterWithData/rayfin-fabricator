@@ -1256,8 +1256,14 @@ pub struct ChatMessage {
   /// dropped when the renderer persists history.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub design: Option<serde_json::Value>,
+  /// The Advisor findings a user message handed to Copilot (`ChatAdvisorSummary`),
+  /// rendered as a card in the transcript. Opaque to Rust; must round-trip or it
+  /// is dropped when the renderer persists history.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub advisor: Option<serde_json::Value>,
   /// The prompt Copilot received when it differs from `text` (a Design turn's
-  /// structured changes); re-sent by Retry / Try again / Resume.
+  /// structured changes, or a hand-off's full instructions); re-sent by Retry /
+  /// Try again / Resume.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub prompt: Option<String>,
 }
@@ -1886,6 +1892,7 @@ mod tests {
       elapsed_ms: None,
       created_at: None,
       design: None,
+      advisor: None,
       prompt: None,
     };
     let json = serde_json::to_string(&msg).unwrap();
@@ -1923,6 +1930,7 @@ mod tests {
       elapsed_ms: None,
       created_at: None,
       design: None,
+      advisor: None,
       prompt: None,
     };
     let json = serde_json::to_string(&msg).unwrap();
@@ -1957,7 +1965,28 @@ mod tests {
     let plain: ChatMessage = serde_json::from_str(r#"{"id":"m1","role":"user","text":"hi"}"#).unwrap();
     let json = serde_json::to_value(&plain).unwrap();
     assert!(json.get("design").is_none());
+    assert!(json.get("advisor").is_none());
     assert!(json.get("prompt").is_none());
+  }
+
+  #[test]
+  fn chat_message_round_trips_an_advisor_fix_summary() {
+    let raw = serde_json::json!({
+      "id": "u1",
+      "role": "user",
+      "text": "Fix 2 Advisor issues",
+      "advisor": {
+        "fixes": [
+          { "id": "quick:data-model/text-without-max", "ruleId": "data-model/text-without-max", "title": "Text field has no maximum length", "severity": "high", "category": "data-model", "source": "quick", "file": "rayfin/data/Todo.ts", "line": 7, "places": 2 },
+          { "id": "ai:accessibility/unlabeled-control", "ruleId": "accessibility/unlabeled-control", "title": "Icon button has no label", "severity": "medium", "category": "accessibility", "source": "ai" }
+        ]
+      },
+      "prompt": "The Advisor found 2 issues in this app."
+    });
+    let msg: ChatMessage = serde_json::from_value(raw.clone()).unwrap();
+    let back = serde_json::to_value(&msg).unwrap();
+    assert_eq!(back["advisor"], raw["advisor"]);
+    assert_eq!(back["prompt"], raw["prompt"]);
   }
 
   #[test]

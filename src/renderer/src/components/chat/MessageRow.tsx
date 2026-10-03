@@ -1,5 +1,6 @@
 import { memo, useCallback, useMemo } from 'react'
 import { DesignSummary, designShotIndexes } from '../../design/DesignSummary'
+import { AdvisorFixSummary } from '../advisor/AdvisorFixSummary'
 import { MentionText } from '../MentionText'
 import PlanCard from '../PlanCard'
 import { Codicon, ImageIcon } from '../icons'
@@ -10,12 +11,15 @@ import { formatClock, formatFullDate } from './format'
 import { TurnFooter } from './TurnFooter'
 import type { UIChatMessage } from './types'
 
-/** Your message: a tinted bubble on the right, with its time and Copy on hover. */
+/** Your message: a tinted bubble on the right, with its time and Copy on hover.
+ *  An Advisor hand-off shows as its card instead of the bubble. */
 function UserMessage({
   message: m,
+  working,
   onOpenMention
 }: {
   message: UIChatMessage
+  working: boolean
   onOpenMention?: (ref: string) => void
 }): JSX.Element {
   const hasText = Boolean(m.text) && m.text !== '(screenshot)'
@@ -26,6 +30,7 @@ function UserMessage({
     <div className="turn turn--user">
       <div className="turn-main">
         {m.design && <DesignSummary design={m.design} thumbs={m.attachmentThumbs} prompt={m.prompt} />}
+        {m.advisor && <AdvisorFixSummary summary={m.advisor} prompt={m.prompt} working={working} />}
         {shots.length > 0 ? (
           <div className="msg-shots">
             {shots.map((src, i) => (
@@ -38,7 +43,7 @@ function UserMessage({
             {m.attachments} screenshot{m.attachments > 1 ? 's' : ''}
           </div>
         ) : null}
-        {hasText && (
+        {hasText && !m.advisor && (
           <div className="msg-text user-bubble">
             <MentionText text={m.text} onOpen={onOpenMention} />
           </div>
@@ -76,6 +81,7 @@ export const MessageRow = memo(function MessageRow({
   projectName,
   projectPath,
   latest,
+  working = false,
   canRetry,
   onRetry,
   canResume,
@@ -96,6 +102,8 @@ export const MessageRow = memo(function MessageRow({
   projectPath: string
   /** The newest assistant turn keeps its actions visible. */
   latest: boolean
+  /** (User messages) the turn this message started is still running. */
+  working?: boolean
   canRetry: boolean
   onRetry: (id: string) => void
   canResume: boolean
@@ -139,7 +147,7 @@ export const MessageRow = memo(function MessageRow({
     return anchored.size === 0 ? all : all.filter((q) => !anchored.has(q.id))
   }, [m.questions, m.segments])
 
-  if (m.role === 'user') return <UserMessage message={m} onOpenMention={onOpenMention} />
+  if (m.role === 'user') return <UserMessage message={m} working={working} onOpenMention={onOpenMention} />
 
   return (
     <div className={`turn turn--assistant${m.pending ? ' turn--live' : ''}`}>

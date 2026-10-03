@@ -159,7 +159,11 @@ export function unmute(state: AdvisorUiState, ruleId: string): AdvisorUiState {
 }
 
 /** Findings just handed to the Build chat for Copilot to fix. */
-export function recordHandoffs(state: AdvisorUiState, findings: AdvisorFinding[], now: string): AdvisorUiState {
+export function recordHandoffs(
+  state: AdvisorUiState,
+  findings: Pick<AdvisorFinding, 'id' | 'source'>[],
+  now: string
+): AdvisorUiState {
   const next = clone(state)
   for (const f of findings) next.handoffs[f.id] = { at: now, source: f.source }
   return next
@@ -225,6 +229,28 @@ export interface FindingItem {
   isNew: boolean
   dismissal?: AdvisorDismissal
   verdict?: { status: AdvisorVerdictStatus; note?: string; at: string }
+}
+
+/** Where a finding handed to Copilot stands now, as the chat's fix cards show it. */
+export type FixOutcome =
+  | 'fixing'
+  | 'checking'
+  | 'applied'
+  /** Still detected (or detected again) after the fix. */
+  | 'still'
+  /** No longer detected. */
+  | 'fixed'
+  | 'dismissed'
+  | 'muted'
+
+/** The outcome of every finding the Advisor knows about, by finding id. */
+export function fixOutcomes(derived: Pick<DerivedAdvisor, 'items' | 'resolved'>): Map<string, FixOutcome> {
+  const out = new Map<string, FixOutcome>()
+  for (const r of derived.resolved) out.set(r.id, 'fixed')
+  // A handed-off finding loses its hand-off only once it's resolved, dismissed,
+  // or found again by a later review — so "open" here means it's still there.
+  for (const { finding, status } of derived.items) out.set(finding.id, status === 'open' ? 'still' : status)
+  return out
 }
 
 export type RuleState = AdvisorRuleStatus | 'pending' | 'running'
