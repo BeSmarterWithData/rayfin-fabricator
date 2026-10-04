@@ -3,9 +3,9 @@ title: "Skills"
 description: "Browse Fabricator skills, understand the bundled Rayfin app-building skills, and add custom skills for your own project guidance."
 ---
 
-Skills are instructions Copilot can read while it builds your Rayfin app. They teach the agent app-building patterns, design preferences, data-model rules, analytics workflows, and your own team conventions.
+Skills are `SKILL.md` instructions Copilot can read while it builds your Rayfin app. They teach the agent app-building patterns, design preferences, data-model rules, analytics workflows, and your own team conventions.
 
-Fabricator installs the core Rayfin guidance for a project when it creates or opens it. Optional skills can be added from the **Skills** tab.
+Fabricator keeps core Rayfin guidance always on for projects that have managed Rayfin skills. New Universal App projects also include app-building skills in the project. Optional catalog and custom skills can be added from the **Skills** tab.
 
 ![The Skills view with always-on Rayfin skills, optional skills grouped into Data & forms, Look & feel, Performance and Quality, and the skills added in this app.](/screenshots/skills.webp)
 
@@ -21,7 +21,8 @@ A skill can show:
 - **Always on** for managed core skills;
 - **Active** when it is enabled for this project;
 - **Preview** to inspect the raw `SKILL.md`;
-- **Add** or **Remove** to change whether the skill is copied into this app.
+- **Add** or **Remove** to change whether the skill is copied into this app;
+- **Save to library**, **Edit** or **Delete** for custom skills, depending on where the skill lives.
 
 Turning a skill on or off writes the project's `.agents/skills/<skill id>/SKILL.md` folder and saves that change to git history.
 

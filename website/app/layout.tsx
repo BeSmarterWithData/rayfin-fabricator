@@ -15,7 +15,7 @@ export const metadata: Metadata = {
   title: { default: `${siteConfig.name} — ${siteConfig.tagline}`, template: `%s | ${siteConfig.name}` },
   description: siteConfig.description,
   applicationName: siteConfig.name,
-  alternates: { canonical: absoluteUrl('/') },
+  alternates: { canonical: absoluteUrl('/'), types: { 'text/markdown': absoluteUrl('/index.md') } },
   openGraph: {
     siteName: siteConfig.name,
     type: 'website',

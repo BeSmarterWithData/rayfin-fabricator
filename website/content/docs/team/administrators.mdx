@@ -37,11 +37,13 @@ It creates or updates these GitHub Actions variables:
 - `FABRIC_WORKSPACE_ID`
 - `FABRIC_PREVIEW_WORKSPACE_ID`
 
+Fabricator does not create GitHub Actions secrets. The workflow records deployments in GitHub environments named `preview/<app>/<github-login>` and `production/<app>`.
+
 It asks GitHub to protect `main` with force pushes and deletions disabled, no status-check requirement, no push restrictions, and pull request reviews configured with zero required approvals by default. When the workspace setting **Require a review** is on, Fabricator asks for one approving review. If GitHub says the plan does not support branch protection for the private repository, Fabricator records that only the app enforces the publish flow.
 
 ## What Fabricator creates in Microsoft Fabric
 
-Fabricator creates two Fabric workspaces on the selected capacity:
+Fabricator creates two Fabric workspaces on the selected capacity. It starts with these names, and Fabric may add a numeric suffix if a name is already taken:
 
 - `<workspace name>` for published apps
 - `<workspace name> previews` for personal previews
@@ -89,7 +91,7 @@ Pull requests deploy to the previews workspace with item names like `<app>-pv-<g
 
 If Rayfin is too old, the workflow emits:
 
-> "`<app> uses Rayfin CLI <version>`. Team workspaces need Rayfin 1.36.2 or newer: open the app in Fabricator, select Rayfin in the status bar and choose Update with Copilot."
+> "`<app>` uses Rayfin CLI `<version>`. Team workspaces need Rayfin 1.36.2 or newer: open the app in Fabricator, select Rayfin in the status bar and choose Update with Copilot."
 
 If a published deploy would delete data, it emits:
 

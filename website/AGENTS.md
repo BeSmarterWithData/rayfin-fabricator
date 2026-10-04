@@ -129,7 +129,7 @@ its own line and capture the image before publishing. Comments are invisible on 
 in `.md`.
 
 ```mdx
-{/* screenshot: plan */}
+{/* screenshot: team-members */}
 ```
 
 | Image | What it shows | Used on |
@@ -144,6 +144,7 @@ in `.md`.
 | `chat-done` | A finished turn with the "Worked for …" summary and changed-file chips | `/docs/build/chat` |
 | `chat-diff` | The diff for one changed file, opened from its chip | `/docs/build/chat` |
 | `composer-menus` | The chat composer with the model and reasoning menu open | `/docs/build/chat` |
+| `plan` | A proposed plan waiting for approval | `/docs/build/chat` |
 | `preview-toolbar` | The preview toolbar above the running app | `/docs/build/preview` |
 | `design` | Design mode with an element selected and its change card open | `/docs/build/design` |
 | `design-theme` | Design mode's Theme panel | `/docs/build/design` |

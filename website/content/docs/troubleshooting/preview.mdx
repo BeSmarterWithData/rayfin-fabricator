@@ -29,7 +29,7 @@ You see a dialog titled "localhost:5173 is in use" or a similar localhost port. 
 During a chat turn, Fabricator runs the project's local Vite server on a localhost port that the app's sign-in accepts. If every registered port is busy, Fabricator asks what to do instead of stopping an unrelated process without permission.
 
 1. If the dialog offers **Use port 5174** or another port, select it. Fabricator adds `http://localhost:<port>` to `rayfin/rayfin.yml`. If the app already has a Fabric backend, it pushes sign-in settings to Fabric without rebuilding the app.
-2. If the dialog identifies a process and offers **Stop** followed by an app name, use it only if you are sure that process can be closed. Unsaved work in that process is lost.
+2. If the dialog identifies a process and offers a **Stop** button named for that process, such as **Stop node.exe**, use it only if you are sure that process can be closed. Unsaved work in that process is lost.
 3. Select **Skip live preview** to keep the chat turn moving without a local preview. You can use the deployed preview after the turn finishes.
 4. If Fabricator says switching ports cannot happen while Copilot is working, skip for now and send the next message after the turn ends.
 5. If the port becomes busy again, close the other app or choose another port when prompted.

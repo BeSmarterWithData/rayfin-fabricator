@@ -7,7 +7,7 @@ import '@vscode/codicons/dist/codicon.css'
 import './assets/main.css'
 import { useEffect, type ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
-import type { RayfinVersionInfo, StudioProject, TeamResourceRequest, TeamSessionStatus } from '@shared/ipc'
+import type { ChatPlanArtifact, RayfinVersionInfo, StudioProject, TeamResourceRequest, TeamSessionStatus } from '@shared/ipc'
 import { OverlayProvider } from './overlay'
 import { applyTheme } from './theme'
 import TeamMapView from './components/team/map/TeamMapView'
@@ -15,6 +15,8 @@ import { sampleMap, sampleResources, sampleRun, sampleWorkspace } from './compon
 import TeamPublishControl from './components/team/TeamPublishControl'
 import RayfinVersionControl from './components/RayfinVersionControl'
 import PortConflictModal from './components/PortConflictModal'
+import PlanCard from './components/PlanCard'
+import './components/chat/chat.css'
 
 const ok = <T,>(value: T) => (): Promise<T> => Promise.resolve(value)
 
@@ -88,6 +90,61 @@ const rayfinUpdate: RayfinVersionInfo = {
 }
 
 const noop = (): void => {}
+const noopAsync = (): Promise<void> => Promise.resolve()
+
+const plan: ChatPlanArtifact = {
+  id: 'plan-contoso-approvals',
+  phase: 'review',
+  summary:
+    'I found the expense model, dashboard, and form flow. This plan adds manager approval without changing how Avery Chen submits expenses.',
+  content: [
+    '# Add manager approvals',
+    '',
+    '## Plan',
+    '',
+    '1. Add an approval status, approver, and decision comment to `Expense`.',
+    '2. Update the expense list so pending, approved, and rejected items are easy to scan.',
+    '3. Allow only managers to approve or reject an expense with a comment.',
+    '4. Add Approve and Reject buttons to each pending expense.',
+    '5. Show pending approvals on the dashboard for managers.'
+  ].join('\n'),
+  actions: ['interactive', 'autopilot', 'autopilot_fleet', 'exit_only'],
+  recommendedAction: 'autopilot_fleet',
+  todos: [
+    {
+      id: 'expense-status',
+      title: 'Add status, approver, and decision comment fields to Expense',
+      status: 'pending'
+    },
+    {
+      id: 'manager-permissions',
+      title: 'Let only managers approve or reject expenses',
+      status: 'pending'
+    },
+    {
+      id: 'approval-actions',
+      title: 'Add Approve and Reject buttons with a comment',
+      status: 'pending'
+    },
+    {
+      id: 'dashboard-queue',
+      title: 'Show pending approvals on the dashboard',
+      status: 'pending'
+    },
+    {
+      id: 'sample-data',
+      title: 'Seed Contoso Expenses with realistic approval examples',
+      status: 'pending'
+    }
+  ],
+  dependencies: [
+    { todoId: 'manager-permissions', dependsOn: 'expense-status' },
+    { todoId: 'approval-actions', dependsOn: 'manager-permissions' },
+    { todoId: 'dashboard-queue', dependsOn: 'approval-actions' },
+    { todoId: 'sample-data', dependsOn: 'expense-status' }
+  ],
+  questions: []
+}
 
 /** Clicks `selector` once the shot has rendered, to open a menu or popover. */
 function Open({ selector, children }: { selector: string; children: ReactNode }): JSX.Element {
@@ -152,6 +209,37 @@ function Shot({ id }: { id: string | null }): JSX.Element {
           onStop={noop}
           onSkip={noop}
         />
+      )
+    case 'plan':
+      return (
+        <main
+          className="chat"
+          style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 32,
+            background:
+              'radial-gradient(circle at top, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34%), var(--bg)'
+          }}
+        >
+          <div style={{ width: 740, maxWidth: '100%' }}>
+            <div className="turn turn--assistant">
+              <div className="turn-main">
+                <PlanCard
+                  plan={plan}
+                  projectName="Contoso Expenses"
+                  onContentChange={noop}
+                  onResolve={noop}
+                  onAnswerQuestion={noop}
+                  onResume={noop}
+                  onExport={noopAsync}
+                />
+              </div>
+            </div>
+          </div>
+        </main>
       )
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>

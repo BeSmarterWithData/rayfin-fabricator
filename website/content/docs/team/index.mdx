@@ -26,17 +26,18 @@ Pull requests can only use the preview identity. Pushes to `main` use the deploy
 ```mermaid
 flowchart LR
   You["You"] --> Branch["Your working branch"]
-  Branch --> PullRequest["Pull request"]
-  PullRequest --> Preview["Preview deploy"]
-  PullRequest --> Main["Publish to main"]
-  Main --> Published["Published deploy"]
+  Branch --> PullRequest["Pull request into main"]
+  PullRequest --> PreviewWorkflow["Preview workflow"]
+  PreviewWorkflow --> PreviewWorkspace["Previews Fabric workspace"]
+  PullRequest --> Publish["Publish merges the pull request"]
+  Publish --> Main["main branch"]
+  Main --> PublishWorkflow["Published workflow"]
+  PublishWorkflow --> PublishedWorkspace["Published apps Fabric workspace"]
 
   class You actor
-  class Branch store
-  class PullRequest service
-  class Preview experimental
-  class Main store
-  class Published service
+  class Branch,PullRequest,Main store
+  class PreviewWorkflow,Publish,PublishWorkflow service
+  class PreviewWorkspace,PublishedWorkspace external
 ```
 
 ## Turn on the experiment
