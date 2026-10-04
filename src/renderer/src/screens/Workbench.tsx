@@ -800,17 +800,14 @@ export default function Workbench({
     settlePortPrompt(prompt.conflict.port)
   }, [settlePortPrompt])
 
-  // Kick off the live local preview (experiment) when a turn starts: run the
+  // Kick off the live local preview when a turn starts: run the
   // project's Vite dev server so edits show live at localhost for the turn's
-  // duration. No-op unless the experiment is on and the project supports it. A
+  // duration. No-op when the project has no locally installed Vite. A
   // fresh turn waits for this (ChatPanel awaits `onTurnStart`) so a port
   // conflict is settled — and any new port pushed — before Copilot starts;
-  // `plan` runs mid-turn, when nothing can be pushed. Team apps always get one:
-  // their pipeline takes minutes to deploy each change.
+  // `plan` runs mid-turn, when nothing can be pushed.
   const handleTurnStart = useCallback(
     async (projectId: string, context: PortPromptContext = 'turn'): Promise<void> => {
-      const team = isTeamProject(projectId)
-      if (!settings?.experiments?.localDevPreview && !team) return
       if (deployingIdRef.current === projectId) return // a deploy owns the surface
       const existing = devServersRef.current[projectId]
       if (existing) {
@@ -868,7 +865,7 @@ export default function Workbench({
         })
       })()
     },
-    [settings, toast, resolveLocalPort, onDevServerError, isTeamProject]
+    [toast, resolveLocalPort, onDevServerError]
   )
 
   // After a chat turn, persist the transcript and auto-deploy when the agent left
@@ -1556,14 +1553,11 @@ export default function Workbench({
                               Boolean(deploys[active.id]?.running) ||
                               (Boolean(active.team) && teamWork.syncing(active.id))
                             }
-                            blockSubmitWhileDeploying={Boolean(
-                              settings?.experiments?.localDevPreview || active.team
-                            )}
+                            blockSubmitWhileDeploying
                             submitBlockedTitle={
                               active.team ? 'Saving to GitHub — sending resumes in a moment' : undefined
                             }
                             onRequestDeploy={() => setCreateMode('deploy')}
-                            modeSelectorEnabled={Boolean(settings?.experiments?.chatModeSelector)}
                             eventsManagedExternally
                             onOpenMention={openMention}
                             draft={drafts[active.id] ?? ''}
@@ -1621,7 +1615,7 @@ export default function Workbench({
                               ? 'Copilot is working — send when this turn finishes'
                               : active.awaitingFirstDeploy === true
                                 ? 'Deploy your app first'
-                                : deploys[active.id]?.running && settings?.experiments?.localDevPreview
+                                : deploys[active.id]?.running
                                   ? 'Deploying — send when it goes live'
                                   : null
                           }

@@ -2151,13 +2151,6 @@ button.thinking-head:hover {
   cursor: default;
 }
 
-.composer-pill-icon {
-  flex: none;
-  width: 14px;
-  height: 14px;
-  color: var(--accent);
-}
-
 .composer-pill-label {
   min-width: 0;
   overflow: hidden;
@@ -2244,10 +2237,6 @@ button.thinking-head:hover {
   cursor: not-allowed;
 }
 
-.composer-opt.is-on {
-  background: var(--accent-soft);
-}
-
 .composer-opt-icon {
   flex: none;
   width: 16px;
@@ -2255,10 +2244,6 @@ button.thinking-head:hover {
   margin-top: 1px;
   font-size: 15px;
   color: var(--text-dim);
-}
-
-.composer-opt.is-on .composer-opt-icon {
-  color: var(--accent);
 }
 
 .composer-opt-text {
@@ -2274,20 +2259,10 @@ button.thinking-head:hover {
   font-weight: 600;
 }
 
-.composer-opt.is-on .composer-opt-label {
-  color: var(--accent);
-}
-
 .composer-opt-desc {
   font-size: 11px;
   line-height: 1.35;
   color: var(--text-dim);
-}
-
-.composer-opt-check {
-  flex: none;
-  margin-top: 2px;
-  color: var(--accent);
 }
 
 /* Model picker: a scrollable list (grouped by family) plus an effort control. */

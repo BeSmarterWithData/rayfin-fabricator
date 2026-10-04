@@ -452,7 +452,7 @@ describe('PreviewPane visibility', () => {
 describe('PreviewPane local preview', () => {
   const LOCAL = 'http://localhost:5173/'
 
-  // Live local preview (experiment): while a Vite dev server is running for the
+  // Live local preview: while a Vite dev server is running for the
   // project, the surface swaps from the deployed app to the local URL and a
   // "Local" badge is shown. The swap goes through the normal load transition
   // (navigate hidden → reveal on load), so it's flash-free.

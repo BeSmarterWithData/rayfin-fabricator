@@ -148,7 +148,6 @@ function PlanHarness({
       messages={messages}
       onChange={(update) => setMessages(update)}
       draft=""
-      modeSelectorEnabled
       onPlanExecutionStart={onPlanExecutionStart}
     />
   )
@@ -266,7 +265,7 @@ describe('ChatPanel composer draft', () => {
   })
 })
 
-describe('ChatPanel Plan-mode entry', () => {
+describe('ChatPanel Agent-mode entry', () => {
   const complexPrompt = [
     'Redesign authentication across the frontend and backend.',
     '1. Migrate token storage while preserving backward compatibility.',
@@ -274,14 +273,13 @@ describe('ChatPanel Plan-mode entry', () => {
     '3. Update the React sign-in flow and add integration tests.'
   ].join('\n')
 
-  it('suggests Plan mode for a complex draft without switching automatically', async () => {
+  it('has no mode selector or Plan suggestion, even for a complex draft', async () => {
     render(
       <ChatPanel
         project={makeProject('p1')}
         messages={[]}
         onChange={() => {}}
         draft=""
-        modeSelectorEnabled
       />
     )
     const input = screen.getByPlaceholderText(PLACEHOLDER)
@@ -289,52 +287,59 @@ describe('ChatPanel Plan-mode entry', () => {
       fireEvent.change(input, { target: { value: complexPrompt } })
     })
 
-    expect(screen.getByText('This looks multi-step.')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Agent/i })).toBeTruthy()
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Use Plan' }))
-    })
-    expect(screen.getByRole('button', { name: /Plan/i })).toBeTruthy()
-  })
-
-  it('does not suggest Plan mode for a small cosmetic edit', async () => {
-    render(
-      <ChatPanel
-        project={makeProject('p1')}
-        messages={[]}
-        onChange={() => {}}
-        draft=""
-        modeSelectorEnabled
-      />
-    )
-    await act(async () => {
-      fireEvent.change(screen.getByPlaceholderText(PLACEHOLDER), {
-        target: { value: 'Change the button label to Save changes' }
-      })
-    })
     expect(screen.queryByText('This looks multi-step.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Use Plan' })).toBeNull()
+    expect(screen.queryByRole('button', { name: /^(Agent|Plan|Autopilot)$/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /^Model:/ })).toBeTruthy()
   })
 
-  it('restores the selected mode for the project after remounting', async () => {
+  it.each(['plan', 'autopilot'])('ignores a saved %s selection after remounting and sends as Agent', async (mode) => {
+    const api = installApi()
+    localStorage.setItem('rayfin.chatMode.p1', mode)
     const props = {
       project: makeProject('p1'),
       messages: [] as UIChatMessage[],
       onChange: () => {},
-      draft: '',
-      modeSelectorEnabled: true
+      draft: ''
     }
     const first = render(<ChatPanel {...props} />)
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /Agent/i }))
-    })
-    await act(async () => {
-      fireEvent.click(screen.getByRole('menuitemradio', { name: /Plan/i }))
-    })
     first.unmount()
-
     render(<ChatPanel {...props} />)
-    expect(screen.getByRole('button', { name: /Plan/i })).toBeTruthy()
+    await act(async () => {
+      const input = screen.getByPlaceholderText(PLACEHOLDER)
+      fireEvent.change(input, { target: { value: complexPrompt } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(api.chat.send).toHaveBeenCalledWith('p1', expect.any(String), complexPrompt, [], 'agent')
+  })
+
+  it.each(['Retry', 'Resume', 'Try again'])('uses Agent for an ordinary %s despite a saved Autopilot selection', async (action) => {
+    const api = installApi()
+    localStorage.setItem('rayfin.chatMode.p1', 'autopilot')
+    const prompt = 'Add a chart'
+    const messages: UIChatMessage[] = [
+      { id: 'u1', role: 'user', text: prompt, tools: [], pending: false },
+      {
+        id: 'a1',
+        role: 'assistant',
+        text: 'Previous response',
+        tools: [],
+        pending: false,
+        error: action === 'Retry' ? 'Previous turn failed' : undefined,
+        interrupted: action === 'Resume'
+      }
+    ]
+    render(<ChatPanel project={makeProject('p1')} messages={messages} onChange={() => {}} draft="" />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(action) }))
+    })
+    expect(api.chat.send).toHaveBeenCalledWith(
+      'p1',
+      expect.any(String),
+      action === 'Try again' ? tryAgainPrompt(prompt) : prompt,
+      [],
+      'agent'
+    )
   })
 
   it('does not subscribe twice when the workbench owns chat events', () => {
@@ -393,6 +398,31 @@ describe('ChatPanel Plan lifecycle integration', () => {
     )
   })
 
+  it.each([
+    { action: 'autopilot', label: 'Run in Autopilot' },
+    { action: 'autopilot_fleet', label: 'Run with fleet' }
+  ])('retains the explicit $action approval route', async ({ action, label }) => {
+    const api = installApi()
+    const onPlanExecutionStart = vi.fn()
+    render(
+      <PlanHarness
+        plan={planArtifact({ actions: [action], recommendedAction: action })}
+        onPlanExecutionStart={onPlanExecutionStart}
+      />
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: label }))
+    })
+    expect(api.chat.resolvePlan).toHaveBeenCalledWith(
+      'p1',
+      'request-1',
+      action,
+      '# Plan\n\nImplement the durable workflow.',
+      undefined
+    )
+    expect(onPlanExecutionStart).toHaveBeenCalledOnce()
+  })
+
   it('tells the agent to reconcile todos when approving a directly edited plan', async () => {
     const api = installApi()
     render(<PlanHarness plan={planArtifact({ edited: true, content: '# Edited plan' })} />)
@@ -439,14 +469,14 @@ describe('ChatPanel Plan lifecycle integration', () => {
     expect(screen.getByText('Split the UI work into two steps')).toBeTruthy()
   })
 
-  it('resumes interrupted execution with only unfinished work marked for execution', async () => {
+  it.each(['interactive', 'autopilot', 'autopilot_fleet'])('resumes unfinished work via %s without changing the next ordinary message mode', async (action) => {
     const api = installApi()
     render(
       <PlanHarness
         pending={false}
         plan={planArtifact({
           phase: 'interruptedExecution',
-          selectedAction: 'interactive',
+          selectedAction: action,
           liveRequestId: undefined,
           todos: [
             { id: 'done', title: 'Finished step', status: 'done' },
@@ -463,10 +493,35 @@ describe('ChatPanel Plan lifecycle integration', () => {
     await waitFor(() => expect(api.chat.send).toHaveBeenCalled())
     const calls = api.chat.send.mock.calls
     const [, , prompt, , mode] = calls[calls.length - 1] ?? []
-    expect(mode).toBe('agent')
+    expect(mode).toBe(action === 'interactive' ? 'agent' : 'autopilot')
     expect(prompt).toContain('next: Remaining step')
     expect(prompt).toContain('done: Finished step')
     expect(prompt).toContain('do not redo')
+
+    await act(async () => {
+      const input = screen.getByPlaceholderText(PLACEHOLDER)
+      fireEvent.change(input, { target: { value: 'Update the heading' } })
+      fireEvent.keyDown(input, { key: 'Enter' })
+    })
+    expect(api.chat.send).toHaveBeenLastCalledWith(
+      'p1', expect.any(String), 'Update the heading', [], 'agent'
+    )
+  })
+
+  it('continues an interrupted planning turn in Plan mode without a selector', async () => {
+    const api = installApi()
+    render(
+      <PlanHarness
+        pending={false}
+        plan={planArtifact({ phase: 'interruptedReview', content: '', liveRequestId: undefined })}
+      />
+    )
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue planning' }))
+    })
+    expect(api.chat.send).toHaveBeenCalledWith(
+      'p1', expect.any(String), expect.stringContaining('Do not implement yet.'), [], 'plan'
+    )
   })
 })
 
@@ -489,7 +544,6 @@ describe('ChatPanel Agent-mode ask_user questions', () => {
         messages={messages}
         onChange={(update) => setMessages(update)}
         draft=""
-        modeSelectorEnabled
       />
     )
   }
@@ -656,7 +710,6 @@ describe('ChatPanel Agent-mode ask_user questions', () => {
         ]}
         onChange={() => {}}
         draft=""
-        modeSelectorEnabled
       />
     )
     const feed = document.querySelector('.turn-feed')
@@ -762,7 +815,7 @@ describe('ChatPanel composer scrollport (issue #13)', () => {
 })
 
 /**
- * Live local preview (experiment): the host starts the project's Vite dev server
+ * Live local preview: the host starts the project's Vite dev server
  * when a turn begins, so ChatPanel exposes an `onTurnStart` hook. It must fire
  * exactly once per fresh turn (a send), and only when a turn actually starts —
  * not on mount or while typing.
@@ -870,8 +923,8 @@ describe('ChatPanel onTurnStart (live local preview hook)', () => {
 
 /**
  * Live local preview lifecycle: submitting a new turn while a deploy is in flight
- * used to leave the local preview unable to start (and never come back). With the
- * experiment on, submitting is paused during a deploy — typing stays enabled — so
+ * used to leave the local preview unable to start (and never come back). The host
+ * pauses submitting during a deploy — typing stays enabled — so
  * a turn never overlaps a deploy.
  */
 describe('ChatPanel submit-pause while deploying', () => {
@@ -912,7 +965,7 @@ describe('ChatPanel submit-pause while deploying', () => {
     expect(ta.value).toBe('do a thing')
   })
 
-  it('still submits while deploying when the block is off (experiment disabled)', async () => {
+  it('allows submitting when the host has not requested a deployment interlock', async () => {
     const onTurnStart = vi.fn()
     await act(async () => {
       render(

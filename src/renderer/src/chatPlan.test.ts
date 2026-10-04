@@ -6,8 +6,7 @@ import {
   planForStorage,
   planFromStorage,
   reducePlanEvent,
-  setPlanSubmitting,
-  shouldSuggestPlanMode
+  setPlanSubmitting
 } from './chatPlan'
 
 describe('Plan lifecycle reducer', () => {
@@ -197,24 +196,5 @@ describe('Plan persistence and recovery', () => {
     expect(prompt).toContain('done: Finished migration')
     expect(prompt).toContain('do not redo')
     expect(prompt).toContain('parallel task agents')
-  })
-})
-
-describe('Plan-mode suggestion heuristic', () => {
-  it('does not suggest planning for a small cosmetic edit', () => {
-    expect(shouldSuggestPlanMode('Change the button label to Save changes')).toBe(false)
-  })
-
-  it('suggests planning for a cross-cutting multi-step request', () => {
-    expect(
-      shouldSuggestPlanMode(
-        [
-          'Redesign authentication across the frontend and backend.',
-          '1. Migrate the token storage and preserve backward compatibility.',
-          '2. Refactor the API middleware.',
-          '3. Update the React sign-in flow and add integration tests.'
-        ].join('\n')
-      )
-    ).toBe(true)
   })
 })

@@ -139,3 +139,28 @@ describe('SettingsModal team workspaces experiment', () => {
     expect(teamCheckbox().checked).toBe(true)
   })
 })
+
+describe('SettingsModal retired controls', () => {
+  it.each([false, true])('does not show retired controls with legacy flags set to %s', async (enabled) => {
+    installApi()
+    const legacySettings = {
+      ...settings,
+      experiments: {
+        compatibilityRendering: enabled,
+        chatModeSelector: enabled,
+        localDevPreview: enabled,
+        teamWorkspaces: true
+      }
+    }
+    await renderModal({ settings: legacySettings })
+    fireEvent.click(screen.getByRole('button', { name: /Experiments/ }))
+
+    for (const label of ['Compatibility rendering', 'Chat mode selector', 'Live local preview', 'Performance']) {
+      expect(screen.queryByText(label)).toBeNull()
+    }
+    expect(screen.queryByRole('dialog', { name: 'Restart required' })).toBeNull()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(2)
+    expect(screen.getByText('Team workspaces')).toBeTruthy()
+    expect(screen.getByText('Full diagnostics')).toBeTruthy()
+  })
+})

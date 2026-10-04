@@ -115,7 +115,7 @@ interface Props {
    *  chat + preview, so the indicator belongs at the content level, not the
    *  preview pane). `null` when not loading. */
   onLoadingChange?: (state: { name: string; fading: boolean } | null) => void
-  /** Live local preview (experiment): the `localhost` URL of the project's running
+  /** Live local preview: the `localhost` URL of the project's running
    *  Vite dev server, or null/undefined when none. When set (and no deploy is
    *  running), the preview surface shows this instead of the deployed app, with a
    *  "Local" badge. See {@link RayfinStudioApi.dev}. */
@@ -346,7 +346,7 @@ export default function PreviewPane({
   // whenever the Fabric link is unavailable or the toggle is off.
   const [previewMode, setPreviewMode] = useState<PreviewMode>(() => readPreviewMode(project))
   const deployedPreviewUrl = previewMode === 'fabric' && fabricUrl ? fabricUrl : deployedUrl
-  // Live local preview (experiment): while a Vite dev server is running for this
+  // Live local preview: while a Vite dev server is running for this
   // project, the surface shows its localhost URL instead of the deployed app. A
   // running deploy still wins (DeployStage), so this only applies mid-turn.
   const isLocal = Boolean(localPreviewUrl) && !running

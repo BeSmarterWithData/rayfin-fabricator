@@ -33,9 +33,6 @@ fn default_state() -> ProjectsState {
 
 fn default_flags() -> ExperimentFlags {
   ExperimentFlags {
-    compatibility_rendering: Some(false),
-    chat_mode_selector: Some(false),
-    local_dev_preview: Some(false),
     team_workspaces: Some(false),
   }
 }
@@ -154,9 +151,6 @@ pub fn set_settings(
 
 fn merge_experiments(experiments: &mut Option<ExperimentFlags>, patch: ExperimentFlags) {
   let current = experiments.get_or_insert_with(default_flags);
-  if let Some(v) = patch.compatibility_rendering { current.compatibility_rendering = Some(v); }
-  if let Some(v) = patch.chat_mode_selector { current.chat_mode_selector = Some(v); }
-  if let Some(v) = patch.local_dev_preview { current.local_dev_preview = Some(v); }
   if let Some(v) = patch.team_workspaces { current.team_workspaces = Some(v); }
 }
 
@@ -306,33 +300,23 @@ mod tests {
   use super::*;
 
   #[test]
-  fn experiment_deep_merge_preserves_existing_flags() {
+  fn experiment_patch_preserves_unmentioned_flags() {
     let mut flags: Option<ExperimentFlags> = Some(serde_json::from_value(serde_json::json!({
-      "compatibilityRendering":true,"chatModeSelector":true,"localDevPreview":true
+      "teamWorkspaces":true
     })).unwrap());
-    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"chatModeSelector":false})).unwrap());
-    let merged = flags.as_ref().unwrap();
-    assert_eq!(merged.chat_mode_selector, Some(false));
-    assert_eq!(merged.compatibility_rendering, Some(true));
-    assert_eq!(merged.local_dev_preview, Some(true));
-    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"localDevPreview":false})).unwrap());
-    let json = serde_json::to_value(flags.unwrap()).unwrap();
-    assert_eq!(json["chatModeSelector"], false);
-    assert_eq!(json["localDevPreview"], false);
-    assert_eq!(json["compatibilityRendering"], true);
+    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({})).unwrap());
+    assert_eq!(flags.as_ref().unwrap().team_workspaces, Some(true));
+    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"teamWorkspaces":false})).unwrap());
+    assert_eq!(serde_json::to_value(flags.unwrap()).unwrap(), serde_json::json!({"teamWorkspaces":false}));
   }
 
   #[test]
   fn team_workspaces_flag_merges_and_defaults_off() {
     assert_eq!(default_settings().experiments.unwrap().team_workspaces, Some(false));
-    let mut flags: Option<ExperimentFlags> = Some(serde_json::from_value(serde_json::json!({
-      "chatModeSelector":true
-    })).unwrap());
+    let mut flags = None;
+    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({})).unwrap());
+    assert_eq!(flags.as_ref().unwrap().team_workspaces, Some(false));
     merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"teamWorkspaces":true})).unwrap());
-    let merged = flags.as_ref().unwrap();
-    assert_eq!(merged.team_workspaces, Some(true));
-    assert_eq!(merged.chat_mode_selector, Some(true));
-    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"chatModeSelector":false})).unwrap());
     assert_eq!(flags.unwrap().team_workspaces, Some(true));
   }
 
@@ -348,11 +332,25 @@ mod tests {
 
   #[test]
   fn retired_experiment_flags_are_ignored_on_load() {
-    // Settings saved while the removed Design Studio experiment existed still load.
-    let flags: ExperimentFlags = serde_json::from_value(serde_json::json!({
-      "localDevPreview":true,"designStudio":true
-    })).unwrap();
-    assert_eq!(flags.local_dev_preview, Some(true));
-    assert!(!serde_json::to_string(&flags).unwrap().contains("designStudio"));
+    for enabled in [false, true] {
+      let settings: AppSettings = serde_json::from_value(serde_json::json!({
+        "theme":"dark",
+        "uiScale":1.25,
+        "fullDiagnostics":true,
+        "experiments":{
+          "compatibilityRendering":enabled,
+          "chatModeSelector":enabled,
+          "localDevPreview":enabled,
+          "designStudio":enabled,
+          "teamWorkspaces":true
+        }
+      })).unwrap();
+      assert_eq!(serde_json::to_value(settings).unwrap(), serde_json::json!({
+        "theme":"dark",
+        "uiScale":1.25,
+        "fullDiagnostics":true,
+        "experiments":{"teamWorkspaces":true}
+      }));
+    }
   }
 }

@@ -5036,7 +5036,7 @@ code {
   }
 }
 
-/* Live local preview (experiment) badge: a small flat teal pill in the preview
+/* Live local preview badge: a small flat teal pill in the preview
    toolbar signalling the surface is showing the local Vite dev server, not the
    deployed app. Scoped name to avoid cascade collisions in this large file. */
 .preview-local-badge {
@@ -10787,81 +10787,6 @@ select.ws-input:disabled {
    focused review/edit dialog (PlanReviewDialog). Flat surfaces, a restrained
    accent border, and solid status colors instead of shadows/gradients match
    the rest of the app's chat surface. */
-.chat-plan-suggestion {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-bottom: 8px;
-  padding: 8px 9px 8px 10px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-  border-radius: 9px;
-  background: var(--accent-soft);
-  color: var(--text-dim);
-  font-size: 11.5px;
-  line-height: 1.35;
-}
-
-.chat-plan-suggestion-icon {
-  display: inline-flex;
-  flex: none;
-  color: var(--accent);
-}
-
-.chat-plan-suggestion-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
-.chat-plan-suggestion-copy {
-  min-width: 0;
-  flex: 1;
-}
-
-.chat-plan-suggestion-copy strong {
-  color: var(--text);
-  font-weight: 600;
-}
-
-.chat-plan-suggestion-action,
-.chat-plan-suggestion-dismiss {
-  flex: none;
-  border: 0;
-  color: var(--accent);
-  background: transparent;
-  font: inherit;
-  cursor: pointer;
-}
-
-.chat-plan-suggestion-action {
-  padding: 4px 7px;
-  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 6px;
-  font-weight: 600;
-}
-
-.chat-plan-suggestion-dismiss {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px;
-  border-radius: 6px;
-  color: var(--text-faint);
-}
-
-.chat-plan-suggestion-action:hover,
-.chat-plan-suggestion-dismiss:hover {
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.chat-plan-suggestion-action:focus-visible,
-.chat-plan-suggestion-dismiss:focus-visible {
-  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
-  outline-offset: 1px;
-}
-
 .chat-plan-card {
   margin-top: 10px;
   padding: 13px 15px;
@@ -11565,16 +11490,6 @@ select.ws-input:disabled {
 }
 
 @media (max-width: 480px) {
-  .chat-plan-suggestion {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-  .chat-plan-suggestion-copy {
-    flex-basis: calc(100% - 58px);
-  }
-  .chat-plan-suggestion-action {
-    margin-left: 25px;
-  }
   .chat-plan-actions,
   .chat-plan-dialog-actions {
     flex-direction: column;

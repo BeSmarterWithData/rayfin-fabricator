@@ -1,4 +1,3 @@
-import type { ChatMode } from '@shared/ipc'
 import type { ToolKind } from './toolPresentation'
 
 /** Distinct line icon per tool kind, so the activity feed is scannable at a glance. */
@@ -190,67 +189,6 @@ export function SendIcon(): JSX.Element {
     >
       <path d="M12 19V5" />
       <path d="M5 12l7-7 7 7" />
-    </svg>
-  )
-}
-
-/** Small glyph per chat mode, shown in the composer mode selector + its menu. */
-export function ModeIcon({ mode, className }: { mode: ChatMode; className?: string }): JSX.Element {
-  const cls = className ?? 'btn-ico'
-  if (mode === 'plan') {
-    return (
-      <svg
-        className={cls}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M10 6h8" />
-        <path d="M10 12h8" />
-        <path d="M10 18h8" />
-        <path d="M4 5.4l1.2 1.3L7.6 4.3" />
-        <path d="M4.2 12h2.4" />
-        <path d="M4.2 18h2.4" />
-      </svg>
-    )
-  }
-  if (mode === 'autopilot') {
-    return (
-      <svg
-        className={cls}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1.8}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        aria-hidden="true"
-      >
-        <path d="M4.5 6.5 11 12l-6.5 5.5z" />
-        <path d="M12.5 6.5 19 12l-6.5 5.5z" />
-      </svg>
-    )
-  }
-  return (
-    <svg
-      className={cls}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <rect x="4.5" y="8" width="15" height="11" rx="3" />
-      <path d="M12 4.6V8" />
-      <circle cx="12" cy="4" r="1.1" />
-      <circle cx="9.6" cy="13" r="1.15" />
-      <circle cx="14.4" cy="13" r="1.15" />
     </svg>
   )
 }

@@ -7,15 +7,17 @@ import type {
   AuthStatus,
   ChatTurnResult,
   DeployResult,
+  DevServerResult,
   PortConflict,
   ProcLogEvent,
   ProcResult,
+  RayfinStudioApi,
   StudioProject
 } from '@shared/ipc'
 import { ToastProvider } from '../toast'
 import { OverlayProvider } from '../overlay'
 import { deferred } from '../../test/deferred'
-import type { DeployUiState } from '../components/PreviewPane'
+import type PreviewPane from '../components/PreviewPane'
 import type ChatPanel from '../components/ChatPanel'
 import type AdvisorView from '../components/advisor/AdvisorView'
 import type { AdvisorFixLinks } from '../components/advisor/AdvisorFixSummary'
@@ -23,6 +25,7 @@ import type { DerivedAdvisor } from '../advisor/lifecycle'
 import Workbench from './Workbench'
 
 const chatProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof ChatPanel>) => void>())
+const previewProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof PreviewPane>) => void>())
 const advisorProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof AdvisorView>) => void>())
 /** The Advisor state the mocked `useAdvisor` reports, and what the chat's fix cards see. */
 const advisorMock = vi.hoisted(() => ({
@@ -88,14 +91,18 @@ vi.mock('../components/DeploymentsControl', () => ({
   )
 }))
 vi.mock('../components/PreviewPane', () => ({
-  default: ({ deploy }: { deploy?: DeployUiState }) => (
-    <>
-      <div data-testid="deploy-state">
-        {deploy?.running ? 'running' : (deploy?.result?.error ?? 'idle')}
-      </div>
-      <output data-testid="deploy-log">{deploy?.log.join('')}</output>
-    </>
-  )
+  default: (props: ComponentProps<typeof PreviewPane>) => {
+    previewProps(props)
+    const { deploy } = props
+    return (
+      <>
+        <div data-testid="deploy-state">
+          {deploy?.running ? 'running' : (deploy?.result?.error ?? 'idle')}
+        </div>
+        <output data-testid="deploy-log">{deploy?.log.join('')}</output>
+      </>
+    )
+  }
 }))
 vi.mock('../components/ChatPanel', async () => {
   const { useContext } = await import('react')
@@ -156,7 +163,18 @@ function installApi(active = false) {
     },
     rayfin: { versions: vi.fn().mockResolvedValue(null) },
     preview: { onAgentPreview: vi.fn(() => () => {}) },
-    dev: { onState: vi.fn(() => () => {}) },
+    dev: {
+      plan: vi.fn<RayfinStudioApi['dev']['plan']>().mockResolvedValue({}),
+      start: vi.fn<RayfinStudioApi['dev']['start']>().mockResolvedValue({
+        ok: true, outcome: 'running', url: 'http://localhost:5174'
+      }),
+      stop: vi.fn<RayfinStudioApi['dev']['stop']>().mockResolvedValue(undefined),
+      freePort: vi.fn<RayfinStudioApi['dev']['freePort']>().mockResolvedValue(undefined),
+      registerPort: vi.fn<RayfinStudioApi['dev']['registerPort']>().mockResolvedValue({
+        ok: true, outcome: 'success'
+      }),
+      onState: vi.fn<RayfinStudioApi['dev']['onState']>(() => () => {})
+    },
     getVersions: vi.fn().mockResolvedValue(null),
     onProcLog: vi.fn<(callback: (event: ProcLogEvent) => void) => () => void>(() => () => {})
   }
@@ -191,6 +209,17 @@ function completeTurn(
   callback(result)
 }
 
+/** Start a fresh turn the way ChatPanel does. `turn` settles once it may be sent. */
+async function beginTurn(): Promise<{ turn: Promise<void> }> {
+  const start = chatProps.mock.lastCall?.[0].onTurnStart
+  if (!start) throw new Error('Chat turn-start handler is not mounted')
+  let turn!: Promise<void>
+  await act(async () => {
+    turn = Promise.resolve(start())
+  })
+  return { turn }
+}
+
 /** Opens the app bar's account menu (unless it already is) and returns an item. */
 function accountAction(name: string): HTMLButtonElement {
   if (!screen.queryByRole('menu', { name: 'Fabric account' })) {
@@ -201,6 +230,7 @@ function accountAction(name: string): HTMLButtonElement {
 
 beforeEach(() => {
   chatProps.mockClear()
+  previewProps.mockClear()
   advisorProps.mockClear()
   advisorMock.derived = { badge: null, items: [], open: [], resolved: [] }
   advisorMock.handOff.mockClear()
@@ -690,7 +720,6 @@ describe('Workbench after-turn deployment', () => {
  * registers another port (rayfin.yml + a settings push) or stops the process.
  */
 describe('Workbench live preview ports', () => {
-  const settings: AppSettings = { theme: 'system', experiments: { localDevPreview: true } }
   const conflict: PortConflict = {
     port: 5173,
     occupant: { pid: 4321, name: 'node.exe', commandLine: 'node C:\\other-app\\node_modules\\vite\\bin\\vite.js' },
@@ -699,36 +728,13 @@ describe('Workbench live preview ports', () => {
     needsPush: true
   }
 
-  function installDev(api: ReturnType<typeof installApi>) {
-    const dev = {
-      plan: vi.fn().mockResolvedValue({ conflict }),
-      start: vi.fn().mockResolvedValue({ ok: true, outcome: 'running', url: 'http://localhost:5174' }),
-      stop: vi.fn().mockResolvedValue(undefined),
-      freePort: vi.fn().mockResolvedValue(undefined),
-      registerPort: vi.fn().mockResolvedValue({ ok: true, outcome: 'success' }),
-      onState: vi.fn(() => () => {})
-    }
-    Object.assign(api, { dev })
-    return dev
-  }
-
-  async function mount() {
+  async function mount(settings: AppSettings | null = { theme: 'system' }) {
     const api = installApi(true)
-    const dev = installDev(api)
+    const dev = api.dev
+    dev.plan.mockResolvedValue({ conflict })
     render(<Workbench {...makeProps({ settings })} />, { wrapper: Wrapper })
     await screen.findByLabelText('Chat draft')
     return { api, dev }
-  }
-
-  /** Start a fresh turn the way ChatPanel does. `turn` settles once it may be sent. */
-  async function beginTurn(): Promise<{ turn: Promise<void> }> {
-    const start = chatProps.mock.lastCall?.[0].onTurnStart
-    if (!start) throw new Error('Chat turn-start handler is not mounted')
-    let turn!: Promise<void>
-    await act(async () => {
-      turn = Promise.resolve(start())
-    })
-    return { turn }
   }
 
   it('starts straight away on a free port that sign-in accepts', async () => {
@@ -853,15 +859,111 @@ describe('Workbench live preview ports', () => {
     expect(dev.start).not.toHaveBeenCalled()
   })
 
-  it('never asks when the experiment is off', async () => {
-    const api = installApi(true)
-    const dev = installDev(api)
-    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
-    await screen.findByLabelText('Chat draft')
+  it.each<{ label: string; settings: AppSettings | null }>([
+    { label: 'settings are still loading', settings: null },
+    { label: 'experiments are absent', settings: { theme: 'system' } },
+    { label: 'experiments are empty', settings: { theme: 'system', experiments: {} } },
+    ...[false, true].map((localDevPreview) => ({
+      label: `the retired preview flag is ${localDevPreview}`,
+      settings: {
+        theme: 'system' as const,
+        experiments: { localDevPreview, teamWorkspaces: false }
+      }
+    }))
+  ])('starts live preview when $label', async ({ settings }) => {
+    const { dev } = await mount(settings)
+    dev.plan.mockResolvedValue({ port: 5174 })
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    expect(dev.plan).toHaveBeenCalledWith(project.id)
+    expect(dev.start).toHaveBeenCalledWith(project.id, 5174)
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBe('http://localhost:5174')
+  })
+
+  it('keeps the deployed preview when the project has no local Vite', async () => {
+    const { dev } = await mount()
+    dev.plan.mockResolvedValue({})
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    expect(dev.start).not.toHaveBeenCalled()
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it.each(['port planning', 'startup result', 'startup rejection'])(
+    'reports a %s failure without holding the turn or replacing the deployed preview',
+    async (failure) => {
+      const { dev } = await mount()
+      dev.plan.mockResolvedValue({ port: 5174 })
+      if (failure === 'port planning') {
+        dev.plan.mockRejectedValueOnce(new Error('Preview startup failed'))
+      } else if (failure === 'startup result') {
+        dev.start.mockResolvedValueOnce({ ok: false, outcome: 'error', error: 'Preview startup failed' })
+      } else {
+        dev.start.mockRejectedValueOnce(new Error('Preview startup failed'))
+      }
+      const { turn } = await beginTurn()
+      await act(async () => turn)
+      expect(await screen.findByText('Preview startup failed')).toBeTruthy()
+      expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBeNull()
+    }
+  )
+
+  it('enables the chat and Design submission interlocks during deployment without a preview flag', async () => {
+    const { api, dev } = await mount()
+    const deploying = deferred<DeployResult>()
+    api.deploy.run.mockReturnValueOnce(deploying.promise)
+    fireEvent.click(screen.getByRole('button', { name: 'Test deploy' }))
+    await waitFor(() => expect(chatProps.mock.lastCall?.[0].deploying).toBe(true))
+    expect(chatProps.mock.lastCall?.[0].blockSubmitWhileDeploying).toBe(true)
+    expect(previewProps.mock.lastCall?.[0].designSendBlocked).toMatch(/Deploying/)
+
     const { turn } = await beginTurn()
     await act(async () => turn)
     expect(dev.plan).not.toHaveBeenCalled()
     expect(dev.start).not.toHaveBeenCalled()
+
+    await act(async () => deploying.resolve({ ok: true, outcome: 'success' }))
+    await waitFor(() => expect(chatProps.mock.lastCall?.[0].deploying).toBe(false))
+    expect(previewProps.mock.lastCall?.[0].designSendBlocked).toBeNull()
+    dev.plan.mockResolvedValue({ port: 5174 })
+    const next = await beginTurn()
+    await act(async () => next.turn)
+    expect(dev.start).toHaveBeenCalledWith(project.id, 5174)
+  })
+
+  it.each([true, false])('stops the local preview at turn end (success: %s) before any auto-deploy', async (ok) => {
+    const { api, dev } = await mount()
+    dev.plan.mockResolvedValue({ port: 5174 })
+    api.deploy.hasChanges.mockResolvedValue(true)
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBe('http://localhost:5174')
+
+    await act(async () => completeTurn({
+      ok, filesModified: [], ranDeploy: false, error: ok ? undefined : 'Stopped'
+    }))
+    expect(dev.stop).toHaveBeenCalledWith(project.id)
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBeNull()
+    expect(api.deploy.run).toHaveBeenCalledTimes(ok ? 1 : 0)
+    if (ok) {
+      expect(dev.stop.mock.invocationCallOrder[0]).toBeLessThan(api.deploy.run.mock.invocationCallOrder[0])
+    }
+  })
+
+  it('does not resurrect a local preview whose startup finishes after the turn ended', async () => {
+    const { dev } = await mount()
+    const started = deferred<DevServerResult>()
+    dev.plan.mockResolvedValue({ port: 5174 })
+    dev.start.mockReturnValueOnce(started.promise)
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    await act(async () => completeTurn({ ok: false, filesModified: [], ranDeploy: false }))
+    expect(dev.stop).toHaveBeenCalledWith(project.id)
+
+    await act(async () => started.resolve({ ok: true, outcome: 'running', url: 'http://localhost:5174' }))
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBeNull()
   })
 })
 
@@ -1003,6 +1105,22 @@ describe('Workbench team workspaces', () => {
     await act(async () => completeTurn({ ok: false, error: 'Stopped', filesModified: [], ranDeploy: false }))
 
     expect(team.sync).not.toHaveBeenCalled()
+  })
+
+  it('keeps a team local preview while its saved turn waits for the pipeline', async () => {
+    const { api, team } = installTeamApi()
+    api.dev.plan.mockResolvedValue({ port: 5174 })
+    render(<Workbench {...makeProps({ settings: teamSettings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    expect(api.dev.start).toHaveBeenCalledWith(teamProject.id, 5174)
+
+    await act(async () => completeTurn())
+    expect(team.sync).toHaveBeenCalledWith(teamProject.id, '')
+    expect(api.dev.stop).not.toHaveBeenCalled()
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBe('http://localhost:5174')
+    expect(api.deploy.run).not.toHaveBeenCalled()
   })
 
   it('replaces the deployments control with Publish and never locks chat behind a deploy', async () => {

@@ -808,7 +808,7 @@ export default function HistoryView({
                   <ChatIcon className="btn-ico" />
                 </button>
               )}
-              {diff && !diff.binary && !diff.tooLarge && (
+              {diff && !diff.error && !diff.binary && !diff.tooLarge && (
                 <button className="hist-diff-tool" onClick={copyContents} title="Copy this version's contents">
                   {copiedDiff ? <span className="hist-diff-copied">Copied</span> : <CopyIcon className="btn-ico" />}
                 </button>
@@ -841,7 +841,7 @@ export default function HistoryView({
           <div className="hist-diff-body">
             {!file ? (
               <div className="code-empty">Select a file to see what changed.</div>
-            ) : file.binary ? (
+            ) : file.binary || (!diffLoading && diff?.binary) ? (
               <div className="code-empty">This is an image or binary file — no text diff to show.</div>
             ) : diffLoading ? (
               <div className="code-empty">Loading…</div>

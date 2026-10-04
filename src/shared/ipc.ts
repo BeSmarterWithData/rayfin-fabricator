@@ -1010,9 +1010,9 @@ export interface DeployStatus {
 }
 
 /**
- * Result of starting a project's Vite dev server for the live local preview
- * (experimental). `outcome` is `running` (started, or already up), `unsupported`
- * (the project has no `dev` script / no local Vite), `port-busy` (every port the
+ * Result of starting a project's Vite dev server for the live local preview.
+ * `outcome` is `running` (started, or already up), `unsupported`
+ * (no locally installed Vite / Node), `port-busy` (every port the
  * app's sign-in accepts is taken; see `conflict`), or `error`.
  */
 export interface DevServerResult {
@@ -1269,25 +1269,6 @@ export interface AppSettings {
 
 /** Opt-in experimental feature flags (Settings → Experiments). */
 export interface ExperimentFlags {
-  /**
-   * Compatibility rendering: force WebView2 software rendering (disable GPU
-   * acceleration). Fixes freezing/hangs in VMs such as Parallels where the
-   * virtualized GPU misbehaves. Applied at startup, so a change needs a relaunch.
-   */
-  compatibilityRendering?: boolean
-  /**
-   * Chat mode selector: show the Agent / Plan / Autopilot dropdown in the chat
-   * composer. Plan mode researches, clarifies, and waits for approval before
-   * building. When off (the default), every turn runs in standard Agent mode.
-   */
-  chatModeSelector?: boolean
-  /**
-   * Live local preview: while an agent turn runs, start the project's Vite dev
-   * server and point the preview at `localhost` so edits show live (HMR). The
-   * server is stopped at turn end and the normal after-turn deploy takes over.
-   * Off by default; requires the project's locally installed Vite.
-   */
-  localDevPreview?: boolean
   /**
    * Team workspaces: share apps through a private GitHub repository, work on
    * branches, and publish through a pipeline that deploys with a service
@@ -2534,7 +2515,7 @@ export interface RayfinStudioApi {
   }
 
   /**
-   * Live local preview (experimental, opt-in via {@link ExperimentFlags.localDevPreview}).
+   * Automatic live local preview for projects with locally installed Vite.
    * Runs the project's Vite dev server directly (no `rayfin up`) so edits show
    * live at `localhost` during an agent turn; stopped at turn end. It serves on a
    * port listed in rayfin.yml's `allowedRedirectUris` so sign-in works. Output

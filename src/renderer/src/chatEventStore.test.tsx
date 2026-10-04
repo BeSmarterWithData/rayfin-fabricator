@@ -126,7 +126,8 @@ describe('workbench chat event store', () => {
     expect(state().plan?.content).toBe('# Draft')
   })
 
-  it('persists authoritative mode changes while the composer is unmounted', async () => {
+  it('does not persist a selector preference from engine mode changes', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem')
     render(<Harness />)
     await act(async () => {
       emit({
@@ -135,6 +136,7 @@ describe('workbench chat event store', () => {
         event: { type: 'mode-changed', mode: 'autopilot' }
       })
     })
-    expect(localStorage.getItem('rayfin.chatMode.p1')).toBe('autopilot')
+    expect(setItem).not.toHaveBeenCalled()
+    expect(localStorage.getItem('rayfin.chatMode.p1')).toBeNull()
   })
 })

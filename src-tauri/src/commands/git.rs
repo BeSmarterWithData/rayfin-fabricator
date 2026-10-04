@@ -358,21 +358,28 @@ fn parse_name_status(name_status_stdout: &str, counts: &std::collections::HashMa
 }
 
 async fn commit_changes(cwd: &str, hash: &str) -> Vec<GitChange> {
-  let name_status = git(cwd, &["show", hash, "--name-status", "--format=", "-M"]).await;
+  let name_status = git(cwd, &["show", hash, "--name-status", "--format=", "-M", "--relative", "--", "."]).await;
   if !name_status.ok {
     return vec![];
   }
-  let numstat = git(cwd, &["show", hash, "--numstat", "--format=", "-M"]).await;
+  let numstat = git(cwd, &["show", hash, "--numstat", "--format=", "-M", "--relative", "--", "."]).await;
   let counts = parse_numstat(if numstat.ok { &numstat.stdout } else { "" });
   parse_name_status(&name_status.stdout, &counts)
 }
 
 async fn working_change_list(cwd: &str) -> Vec<GitChange> {
-  let status = git(cwd, &["status", "--porcelain=v1", "--untracked-files=all"]).await;
+  let status = git(cwd, &["status", "--porcelain=v1", "--untracked-files=all", "--", "."]).await;
   if !status.ok {
     return vec![];
   }
-  let numstat = git(cwd, &["diff", "--numstat", "HEAD"]).await;
+  // Porcelain paths are repository-relative even when cwd is a nested app.
+  let prefix = git(cwd, &["rev-parse", "--show-prefix"]).await;
+  if !prefix.ok {
+    log::warn!("could not resolve Git's project prefix for {cwd}: {}", prefix.stderr.trim());
+    return vec![];
+  }
+  let prefix = prefix.stdout.trim_end_matches(['\r', '\n']);
+  let numstat = git(cwd, &["diff", "--numstat", "--relative", "HEAD", "--", "."]).await;
   let counts = parse_numstat(if numstat.ok { &numstat.stdout } else { "" });
 
   let mut changes = Vec::new();
@@ -391,14 +398,18 @@ async fn working_change_list(cwd: &str) -> Vec<GitChange> {
         path = rest[idx + 4..].trim().to_string();
       }
     }
-    let path = path.trim().trim_matches('"').to_string();
+    let path = path.trim().trim_matches('"');
+    let Some(path) = path.strip_prefix(prefix) else { continue };
     if path.is_empty() {
       continue;
     }
+    let old_path = old_path.and_then(|old| {
+      old.trim_matches('"').strip_prefix(prefix).map(str::to_string)
+    });
     let status2 = if code == "??" { "added" } else { status_from_code(code.trim()) };
-    let c = counts.get(&path);
+    let c = counts.get(path);
     changes.push(GitChange {
-      path,
+      path: path.to_string(),
       old_path,
       status: status2.to_string(),
       insertions: c.map(|c| c.insertions).unwrap_or(0),
@@ -427,32 +438,35 @@ pub async fn git_compare_changes(id: String, base: String, target: String) -> Ve
   let Some(project) = find_project(&id) else {
     return vec![];
   };
-  let cwd = project.path;
-  let name_status = git(&cwd, &["diff", "--name-status", "-M", &base, &target]).await;
+  let mut list = compare_change_list(&project.path, &base, &target).await;
+  list.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+  list
+}
+
+async fn compare_change_list(cwd: &str, base: &str, target: &str) -> Vec<GitChange> {
+  let name_status = git(cwd, &["diff", "--name-status", "-M", "--relative", base, target, "--", "."]).await;
   if !name_status.ok {
     return vec![];
   }
-  let numstat = git(&cwd, &["diff", "--numstat", "-M", &base, &target]).await;
+  let numstat = git(cwd, &["diff", "--numstat", "-M", "--relative", base, target, "--", "."]).await;
   let counts = parse_numstat(if numstat.ok { &numstat.stdout } else { "" });
-  let mut list = parse_name_status(&name_status.stdout, &counts);
-  list.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
-  list
+  parse_name_status(&name_status.stdout, &counts)
 }
 
 /* --------------------------------- diff ----------------------------------- */
 
 async fn show_at(cwd: &str, rev: &str, path: &str) -> String {
-  let res = run("git", &["-c", "core.quotepath=false", "show", &format!("{rev}:{path}")], opts(cwd)).await;
+  // `:./` resolves from the app's cwd, including inside a linked worktree.
+  let res = run("git", &["-c", "core.quotepath=false", "show", &format!("{rev}:./{path}")], opts(cwd)).await;
   if res.ok { res.stdout } else { String::new() }
 }
 
-fn read_working(root: &str, rel_path: &str) -> String {
-  let Some(target) = safe_resolve(root, rel_path) else {
-    return String::new();
-  };
-  match std::fs::metadata(&target) {
-    Ok(m) if m.is_file() => std::fs::read_to_string(&target).unwrap_or_default(),
-    _ => String::new(),
+fn read_working(root: &str, rel_path: &str) -> Result<String, String> {
+  let target = safe_resolve(root, rel_path).ok_or_else(|| "Path is outside the project.".to_string())?;
+  match std::fs::read(&target) {
+    Ok(bytes) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
+    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+    Err(e) => Err(format!("Could not read {rel_path}: {e}")),
   }
 }
 
@@ -469,15 +483,26 @@ pub async fn git_file_diff(id: String, reference: String, path: String, old_path
       error: Some("Project not found.".into()),
     };
   };
-  let cwd = project.path;
+  file_diff_at(&project.path, &reference, path, old_path).await
+}
+
+async fn file_diff_at(cwd: &str, reference: &str, path: String, old_path: Option<String>) -> GitFileDiff {
   let source = old_path.as_deref().unwrap_or(&path);
 
   let (before, after) = if reference == GIT_WORKING_REF {
-    (show_at(&cwd, "HEAD", source).await, read_working(&cwd, &path))
+    let after = match read_working(cwd, &path) {
+      Ok(content) => content,
+      Err(error) => return GitFileDiff {
+        path, old_path, status: "modified".into(),
+        before: String::new(), after: String::new(),
+        binary: None, too_large: None, error: Some(error),
+      },
+    };
+    (show_at(cwd, "HEAD", source).await, after)
   } else {
     (
-      show_at(&cwd, &format!("{reference}^"), source).await,
-      show_at(&cwd, &reference, &path).await,
+      show_at(cwd, &format!("{reference}^"), source).await,
+      show_at(cwd, reference, &path).await,
     )
   };
 
@@ -630,6 +655,127 @@ mod tests {
     let out = std::process::Command::new("git").args(args).current_dir(dir).output().expect("git runs");
     assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
     String::from_utf8_lossy(&out.stdout).trim().to_string()
+  }
+
+  struct TestRepo {
+    root: PathBuf,
+    dir: PathBuf,
+  }
+
+  impl TestRepo {
+    fn new() -> Self {
+      let root = std::env::temp_dir().join(format!("fab-history-{}", uuid::Uuid::new_v4()));
+      let dir = root.join("repo");
+      std::fs::create_dir_all(&dir).unwrap();
+      run_git(&dir, &["init", "-q", "-b", "main"]);
+      run_git(&dir, &["config", "core.autocrlf", "false"]);
+      run_git(&dir, &["config", "user.name", "Test"]);
+      run_git(&dir, &["config", "user.email", "test@example.invalid"]);
+      Self { root, dir }
+    }
+  }
+
+  impl Drop for TestRepo {
+    fn drop(&mut self) {
+      let _ = std::fs::remove_dir_all(&self.root);
+    }
+  }
+
+  #[tokio::test]
+  async fn nested_worktree_diffs_read_the_app_not_a_repeated_folder_prefix() {
+    let repo = TestRepo::new();
+    let app = repo.dir.join("apps").join("meow");
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::create_dir_all(repo.dir.join("other")).unwrap();
+    let before = "{\n  \"name\": \"meow\"\n}\n";
+    let after = "{\n  \"name\": \"meow\",\n  \"private\": true\n}\n";
+    std::fs::write(app.join("package.json"), before).unwrap();
+    std::fs::write(app.join("staged.ts"), "staged before\n").unwrap();
+    std::fs::write(app.join("mixed.ts"), "mixed before\n").unwrap();
+    std::fs::write(app.join("deleted.ts"), "deleted before\n").unwrap();
+    std::fs::write(app.join("old name.ts"), "renamed content\n").unwrap();
+    std::fs::write(repo.dir.join("other").join("app.ts"), "other before\n").unwrap();
+    run_git(&repo.dir, &["add", "-A"]);
+    run_git(&repo.dir, &["commit", "-qm", "First"]);
+    let base = run_git(&repo.dir, &["rev-parse", "HEAD"]);
+    let worktree = repo.root.join("working copy");
+    run_git(&repo.dir, &["worktree", "add", "--quiet", "--detach", worktree.to_str().unwrap(), "HEAD"]);
+    let app = worktree.join("apps").join("meow");
+    let cwd = app.to_str().unwrap();
+    std::fs::create_dir_all(app.join("src")).unwrap();
+    std::fs::write(app.join("package.json"), after).unwrap();
+    std::fs::write(app.join("staged.ts"), "staged after\n").unwrap();
+    std::fs::write(app.join("mixed.ts"), "mixed staged\n").unwrap();
+    run_git(&app, &["add", "staged.ts", "mixed.ts"]);
+    std::fs::write(app.join("mixed.ts"), "mixed working\n").unwrap();
+    std::fs::remove_file(app.join("deleted.ts")).unwrap();
+    run_git(&app, &["mv", "old name.ts", "new name.ts"]);
+    std::fs::write(app.join("src").join("new file.ts"), "new content\n").unwrap();
+    std::fs::write(worktree.join("other").join("app.ts"), "other after\n").unwrap();
+
+    let changes = working_change_list(cwd).await;
+    assert_eq!(changes.len(), 6);
+    for (path, expected_before, expected_after, status) in [
+      ("package.json", before, after, "modified"),
+      ("staged.ts", "staged before\n", "staged after\n", "modified"),
+      ("mixed.ts", "mixed before\n", "mixed working\n", "modified"),
+      ("deleted.ts", "deleted before\n", "", "deleted"),
+      ("new name.ts", "renamed content\n", "renamed content\n", "renamed"),
+      ("src/new file.ts", "", "new content\n", "added"),
+    ] {
+      let change = changes.iter().find(|c| c.path == path)
+        .unwrap_or_else(|| panic!("missing project-relative path {path}"));
+      assert_eq!(change.status, status);
+      if status == "renamed" {
+        assert_eq!(change.old_path.as_deref(), Some("old name.ts"));
+      }
+      let diff = file_diff_at(cwd, GIT_WORKING_REF, change.path.clone(), change.old_path.clone()).await;
+      assert!(diff.error.is_none(), "{:?}", diff.error);
+      assert_eq!(diff.before, expected_before, "{path}");
+      assert_eq!(diff.after, expected_after, "{path}");
+      assert_eq!(diff.status, status, "{path}");
+    }
+    let mixed = changes.iter().find(|c| c.path == "mixed.ts").unwrap();
+    assert_eq!((mixed.insertions, mixed.deletions), (1, 1));
+
+    run_git(&worktree, &["add", "-A"]);
+    run_git(&worktree, &["commit", "-qm", "Second"]);
+    let head = run_git(&worktree, &["rev-parse", "HEAD"]);
+    for changes in [commit_changes(cwd, &head).await, compare_change_list(cwd, &base, &head).await] {
+      assert_eq!(changes.len(), 6);
+      assert!(changes.iter().any(|c| c.path == "package.json"));
+      assert!(!changes.iter().any(|c| c.path.starts_with("apps/") || c.path.starts_with("other/")));
+    }
+    let snapshot = file_diff_at(cwd, &head, "package.json".into(), None).await;
+    assert_eq!(snapshot.before, before);
+    assert_eq!(snapshot.after, after);
+    let root_diff = file_diff_at(worktree.to_str().unwrap(), &head, "apps/meow/package.json".into(), None).await;
+    assert_eq!(root_diff.before, before);
+    assert_eq!(root_diff.after, after);
+  }
+
+  #[tokio::test]
+  async fn working_diffs_handle_new_binary_large_and_unreadable_files() {
+    let repo = TestRepo::new();
+    let cwd = repo.dir.to_str().unwrap();
+    std::fs::write(repo.dir.join("new.txt"), "new before the first commit\n").unwrap();
+    std::fs::write(repo.dir.join("binary.dat"), [0, 0xff, 1]).unwrap();
+    std::fs::write(repo.dir.join("large.txt"), vec![b'x'; MAX_DIFF_BYTES + 1]).unwrap();
+    std::fs::create_dir(repo.dir.join("directory")).unwrap();
+    let added = file_diff_at(cwd, GIT_WORKING_REF, "new.txt".into(), None).await;
+    assert_eq!(added.before, "");
+    assert_eq!(added.after, "new before the first commit\n");
+    assert_eq!(added.status, "added");
+    let binary = file_diff_at(cwd, GIT_WORKING_REF, "binary.dat".into(), None).await;
+    assert_eq!(binary.binary, Some(true));
+    assert!(binary.after.is_empty());
+    let large = file_diff_at(cwd, GIT_WORKING_REF, "large.txt".into(), None).await;
+    assert_eq!(large.too_large, Some(true));
+    assert!(large.after.is_empty());
+    let unreadable = file_diff_at(cwd, GIT_WORKING_REF, "directory".into(), None).await;
+    assert!(unreadable.error.as_deref().is_some_and(|e| e.starts_with("Could not read directory:")));
+    let outside = file_diff_at(cwd, GIT_WORKING_REF, "../outside.txt".into(), None).await;
+    assert_eq!(outside.error.as_deref(), Some("Path is outside the project."));
   }
 
   #[tokio::test]

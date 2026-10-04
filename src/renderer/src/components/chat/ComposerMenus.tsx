@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChatMode, CopilotModel, ReasoningEffort } from '@shared/ipc'
+import type { CopilotModel, ReasoningEffort } from '@shared/ipc'
 import { isFastModel, useCopilotModels } from '@renderer/copilotModels'
 import { moveMenuFocus } from '@renderer/menuFocus'
 import { Codicon, ImageIcon } from '../icons'
-import { ModeIcon } from './icons'
-import { EFFORT_OPTIONS, EFFORT_ORDER, MODES } from './modes'
+import { EFFORT_OPTIONS, EFFORT_ORDER } from './modes'
 
 /** Open/close state for a composer popover that closes on any outside click. */
 function usePopover(): [boolean, (open: boolean | ((o: boolean) => boolean)) => void] {
@@ -16,92 +15,6 @@ function usePopover(): [boolean, (open: boolean | ((o: boolean) => boolean)) => 
     return () => window.removeEventListener('click', close)
   }, [open])
   return [open, setOpen]
-}
-
-/** Agent / Plan / Autopilot selector (experimental). */
-export function ModeMenu({
-  mode,
-  disabled,
-  onSelect
-}: {
-  mode: ChatMode
-  disabled: boolean
-  onSelect: (mode: ChatMode) => void
-}): JSX.Element {
-  const [open, setOpen] = usePopover()
-  const triggerRef = useRef<HTMLButtonElement>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
-  const current = MODES.find((m) => m.id === mode) ?? MODES[0]
-
-  useEffect(() => {
-    if (!open) return
-    const id = requestAnimationFrame(() => {
-      menuRef.current
-        ?.querySelector<HTMLButtonElement>('[role="menuitemradio"][aria-checked="true"]')
-        ?.focus()
-    })
-    return () => cancelAnimationFrame(id)
-  }, [open])
-
-  const close = (): void => {
-    setOpen(false)
-    requestAnimationFrame(() => triggerRef.current?.focus())
-  }
-
-  return (
-    <div
-      className="composer-menu"
-      ref={menuRef}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && open) {
-          e.preventDefault()
-          close()
-          return
-        }
-        if (open) moveMenuFocus(e, '[role="menuitemradio"]')
-      }}
-    >
-      <button
-        ref={triggerRef}
-        type="button"
-        className={`composer-pill${open ? ' is-open' : ''}`}
-        onClick={() => setOpen((o) => !o)}
-        disabled={disabled}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        title={current.hint}
-      >
-        <ModeIcon mode={mode} className="composer-pill-icon" />
-        <span className="composer-pill-label">{current.label}</span>
-        <Codicon name="chevron-down" className="composer-pill-caret" />
-      </button>
-      {open && (
-        <div className="composer-pop" role="menu">
-          {MODES.map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              role="menuitemradio"
-              aria-checked={mode === m.id}
-              className={`composer-opt${mode === m.id ? ' is-on' : ''}`}
-              onClick={() => {
-                onSelect(m.id)
-                close()
-              }}
-            >
-              <ModeIcon mode={m.id} className="composer-opt-icon" />
-              <span className="composer-opt-text">
-                <span className="composer-opt-label">{m.label}</span>
-                <span className="composer-opt-desc">{m.desc}</span>
-              </span>
-              {mode === m.id && <Codicon name="check" className="composer-opt-check" />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 /** Display names for reasoning efforts; short forms fit the composer pill. */

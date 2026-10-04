@@ -5,7 +5,6 @@ import { useSuppressPreview } from '../overlay'
 import { useModalFocus } from '../modalFocus'
 import { useUpdates } from '../update'
 import { formatCopilotCli } from '../copilotVersion'
-import ConfirmModal from './ConfirmModal'
 
 interface Props {
   settings: AppSettings
@@ -60,19 +59,6 @@ export default function SettingsModal({
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const titleId = useId()
   const dialogRef = useModalFocus<HTMLDivElement>()
-  // Compatibility rendering is applied at startup, so any change only takes effect
-  // after a relaunch. Toggling it opens a mandatory restart prompt; `restartPrompt`
-  // holds the value to revert to if the user declines, keeping the setting from
-  // being left half-applied.
-  const [restartPrompt, setRestartPrompt] = useState<{ revertTo: boolean } | null>(null)
-
-  // Toggling compatibility rendering forces a restart: persist the new value, then
-  // require the user to relaunch (or cancel, which reverts the change).
-  function toggleCompatRendering(value: boolean): void {
-    const revertTo = Boolean(settings.experiments?.compatibilityRendering)
-    onChange({ experiments: { compatibilityRendering: value } })
-    setRestartPrompt({ revertTo })
-  }
 
   useEffect(() => {
     void window.api.projects.state().then((s) => setWorkspaceRoot(s.workspaceRoot))
@@ -210,16 +196,6 @@ export default function SettingsModal({
             </div>
 
             <div className="field">
-              <span className="field-label">Performance</span>
-              <ToggleRow
-                label="Compatibility rendering"
-                hint="Disable GPU acceleration to fix freezing in VMs like Parallels."
-                checked={Boolean(settings.experiments?.compatibilityRendering)}
-                onChange={toggleCompatRendering}
-              />
-            </div>
-
-            <div className="field">
               <span className="field-label">Updates</span>
               <div className="settings-row">
                 <span className="field-hint">{updateMsg}</span>
@@ -294,18 +270,6 @@ export default function SettingsModal({
                     </span>
                   </div>
                   <ToggleRow
-                    label="Chat mode selector"
-                    hint="Show Agent, Plan, and Autopilot in the composer. Plan researches, clarifies, and waits for approval before building."
-                    checked={Boolean(settings.experiments?.chatModeSelector)}
-                    onChange={(v) => onChange({ experiments: { chatModeSelector: v } })}
-                  />
-                  <ToggleRow
-                    label="Live local preview"
-                    hint="While an agent turn runs, show edits live from the project's installed Vite. If its sign-in port is taken, Fabricator offers to stop the other app or register another port."
-                    checked={Boolean(settings.experiments?.localDevPreview)}
-                    onChange={(v) => onChange({ experiments: { localDevPreview: v } })}
-                  />
-                  <ToggleRow
                     label="Team workspaces"
                     hint="Build apps with your team in a private GitHub repository. Everyone works on their own copy, and a pipeline publishes to Fabric with a deploy identity that Fabricator sets up. Team apps never deploy from this computer. Needs the GitHub CLI."
                     checked={Boolean(settings.experiments?.teamWorkspaces)}
@@ -329,19 +293,6 @@ export default function SettingsModal({
         </div>
       </div>
 
-      {restartPrompt && (
-        <ConfirmModal
-          title="Restart required"
-          message="Compatibility rendering only changes after a restart. Fabricator will restart now to apply it."
-          confirmLabel="Restart now"
-          cancelLabel="Cancel"
-          onConfirm={() => void window.api.relaunch()}
-          onCancel={() => {
-            onChange({ experiments: { compatibilityRendering: restartPrompt.revertTo } })
-            setRestartPrompt(null)
-          }}
-        />
-      )}
     </>
   )
 }

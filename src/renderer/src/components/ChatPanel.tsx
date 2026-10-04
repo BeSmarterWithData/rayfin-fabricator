@@ -30,15 +30,12 @@ import {
   buildRecoveredPlanPrompt,
   createPlanArtifact,
   modeForPlanAction,
-  readChatMode,
-  setPlanSubmitting,
-  shouldSuggestPlanMode,
-  writeChatMode
+  setPlanSubmitting
 } from '../chatPlan'
 import type { OutboundPrompt, UIChatMessage } from './chat/types'
 import { suggestionsFor, useGeneratedSuggestions } from './chat/suggestions'
-import { ModeIcon, SendIcon } from './chat/icons'
-import { AddMenu, ModeMenu, ModelMenu } from './chat/ComposerMenus'
+import { SendIcon } from './chat/icons'
+import { AddMenu, ModelMenu } from './chat/ComposerMenus'
 import { Welcome } from './chat/Welcome'
 import { uid } from './chat/format'
 import { readAsDataUrl, toPngAndThumb } from './chat/images'
@@ -144,9 +141,6 @@ interface Props {
   submitBlockedTitle?: string
   /** Open the fullscreen deploy step (the gate CTA). */
   onRequestDeploy?: () => void
-  /** Experimental: show the Agent / Plan / Autopilot mode selector in the composer.
-   * When false (the default), the selector is hidden and every turn runs in Agent mode. */
-  modeSelectorEnabled?: boolean
   /** The host owns the global chat-event subscription (keeps turns live while this panel is unmounted). */
   eventsManagedExternally?: boolean
   /** Open a file referenced by an @-mention chip (path without the leading @). */
@@ -197,7 +191,6 @@ export default function ChatPanel({
   blockSubmitWhileDeploying = false,
   submitBlockedTitle = 'Deploying — sending resumes when it goes live',
   onRequestDeploy,
-  modeSelectorEnabled = false,
   eventsManagedExternally = false,
   onOpenMention,
   draft,
@@ -252,22 +245,9 @@ export default function ChatPanel({
   useEffect(() => {
     setSending((s) => (s === hasLiveTurn ? s : hasLiveTurn))
   }, [hasLiveTurn])
-  const [mode, setModeState] = useState<ChatMode>(() => readChatMode(project.id))
-  const setMode = useCallback(
-    (next: ChatMode): void => {
-      setModeState(next)
-      writeChatMode(project.id, next)
-    },
-    [project.id]
-  )
-  useEffect(() => {
-    setModeState(readChatMode(project.id))
-  }, [project.id])
-  const activeMode: ChatMode = modeSelectorEnabled ? mode : 'agent'
   const [model, setModel] = useState(project.model ?? '')
   const [effort, setEffort] = useState<ReasoningEffort | ''>(project.effort ?? '')
   const [planBusyId, setPlanBusyId] = useState<string | null>(null)
-  const [dismissedPlanSuggestion, setDismissedPlanSuggestion] = useState<string | null>(null)
   const [confirmNewChat, setConfirmNewChat] = useState(false)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
@@ -437,13 +417,6 @@ export default function ChatPanel({
   } = useGeneratedSuggestions(project.id, messages.length === 0)
   const suggestions = generatedSuggestions ?? fallbackSuggestions
 
-  const showPlanSuggestion =
-    modeSelectorEnabled &&
-    activeMode === 'agent' &&
-    !sending &&
-    shouldSuggestPlanMode(input) &&
-    !(dismissedPlanSuggestion && input.startsWith(dismissedPlanSuggestion))
-
   // Persist a model / effort change (the picker already drops an effort the new
   // model can't use).
   function saveOptions(nextModel: string, nextEffort: ReasoningEffort | ''): void {
@@ -511,7 +484,6 @@ export default function ChatPanel({
       }
       // Structural event: drain buffered events first so they land before it.
       flush()
-      if (ev.type === 'mode-changed' && modeSelectorEnabled) setMode(ev.mode)
       onChangeRef.current((prev) =>
         prev.map((m) =>
           m.turnId === envelope.turnId && m.role === 'assistant'
@@ -529,7 +501,7 @@ export default function ChatPanel({
       }
       buf.clear()
     }
-  }, [eventsManagedExternally, project.id, modeSelectorEnabled, setMode])
+  }, [eventsManagedExternally, project.id])
 
   // Keep the view pinned to the newest content — but only when the user is already
   // near the bottom, so reading earlier messages isn't interrupted. Otherwise we
@@ -869,7 +841,7 @@ export default function ChatPanel({
   ): Promise<void> {
     const turnId = uid()
     const assistantId = uid()
-    const sendMode = modeOverride ?? activeMode
+    const sendMode = modeOverride ?? 'agent'
     const now = Date.now()
     const userMsg: UIChatMessage = {
       id: uid(),
@@ -978,7 +950,7 @@ export default function ChatPanel({
     setSending(true)
     await beginTurn(assistantMsg.id)
     try {
-      const result = await window.api.chat.send(project.id, turnId, original, [], activeMode)
+      const result = await window.api.chat.send(project.id, turnId, original, [], 'agent')
       finishTurn(turnId, result)
     } catch (error) {
       finishTurn(turnId, {
@@ -1061,7 +1033,6 @@ export default function ChatPanel({
             : message
         )
       )
-      setMode(revising ? 'plan' : modeForPlanAction(action))
       if (!revising && action !== 'exit_only') onPlanExecutionStart?.()
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
@@ -1157,7 +1128,6 @@ export default function ChatPanel({
         selectedAction,
         error: undefined
       }))
-      setMode('agent')
       return
     }
 
@@ -1192,7 +1162,6 @@ export default function ChatPanel({
         item.id === msgId ? { ...item, plan: undefined, interrupted: undefined } : item
       )
     )
-    setMode(sendMode)
     await dispatch(display, prompt, [], sendMode, recovered)
   }
 
@@ -1214,7 +1183,6 @@ export default function ChatPanel({
     setConfirmNewChat(false)
     await window.api.chat.reset(project.id)
     onChange(() => [])
-    setMode('agent')
     onClearHistory?.()
   }
 
@@ -1576,34 +1544,6 @@ export default function ChatPanel({
             )}
           </div>
         )}
-        {showPlanSuggestion && (
-          <div className="chat-plan-suggestion" role="status">
-            <span className="chat-plan-suggestion-icon" aria-hidden="true">
-              <ModeIcon mode="plan" />
-            </span>
-            <span className="chat-plan-suggestion-copy">
-              <strong>This looks multi-step.</strong> Plan it before making changes?
-            </span>
-            <button
-              type="button"
-              className="chat-plan-suggestion-action"
-              onClick={() => {
-                setMode('plan')
-                setDismissedPlanSuggestion(input)
-              }}
-            >
-              Use Plan
-            </button>
-            <button
-              type="button"
-              className="chat-plan-suggestion-dismiss"
-              aria-label="Dismiss Plan suggestion"
-              onClick={() => setDismissedPlanSuggestion(input)}
-            >
-              <CloseIcon />
-            </button>
-          </div>
-        )}
         <div
           className={`composer-box${dragOver ? ' composer-box--drag' : ''}`}
           onDrop={onComposerDrop}
@@ -1718,7 +1658,6 @@ export default function ChatPanel({
                 onConnectModel={() => setConnectOpen(true)}
                 onReferenceFile={insertMention}
               />
-              {modeSelectorEnabled && <ModeMenu mode={activeMode} disabled={sending} onSelect={setMode} />}
               <ModelMenu model={model} effort={effort} disabled={sending} onChange={saveOptions} />
             </div>
             <div className="composer-right">

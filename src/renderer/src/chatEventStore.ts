@@ -1,7 +1,6 @@
 import { useEffect, useRef, type Dispatch, type SetStateAction } from 'react'
 import { reduceChatMessage, type UIChatMessage } from './components/ChatPanel'
 import { ChatEventBuffer, isStreamingEvent } from './components/chat/eventCoalescer'
-import { writeChatMode } from './chatPlan'
 
 export type ChatStore = Record<string, UIChatMessage[]>
 
@@ -62,7 +61,6 @@ export function useChatEventStore(setChats: Dispatch<SetStateAction<ChatStore>>)
       }
 
       flush()
-      if (event.type === 'mode-changed') writeChatMode(envelope.projectId, event.mode)
       setChats((all) => {
         const messages = all[envelope.projectId]
         if (!messages) return all

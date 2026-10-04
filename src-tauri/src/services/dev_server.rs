@@ -1,4 +1,4 @@
-//! Live local preview (experimental): run a project's **Vite dev server** while
+//! Automatic live local preview: run a project's **Vite dev server** while
 //! an agent turn is in flight so edits show live (HMR) at `localhost`, then stop
 //! it at turn end and let the normal after-turn deploy take over. Team apps keep
 //! theirs until the pipeline has deployed the saved change, and run against

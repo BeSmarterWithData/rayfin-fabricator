@@ -41,40 +41,6 @@ fn telemetry_connection_string(app: &tauri::App) -> Option<String> {
   None
 }
 
-/// When the user enabled "compatibility rendering" (e.g. to fix freezing under
-/// Parallels/VMs), force WebView2 to software-render by disabling GPU before any
-/// window is created — WebView2 reads `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` when
-/// its environment is created, so this must run before the Tauri builder. The
-/// preference is read straight off disk (the store is file-based, no app handle
-/// needed). Windows-only; a no-op elsewhere. Changing the toggle requires a
-/// relaunch to take effect.
-#[cfg(windows)]
-fn apply_compatibility_rendering() {
-  let enabled = services::store::get_settings()
-    .experiments
-    .and_then(|e| e.compatibility_rendering)
-    .unwrap_or(false);
-  if !enabled {
-    return;
-  }
-  // Disable hardware GPU + GPU compositing so Chromium falls back to its software
-  // (SwiftShader) renderer, and turn off D3D11 + GPU rasterization too — the
-  // virtualized GPU in Parallels/VMs misreports capabilities and otherwise hangs
-  // or paints garbage. We deliberately do NOT disable the software rasterizer,
-  // since that fallback is exactly what we want the VM to use.
-  const FLAGS: &str =
-    "--disable-gpu --disable-gpu-compositing --disable-gpu-rasterization --disable-d3d11";
-  const KEY: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
-  let merged = match std::env::var(KEY) {
-    Ok(existing) if !existing.trim().is_empty() => format!("{existing} {FLAGS}"),
-    _ => FLAGS.to_string(),
-  };
-  std::env::set_var(KEY, merged);
-}
-
-#[cfg(not(windows))]
-fn apply_compatibility_rendering() {}
-
 /// Env var the Rayfin CLI reads to permit a plaintext token cache when the OS
 /// credential store is unavailable.
 const RAYFIN_ENCRYPTION_FALLBACK_ENV: &str = "RAYFIN_ENCRYPTION_FALLBACK_ENABLED";
@@ -129,11 +95,6 @@ pub fn run() {
   // child spawns so deploy-time installs and agent pack installs inherit it.
   // The cache is populated by the background seed in `setup` below.
   services::npm_cache::configure_env();
-
-  // Apply the "compatibility rendering" preference before the webview is created
-  // (WebView2 reads this env var at environment creation). Fixes freezing/hangs in
-  // VMs such as Parallels where the virtualized GPU misbehaves.
-  apply_compatibility_rendering();
 
   tauri::Builder::default()
     .plugin(tauri_plugin_dialog::init())

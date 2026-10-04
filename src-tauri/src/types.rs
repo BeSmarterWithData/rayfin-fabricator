@@ -464,8 +464,8 @@ pub struct DeployResult {
   pub error: Option<String>,
 }
 
-/// Result of starting a project's Vite dev server for the live local preview
-/// (experimental). `outcome` is one of `running` (started or already running),
+/// Result of starting a project's Vite dev server for the live local preview.
+/// `outcome` is one of `running` (started or already running),
 /// `unsupported` (no local Vite / Node), `port-busy` (every sign-in-ready port
 /// is taken; see `conflict`), or `error`.
 #[derive(Serialize, Clone)]
@@ -639,23 +639,6 @@ pub struct ProjectsState {
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ExperimentFlags {
-  /// Force WebView2 software/compatibility rendering (disables GPU acceleration).
-  /// Fixes freezing/hangs in VMs such as Parallels where the virtualized GPU
-  /// misbehaves. Read at startup and applied before the window is created, so a
-  /// change only takes effect after the app is relaunched. Opt-in (off by default).
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub compatibility_rendering: Option<bool>,
-  /// Chat mode selector: show the Agent / Plan / Autopilot dropdown in the chat
-  /// composer. When off (the default), the selector is hidden and every turn
-  /// runs in the standard Agent mode. Opt-in (off by default).
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub chat_mode_selector: Option<bool>,
-  /// Live local preview: while an agent turn runs, start the project's Vite dev
-  /// server and point the preview at `localhost` so edits show live (HMR); the
-  /// server is stopped at turn end and the normal after-turn deploy takes over.
-  /// Opt-in (off by default) and only for projects with installed Vite.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub local_dev_preview: Option<bool>,
   /// Team workspaces: share projects through a GitHub repository, work on
   /// branches, and publish through a pipeline that deploys with a service
   /// principal. Team projects never deploy from this machine. Opt-in (off by

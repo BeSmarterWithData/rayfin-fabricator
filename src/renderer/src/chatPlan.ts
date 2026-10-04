@@ -6,40 +6,11 @@ import type {
   ChatPlanTodo
 } from '@shared/ipc'
 
-const COMPLEX_CUES =
-  /\b(architect(?:ure|ural)?|redesign|refactor|restructure|migrat(?:e|ion)|overhaul|end[- ]to[- ]end|cross[- ]cutting|multi[- ](?:file|step|phase)|rollout|backward compatib|data model|state machine|authentication|authorization|performance|accessibility)\b/i
-const SIMPLE_CUES =
-  /^\s*(?:fix|change|rename|remove|add|update)\s+(?:the\s+)?(?:typo|label|text|color|icon|title|comment)\b/i
-const FILE_REF = /(?:^|\s)(?:[\w.-]+[\\/])+\w[\w.-]*|\b[\w.-]+\.(?:ts|tsx|js|jsx|rs|css|json|yml|yaml|md)\b/g
-const ACTION_CUE =
-  /\b(add|build|change|create|design|fix|implement|integrate|migrate|move|refactor|remove|replace|test|update|wire)\b/gi
-
 export const PLAN_ACTION_LABELS: Record<string, string> = {
   interactive: 'Build plan',
   autopilot: 'Run in Autopilot',
   autopilot_fleet: 'Run with fleet',
   exit_only: 'Approve plan'
-}
-
-function chatModeKey(projectId: string): string {
-  return `rayfin.chatMode.${projectId}`
-}
-
-export function readChatMode(projectId: string): ChatMode {
-  try {
-    const stored = localStorage.getItem(chatModeKey(projectId))
-    return stored === 'plan' || stored === 'autopilot' ? stored : 'agent'
-  } catch {
-    return 'agent'
-  }
-}
-
-export function writeChatMode(projectId: string, mode: ChatMode): void {
-  try {
-    localStorage.setItem(chatModeKey(projectId), mode)
-  } catch {
-    // Storage is optional; the current in-memory mode remains usable.
-  }
 }
 
 export function planActionLabel(action: string): string {
@@ -330,37 +301,4 @@ export function buildRecoveredPlanPrompt(
     'Already completed (do not repeat):',
     ...(completed.length ? completed.map(renderTodo) : ['- None recorded.'])
   ].join('\n')
-}
-
-/**
- * Deterministic local complexity score. It intentionally favors precision over
- * recall so a Plan suggestion feels helpful rather than appearing on every prompt.
- */
-export function planPromptComplexity(text: string): number {
-  const value = text.trim()
-  if (!value || value.length < 45 || SIMPLE_CUES.test(value)) return 0
-
-  let score = 0
-  if (value.length >= 140) score += 1
-  if (value.length >= 320) score += 1
-  if (COMPLEX_CUES.test(value)) score += 2
-
-  const lines = value.split(/\r?\n/).filter((line) => line.trim())
-  const listItems = lines.filter((line) => /^\s*(?:[-*]|\d+[.)])\s+/.test(line)).length
-  if (listItems >= 2 || lines.length >= 4) score += 2
-
-  const files = new Set(value.match(FILE_REF) ?? [])
-  if (files.size >= 2) score += 1
-
-  const actions = new Set((value.match(ACTION_CUE) ?? []).map((word) => word.toLowerCase()))
-  if (actions.size >= 3) score += 1
-
-  if (/\b(frontend|renderer|client)\b/i.test(value) && /\b(backend|server|api|database)\b/i.test(value)) {
-    score += 1
-  }
-  return score
-}
-
-export function shouldSuggestPlanMode(text: string): boolean {
-  return planPromptComplexity(text) >= 3
 }

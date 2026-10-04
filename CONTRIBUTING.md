@@ -6,9 +6,9 @@ Repository: https://github.com/spatney/rayfin-fabricator
 
 ## What this project is
 
-Fabricator is a Windows desktop app for building "Rayfin apps" via chat. It uses Tauri v2 with a Rust backend and a React 18 + TypeScript renderer built with Vite. It wraps the GitHub Copilot CLI for authoring and the Rayfin CLI (`rayfin up`) for deploy, preview, debug, and validation on Microsoft Fabric.
+Fabricator is a Windows desktop app for building "Rayfin apps" via chat. It uses Tauri v2 with a Rust backend and a React 18 + TypeScript renderer built with Vite. It wraps the GitHub Copilot CLI for authoring and the Rayfin CLI (`rayfin up`) for deployment to Microsoft Fabric.
 
-You author locally, but deploy, preview, debug, and validate remotely on Microsoft Fabric.
+You author locally. Fabricator automatically manages a local Vite frontend preview during chat turns when the project has Vite installed, using the existing Fabric backend. Deployment and backend validation still target Microsoft Fabric; projects without local Vite keep the deployed preview.
 
 ## Prerequisites
 
