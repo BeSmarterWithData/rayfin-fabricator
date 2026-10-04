@@ -1,0 +1,76 @@
+---
+title: "Privacy and telemetry"
+description: "What usage data Fabricator sends, what it never sends, and what stays on your device."
+---
+
+Fabricator is designed to keep product telemetry coarse. Code, prompts, responses, and app files are not sent to the developer as telemetry.
+
+## Telemetry is off unless configured
+
+Telemetry is a no-op unless the app starts with a bundled Application Insights connection string. Local development builds send nothing by default. Official release builds may include `resources/telemetry.json` with a connection string.
+
+If telemetry is configured, Fabricator sends fire-and-forget events to Azure Application Insights. Telemetry must not slow down or break user actions.
+
+## What usage stats says
+
+In **Settings**, **Usage stats** says:
+
+> We send your sign-in domain and a hashed email so we can see how the product is used. Your email, code, and apps stay on this device.
+
+That matches the current code: the email address is hashed before it leaves the device, and the sign-in domain is sent as the `tenantDomain` property.
+
+## Events Fabricator can send
+
+All telemetry events include these common fields:
+
+| Field | Meaning |
+| --- | --- |
+| `appVersion` | The Fabricator app version. |
+| `os` | The operating system constant reported by the app runtime. |
+| `tenantDomain` | The domain part of the signed-in email, normalized to lowercase. |
+| `ai.user.id` | A salted SHA-256 hash of the normalized email address. |
+| `ai.session.id` | A random session id for this app run. |
+| `ai.cloud.role` | `rayfin-fabricator`. |
+| `ai.device.osVersion` | The operating system constant reported by the runtime. |
+
+Fabricator can send these custom events:
+
+| Event | Extra fields |
+| --- | --- |
+| `signin` | `trigger`, currently `startup` or `login`. |
+| `deploy` | `success`, either `true` or `false`. |
+| `team` | `action`, currently `create`, `join`, or `publish`, plus `success`. |
+
+Team telemetry does not include repository names, workspace names, or app names.
+
+## How identifiers are hashed
+
+The telemetry user id is a SHA-256 hash of the normalized email address plus a Fabricator-specific salt. The salt ships in the binary and is not treated as a secret. It makes the hash stable for Fabricator without sending the raw email address.
+
+## What telemetry never sends
+
+Fabricator telemetry does not send:
+
+- Raw email addresses.
+- Source code.
+- Chat prompts or responses.
+- App names or app contents.
+- Repository names.
+- Fabric workspace names.
+- Credentials or tokens.
+
+## Diagnostics stay on your device
+
+Diagnostics are local files until you choose to share them. **Export diagnostics** creates a Markdown bundle in the local logs folder. You decide whether to attach that file to a bug report.
+
+By default, chat diagnostics contain metadata only. If you turn on **Full diagnostics**, Fabricator also saves prompts, responses, and tool output locally for each chat turn. Text fields are truncated. Full diagnostics are meant for bug reports where metadata is not enough.
+
+## Chat content goes to GitHub Copilot
+
+When you chat, Fabricator sends your request and relevant project context to GitHub Copilot because Copilot is the agent doing the work. That traffic is governed by GitHub's Copilot terms and policies for your account.
+
+The Advisor's **Run deep review** also uses Copilot in a read-only mode.
+
+## Deploys go to your Fabric tenant
+
+When you deploy, Fabricator runs the project-pinned Rayfin CLI. The app and its platform configuration are sent to the Microsoft Fabric workspace you choose. Fabric sign-in and deployment are handled by Rayfin and Microsoft Fabric.

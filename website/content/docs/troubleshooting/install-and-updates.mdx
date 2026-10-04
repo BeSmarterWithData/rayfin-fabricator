@@ -1,0 +1,56 @@
+---
+title: "Install and update problems"
+description: "Fix Windows SmartScreen warnings, macOS quarantine errors, and in-app update prompts or failures."
+---
+
+Use this page when Fabricator will not open, the installer is blocked, or an update cannot be applied.
+
+## Windows says the installer is uncommon
+
+You see a Windows SmartScreen warning when you run `Rayfin Fabricator_<version>_x64-setup.exe`.
+
+Fabricator's Windows installer is Authenticode code-signed and shows the verified publisher as Sachin Patney. SmartScreen reputation is still built per certificate and download, so early or uncommon downloads can warn even when the installer is signed.
+
+1. Confirm you downloaded the installer from [the latest GitHub release](https://github.com/spatney/rayfin-fabricator/releases/latest).
+2. In the SmartScreen dialog, select **More info**.
+3. Confirm the publisher is Sachin Patney.
+4. Select **Run anyway**.
+5. If Windows still blocks the installer, download the asset again from GitHub Releases.
+
+If the warning looks different or the publisher is not shown as expected, stop and [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## macOS says Fabricator is damaged and can't be opened
+
+You see "Rayfin Fabricator" is damaged and can't be opened, or macOS refuses to launch the app after you drag it into **Applications**.
+
+The macOS Apple Silicon build is ad-hoc signed but not notarized. macOS can quarantine the app on download and describe that quarantine as damage.
+
+1. Confirm you downloaded the `Rayfin Fabricator_<version>_aarch64.dmg` asset from [the latest GitHub release](https://github.com/spatney/rayfin-fabricator/releases/latest).
+2. Drag **Rayfin Fabricator** into **Applications**.
+3. Open Terminal.
+4. Run:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Rayfin Fabricator.app"
+   ```
+
+5. Open Fabricator again from **Applications**.
+
+As an alternative, Control-click the app and choose **Open**. The `xattr` command is the most reliable fix.
+
+If the app still will not open, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## An update won't install or keeps prompting
+
+You may see **Update available**, a `Fabricator <version> is ready to install.` prompt, an `Update <version> is ready to install` banner, a `Downloading update <version>…` banner, "Installing update…", or "Couldn’t check for updates. Try again later."
+
+Fabricator checks GitHub Releases on startup and from **Settings → Updates → Check for updates**. It downloads a signed update in the background, then offers **Update now** or **Later**. Choosing **Later** keeps the app open and leaves the banner available with **Restart & update**.
+
+1. If you see **Update available**, select **Update now**. Fabricator restarts to apply the update.
+2. If you chose **Later**, use the update banner and select **Restart & update** when you are ready.
+3. If **Settings → Updates → Check for updates** says "Couldn’t check for updates. Try again later.", check your network and try again.
+4. If the banner stays on `Downloading update <version>…` or "Installing update…" for a long time, restart Fabricator and run **Settings → Updates → Check for updates** again.
+5. If your installed build predates auto-update support, install the latest release manually once from [GitHub Releases](https://github.com/spatney/rayfin-fabricator/releases/latest). After that, in-app updates work.
+6. If you see "A required update must be installed to continue.", leave Fabricator open until it restarts. If it fails, install the latest release manually.
+
+If updates keep failing after a manual reinstall, [Report a problem](/docs/troubleshooting/report-a-problem).

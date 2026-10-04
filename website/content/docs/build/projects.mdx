@@ -1,0 +1,102 @@
+---
+title: "Create and manage projects"
+description: "Start a new Rayfin app, open an existing project, clone from GitHub, and rename or remove projects from Fabricator."
+---
+
+Projects are the Rayfin apps Fabricator can open. From **Your projects**, you can start a new app, open a local folder, clone a GitHub repository, or return to a recent project.
+
+![Home, with the New project, Open folder and Clone from GitHub actions above a list of three recent projects.](/screenshots/home.webp)
+
+## Create a new project
+
+A new Fabricator project starts from the bundled Universal App starter. You do not choose a template type up front. The starter begins small and Copilot grows it into the app you describe in chat.
+
+1. On **Your projects**, select **New project**.
+2. Type a **Project name**.
+3. Check the folder hint. Fabricator turns the name into a folder name and checks whether that folder already exists in your projects folder.
+4. If team workspaces are enabled, choose **Just me, on this computer** unless you are creating a team app.
+5. Select **Create project**.
+
+![The New project screen with Contoso Expenses typed as the project name, the folder name below it, and the Create project button.](/screenshots/new-project.webp)
+
+After the project is ready, Fabricator asks you to deploy it to a Fabric workspace before chat unlocks. See [Deploy to Microsoft Fabric](/docs/ship/deploy).
+
+> [!NOTE]
+> New local projects are saved under the **Workspace folder** in **Settings**. You can also use **Change folder** on **Your projects**.
+
+## Start from a community example
+
+Community examples are Rayfin templates, such as the `awesome-rayfin` gallery. Use one when you want a working sample as your starting point.
+
+1. Select **New project**.
+2. Enter a **Project name**.
+3. Select **Start from a community example**.
+4. Choose an example from the gallery, or select **Use a custom URL**.
+5. For a custom URL, paste an `https`, `git`, or `git+` template URL. If the repository has more than one template, enter the optional template name.
+6. Select **Create project**.
+
+Use **Start from scratch instead** to return to the Universal App starter.
+
+## Open an existing local project
+
+Use **Open folder** for a Rayfin project that is already on your computer.
+
+1. On **Your projects**, select **Open folder**.
+2. Pick the project folder.
+3. Fabricator opens the folder only if it contains `rayfin/rayfin.yml`.
+
+When a project opens, Fabricator makes sure the project dependencies are ready before it enables preview, deploy, model, and chat features.
+
+## Clone from GitHub
+
+**Clone from GitHub** uses the GitHub CLI, `gh`. It is separate from the bundled Copilot engine.
+
+1. On **Your projects**, select **Clone from GitHub**.
+2. If `gh` is missing, install it from the prompt or choose **Install manually**.
+3. If you are not signed in to GitHub, select **Sign in with GitHub**. A terminal runs `gh auth login --web`.
+4. Choose a repository from **Your repositories**, or paste `owner/name` or a `https://github.com/owner/name` link.
+5. Select **Clone and open**.
+
+Fabricator clones the repository into your workspace folder, verifies that it has `rayfin/rayfin.yml`, runs `npm install`, and opens it. If the repository is not a Rayfin project, Fabricator removes the fresh clone and reports the problem.
+
+## Manage recent projects
+
+Each recent project has a **Manage** button.
+
+### Rename a project
+
+1. Select **Manage** on the project card.
+2. Under **Project details**, edit **Project name**.
+3. Select **Save name**.
+
+Renaming updates Fabricator's project list and the `name:` field in `rayfin/rayfin.yml`.
+
+### Remove a project from the list
+
+Use **Remove from recent projects** when you want Fabricator to forget the entry without changing files, deployments, or data. You can open the folder again later.
+
+### Move a local project to trash
+
+1. Select **Manage**.
+2. Under **Remove project**, select **Review removal options...**.
+3. Choose whether to also delete the deployed Fabric app, if the project has one.
+4. Select **Move folder to trash** or **Move folder to trash and delete Fabric app**.
+
+Moving the folder uses your system trash, so you can restore it there. If you also delete the Fabric app, Fabricator removes the app and its data from the Fabric workspace. The Fabric workspace itself is not deleted.
+
+## Change where new projects are saved
+
+The current projects folder appears at the bottom of **Your projects** and in **Settings** as **Workspace folder**.
+
+1. Open **Settings**.
+2. Find **Workspace folder**.
+3. Select **Change…**.
+4. Pick a folder.
+
+Existing projects stay where they are. New projects and cloned repositories use the new folder.
+
+## If a first deploy would replace an app
+
+Before the first deploy, Fabricator checks the selected Fabric workspace for an app with the same name. If it finds one, you see a warning like "Sales apps already has an app named “Notes”. Deploying here would replace it, so pick another workspace."
+
+Choose another workspace, or select **Replace it anyway** if you intend to deploy over that app. For details, see [Deploy to Microsoft Fabric](/docs/ship/deploy).

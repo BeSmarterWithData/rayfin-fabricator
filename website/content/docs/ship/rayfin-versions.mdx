@@ -1,0 +1,67 @@
+---
+title: "Keep Rayfin up to date"
+description: "See which Rayfin CLI and SDK version each project uses, and let Copilot upgrade them together while keeping the app building."
+---
+
+Each Rayfin app pins its own Rayfin CLI and SDK packages. Fabricator reads those installed package versions and shows the project's Rayfin status in the status bar.
+
+![The Rayfin version control in the status bar, opened to show that the Rayfin CLI and SDK can be updated from 1.35.1 to 1.36.2 with Update with Copilot.](/screenshots/rayfin-version.webp)
+
+## Read the Rayfin status
+
+Look for the Rayfin version in the status bar, shown as `Rayfin v<version>` when the project version is known.
+
+When the project is current, the tooltip says the local Rayfin CLI and SDK version is up to date. When a newer npm release exists, the status becomes an update button with the installed version and the latest version.
+
+Open it to see separate rows for:
+
+- **Rayfin CLI**
+- **Rayfin SDK**
+
+The version checker reads `@microsoft/rayfin-cli` as the CLI package. Other `@microsoft/rayfin-*` packages are treated as SDK packages.
+
+## Update with Copilot
+
+When an update is available:
+
+1. Select the Rayfin version in the status bar.
+2. Review the version rows.
+3. Select **Update with Copilot**.
+
+Fabricator sends a prepared upgrade request to the Build chat. Copilot is asked to:
+
+- set exact Rayfin package versions in `package.json`,
+- run `npm install`,
+- keep Rayfin SDK packages in lockstep,
+- pin Rayfin connector packages to the new CLI version when the app uses them,
+- check the installed Rayfin docs for deprecations and known limitations,
+- update app code so it still builds and runs,
+- avoid running `rayfin up`.
+
+Fabricator redeploys automatically after a successful Copilot turn when there are undeployed changes.
+
+## Why lockstep matters
+
+Rayfin packages ship as a family. The Advisor rule catalog checks that the SDK packages are on one version because mixing `@microsoft/rayfin-core`, `-client`, `-data`, `-auth`, `-auth-provider-fabric`, `-lib`, `-functions`, `-storage`, `-embed-host`, and `-local-dev` versions is untested and can break at runtime.
+
+The CLI and SDK version independently, but newer releases carry fixes and match the current docs. See the [Rayfin changelog](https://rayfin.ai/docs/reference/changelog).
+
+## Minimum version for current Fabricator features
+
+The bundled Universal App starter and team workspaces require Rayfin **1.36.2 or newer**. Older existing projects keep their pinned dependencies until you update them.
+
+If you move an app into a team workspace, update older apps first with **Update with Copilot**.
+
+## If dependencies are missing
+
+When you open a project, Fabricator checks the project's Rayfin CLI and installs missing dependencies before enabling the project tools. While it works, you see a `Preparing <project name>` status and "Checking the project's Rayfin CLI and installing missing dependencies..."
+
+If installation fails, Fabricator shows **Couldn't install project dependencies** with **Retry installation** and **Switch projects**.
+
+## Manual upgrade prompt
+
+Use this if you want to start the upgrade yourself from the chat instead of the status-bar button:
+
+```prompt title="Upgrade Rayfin packages"
+Upgrade this app to the latest Rayfin release. Keep all Rayfin SDK packages on the same exact version, update the Rayfin CLI package too, run npm install, then check the installed Rayfin docs for deprecations or known limitations and update the app so it still builds.
+```

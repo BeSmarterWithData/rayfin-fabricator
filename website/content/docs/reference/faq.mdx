@@ -1,0 +1,68 @@
+---
+title: "Frequently asked questions"
+description: "Answers to common questions about Fabricator: who makes it, what it costs, which accounts it needs, where your data goes, and which platforms it supports."
+---
+
+## Is Fabricator a Microsoft product?
+
+No. Fabricator is a personal project built by Sachin Patney in his own free time. The author works at Microsoft, but Fabricator is not a Microsoft product and is not affiliated with, endorsed by, sponsored by, or supported by Microsoft. Maintenance is best-effort.
+
+## What does it cost?
+
+Fabricator is free and released under the MIT License.
+
+The app uses your GitHub Copilot plan for chat, deep Advisor reviews, and design options. Deployed apps run in Microsoft Fabric, so Fabric capacity costs are separate. See [Rayfin deployment pricing](https://rayfin.ai/docs/deploy/pricing) for Rayfin and Fabric cost details.
+
+## Which accounts do I need?
+
+You need a GitHub Copilot account for chat and a Microsoft account in a Fabric tenant to deploy apps. Team workspaces also use the GitHub CLI and Azure CLI. See [System requirements](/docs/reference/requirements) for the full list.
+
+## Does it work with GitHub Enterprise?
+
+Fabricator supports GitHub Enterprise Cloud, including data-residency hosts, through the **GitHub host** field during Copilot sign-in. Enter a host such as `company.ghe.com` or `https://company.ghe.com` before signing in.
+
+GitHub Enterprise Server is not supported by this Copilot login flow.
+
+## Where is my code and data?
+
+Your project files live in your local workspace folder. New projects are created there, and existing projects can be opened or cloned into it.
+
+When you deploy, Rayfin deploys the app to your selected Fabric workspace. Chat content goes to GitHub Copilot because Copilot is the agent that reads and edits the project.
+
+## What does Fabricator send to the developer?
+
+Official builds may send coarse usage telemetry if a telemetry connection string is included in the build. Fabricator does not send your raw email, code, prompts, or apps as telemetry. See [Privacy and telemetry](/docs/reference/privacy).
+
+## Which platforms are supported?
+
+Fabricator ships for Windows 10/11 and macOS on Apple Silicon. The release workflow builds a Windows `x86_64` installer and a macOS `darwin-aarch64` app. There are no Linux or Intel Mac release builds.
+
+## Where did the Data app template go?
+
+New projects now start from the Universal App starter. It grows into the app you describe in chat, so you do not choose a separate Data app template. To start from a ready-made app, use **Start from a community example**. See [Projects](/docs/build/projects).
+
+## Can I use an existing Rayfin project?
+
+Yes. From Home, open an existing local project or choose **Clone from GitHub** to clone a repository into the workspace folder.
+
+## Do I need to install the Rayfin CLI?
+
+No global Rayfin CLI install is required for normal use. Fabricator runs the project-pinned Rayfin CLI through `npx rayfin`.
+
+## Can I work offline?
+
+Not for the normal build-and-ship loop. Chat needs GitHub Copilot, deployment and Fabric preview need Microsoft Fabric, clone and team workflows need GitHub, scaffolding may need the npm registry, and update checks use GitHub Releases.
+
+You can still inspect files that are already on your computer, but Fabricator is designed for connected work.
+
+## How do I update or uninstall?
+
+Fabricator checks for updates on startup. You can also open **Settings** and select **Check for updates**. See [Install and updates](/docs/troubleshooting/install-and-updates) if updates fail.
+
+To uninstall, remove the installed **Rayfin Fabricator** app with your operating system's normal app removal flow. Your projects are in your workspace folder; app settings and logs are in the app data folder described in [Files and folders](/docs/reference/files).
+
+## How do I report a bug or contribute?
+
+Use **Report an issue** in the status bar to open a prefilled GitHub bug report, or file an issue in the [spatney/rayfin-fabricator repository](https://github.com/spatney/rayfin-fabricator/issues).
+
+Contributions are welcome. Read [CONTRIBUTING.md](https://github.com/spatney/rayfin-fabricator/blob/main/CONTRIBUTING.md) before opening a pull request.

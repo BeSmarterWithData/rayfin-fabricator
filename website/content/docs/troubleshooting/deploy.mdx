@@ -1,0 +1,111 @@
+---
+title: "Deploy and Fabric problems"
+description: "Fix failed deploys, stopped automatic redeploys, Fabric authentication, semantic model reads, Rayfin CLI errors, and sharing access."
+---
+
+Use this page when Fabricator cannot publish your app to Microsoft Fabric or the deployed app is not the version you expect.
+
+## A deploy failed
+
+You see **Deploy failed** in the preview status or a deploy toast. The preview error banner may include **Refresh Fabric authentication** and **View deploy logs**.
+
+![The preview after a failed deploy: a red banner with the error message, a Refresh Fabric authentication button, and the deploy logs expanded.](/screenshots/deploy-error.webp)
+
+Fabricator runs the project's pinned Rayfin CLI with `rayfin up -y --force`. The log is the source of truth: it includes Rayfin CLI output, dependency recovery, build errors, Fabric authentication failures, workspace targeting errors, and Fabric API failures.
+
+1. In the preview's error banner, open **View deploy logs**.
+2. Read the first real error near the end of the log. Ignore a final generic "Deploy failed" line if a more specific line appears above it.
+3. If the log says the project has no workspace or asks for a workspace, choose a deployment workspace and deploy again.
+4. If the log mentions authentication, expired credentials, a token-cache lock, `HTTP 401`, or `unauthorized`, use **Refresh Fabric authentication**, then select **Redeploy**.
+5. If the log mentions a build or TypeScript error, ask Copilot to fix that error, then deploy again.
+6. If the log mentions Fabric capacity, permissions, a workspace conflict, or a Fabric API failure, fix that Fabric workspace issue and select **Redeploy**.
+7. If the log mentions destructive data-model changes, note that Fabricator already runs deploy with `--force`; the failure is coming from the CLI or Fabric after that forced deploy attempt.
+
+If the log is unclear, [Report a problem](/docs/troubleshooting/report-a-problem) and attach diagnostics.
+
+## Automatic redeploy stopped
+
+After a successful chat turn, the app no longer redeploys automatically and you have to select **Redeploy**.
+
+Fabricator auto-deploys only after a successful, non-team chat turn when it can confirm there are changes since the last deployed revision. It does not auto-deploy failed or cancelled turns. If the last deployed revision is unknown, the next successful turn deploys once to establish a baseline. If the change check fails, Fabricator shows "Auto-deploy check failed" and tells you to use **Redeploy**.
+
+1. Confirm the chat turn finished successfully. Failed, stopped, or cancelled turns do not auto-deploy.
+2. Look for a toast saying "Auto-deploy check failed" or "Could not check for undeployed changes." If you see it, select **Redeploy**.
+3. If you switched deployments or workspaces, select **Redeploy** once to establish the deployed revision for that target.
+4. If a deploy is already running, wait for it to finish before sending another turn.
+5. If manual **Redeploy** works but automatic redeploy keeps stopping, keep using **Redeploy** as a workaround and [Report a problem](/docs/troubleshooting/report-a-problem).
+
+This is an open reliability issue for some long sessions.
+
+## Fabric authentication blocks deploy
+
+A deploy repeatedly fails even though setup shows you signed in, or the error banner offers **Refresh Fabric authentication**.
+
+![The account menu opened from the avatar in the top-right corner, showing the signed-in Fabric account with Refresh Fabric authentication and Sign out.](/screenshots/account-menu.webp)
+
+Fabricator deploys with the Rayfin CLI credentials for the project. **Refresh Fabric authentication** runs the selected project's `rayfin logout`, then `rayfin login`, and verifies the refreshed credential against Fabric. It does not clear Copilot, Azure CLI, or preview-browser sessions.
+
+1. Open the preview error banner or the account menu in the app bar.
+2. Select **Refresh Fabric authentication**.
+3. In the dialog, select **Clear credentials and sign in**.
+4. Complete the browser sign-in.
+5. Wait for Fabricator to show that authentication is verified.
+6. Select **Redeploy**. Authentication refresh does not redeploy automatically.
+
+If refresh fails, update the app's Rayfin packages to Rayfin 1.35.1 or newer from the Rayfin version control, then try again. If it still fails, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## Couldn't read the semantic model
+
+In the Model view or semantic-model connection flow, you see "Couldn’t read the semantic model" or "The API returned a URL outside the authenticated service."
+
+Fabricator reads semantic model metadata live from Fabric and Power BI APIs. The URL validation error was fixed after earlier releases by allowing Fabric, Power BI, and regional `analysis.windows.net` continuation hosts while still rejecting unrelated URLs.
+
+1. Update to the latest Fabricator version.
+2. Use **Refresh Fabric authentication** for the project.
+3. If the dialog offers **Sign in & retry**, select it and complete sign-in.
+4. Confirm you have access to the workspace and edit or write access when the semantic model definition requires it.
+5. Retry the Model view or semantic-model connection.
+
+If the same exact message appears on the latest version, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## The workspace or capacity blocks deploy
+
+The workspace picker or deploy log indicates that a workspace has no eligible Fabric capacity, the capacity is unavailable, or you do not have permission.
+
+Rayfin apps deploy to a Fabric workspace backed by an eligible Fabric capacity. Fabricator can list workspaces and capacity metadata, but the deploy still depends on your tenant permissions and Fabric capacity state.
+
+1. Choose a workspace backed by an active Fabric capacity.
+2. If the capacity is paused or unavailable, resume it in Fabric or choose another workspace.
+3. Confirm your account can deploy to the workspace.
+4. If you are in a client tenant, make sure you completed Fabric sign-in for that tenant.
+5. Select **Redeploy**.
+
+If you cannot see the right workspace or capacity, contact your Fabric administrator or [Report a problem](/docs/troubleshooting/report-a-problem) with the deploy log.
+
+## Rayfin CLI or npm package resolution failed
+
+The deploy log says the Rayfin CLI could not be found, npm reports `ETARGET`, or project dependency installation fails before `rayfin up` starts.
+
+Current Fabricator versions use the Rayfin CLI pinned in each project and warm a per-user npm cache. Older releases had global Rayfin CLI checks and a stale npm metadata problem that could produce `ETARGET` even when the package existed.
+
+1. Update to the latest Fabricator version.
+2. Open the project and let dependency installation finish.
+3. Select **Redeploy**.
+4. If npm still reports missing or unresolved packages, repair project dependencies with `npm ci` when `package-lock.json` exists, or `npm install` otherwise.
+5. Do not install a global Rayfin CLI as the primary fix; Fabricator deploys through the project-pinned CLI.
+
+If package resolution keeps failing, [Report a problem](/docs/troubleshooting/report-a-problem) and include the npm error.
+
+## Recipients can't open the shared app
+
+You shared a deployed app, but another person cannot open it.
+
+Deploying and sharing are separate. Fabricator's share flow grants app access in the target tenant, and for semantic models in other workspaces it grants Build access to those models.
+
+1. Confirm the app is deployed and live.
+2. Use the share flow again for the recipient's work email.
+3. Confirm the recipient belongs to the same Microsoft Entra tenant or has the required guest access.
+4. For semantic-model apps, confirm they also have access to the model's workspace or Build permission on the model.
+5. See [Share a deployed app](/docs/ship/share) for the normal flow.
+
+If sharing still fails, [Report a problem](/docs/troubleshooting/report-a-problem).

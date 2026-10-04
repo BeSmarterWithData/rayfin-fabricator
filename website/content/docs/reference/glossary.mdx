@@ -1,0 +1,129 @@
+---
+title: "Glossary"
+description: "Plain-language definitions of the terms used in Fabricator and these docs, from Rayfin and Fabric capacity to working copies and deploy identities."
+---
+
+## Advisor
+
+The health dashboard for a Rayfin app. It runs quick checks locally and can run a read-only Copilot deep review. See [Advisor](/docs/ship/advisor).
+
+## App item
+
+A Fabric item created by a deployed Rayfin app. Fabricator may also call this a Fabric app or App item when describing deployed apps. See [Deploy to Fabric](/docs/ship/deploy).
+
+## Autopilot
+
+A chat route used after an approved plan when Copilot continues autonomously end to end. See [Chat](/docs/build/chat).
+
+## Azure CLI
+
+Microsoft's command-line tool for Azure. Fabricator uses it for some team workspace setup and administrator flows. See [Team prerequisites](/docs/team/prerequisites).
+
+## Capacity
+
+Fabric capacity is the compute capacity assigned to Fabric workspaces. Team workspace setup asks you to choose a capacity. See [Team prerequisites](/docs/team/prerequisites).
+
+## Community example
+
+A ready-made Rayfin app template from the awesome-rayfin gallery or another template URL. Use **Start from a community example** when creating a project. See [Projects](/docs/build/projects).
+
+## Deep review
+
+A read-only Copilot review started from the Advisor with **Run deep review**. It checks issues that need judgment and cannot edit files or run commands. See [Advisor](/docs/ship/advisor).
+
+## Deploy identity
+
+A Microsoft Entra ID service principal used by a team workspace pipeline to deploy apps to Fabric. Team apps never deploy from a member's computer. See [Team workspaces](/docs/team).
+
+## Deployment
+
+A Rayfin app deployed to a Fabric workspace with `rayfin up`. Fabricator manages deployments from the deployments panel. See [Deploy to Fabric](/docs/ship/deploy).
+
+## Design mode
+
+A preview mode where you select elements in the app, describe visual changes, and send those changes to Copilot. See [Design mode](/docs/build/design).
+
+## Fabric app
+
+A Rayfin app hosted in Microsoft Fabric. In Fabric, the deployed app is represented by Fabric items in a workspace. See [Deploy to Fabric](/docs/ship/deploy).
+
+## Fabric workspace
+
+A Microsoft Fabric container for app items, data, semantic models, and other Fabric resources. See [Deploy to Fabric](/docs/ship/deploy).
+
+## Finding
+
+An Advisor issue. A finding includes what was flagged, why it matters, where it appears, and how to fix it. See [Advisor](/docs/ship/advisor).
+
+## GitHub CLI
+
+GitHub's `gh` command-line tool. Fabricator uses it for cloning and team workspace repository operations. See [System requirements](/docs/reference/requirements).
+
+## Microsoft Entra ID
+
+Microsoft's identity platform. Team workspace deploy identities are service principals in Microsoft Entra ID. See [Team prerequisites](/docs/team/prerequisites).
+
+## Microsoft Fabric
+
+Microsoft's data and analytics platform where Rayfin apps are deployed and hosted. See [Deploy to Fabric](/docs/ship/deploy).
+
+## Personal preview
+
+A team workspace preview deployed for one member's working branch. See [Work on an app](/docs/team/work-on-an-app).
+
+## Pipeline
+
+The GitHub workflow in a team workspace repository that deploys previews and published apps to Fabric. See [Team workspaces](/docs/team).
+
+## Preview
+
+The pane that shows your app inside Fabricator. It can show a local Vite frontend during chat, a deployed app, or the Fabric portal shell. See [Preview your app](/docs/build/preview).
+
+## Published app
+
+The shared version of a team app deployed from the repository's main branch. See [Publish an app](/docs/team/publish).
+
+## Quick check
+
+An Advisor rule that runs locally without Copilot. Quick checks re-run as the project changes. See [Advisor](/docs/ship/advisor).
+
+## Rayfin
+
+Microsoft's platform for building apps that deploy to Microsoft Fabric. Fabricator builds Rayfin apps. See [Rayfin's docs](https://rayfin.ai).
+
+## Rayfin CLI
+
+The command-line tool Fabricator runs through `npx rayfin` from each project. It deploys apps and manages Fabric sign-in. See [Rayfin versions](/docs/ship/rayfin-versions).
+
+## Semantic model
+
+A Fabric or Power BI model that describes tables, columns, measures, and relationships for analytical data. Fabricator can help connect an app to a semantic model. See [Data model](/docs/build/data-model).
+
+## Skill
+
+Reusable instructions or tools that guide the Copilot agent for a specific kind of Rayfin work. See [Skills](/docs/build/skills).
+
+## Team workspace
+
+An experimental shared workspace backed by a private GitHub repository, Fabric workspaces, deploy identities, and a pipeline. See [Team workspaces](/docs/team).
+
+
+## Turn
+
+One request-and-response cycle in chat. A turn can include tool calls, file edits, diffs, and a work log. See [Chat](/docs/build/chat).
+
+## Universal App starter
+
+The bundled starter used for new projects. It starts small and grows into the app you describe in chat. See [Projects](/docs/build/projects).
+
+## Work log
+
+The live list of files read, searches, commands, output, and edits during a chat turn. See [Chat](/docs/build/chat).
+
+## Working branch
+
+The git branch Fabricator creates for your copy of a team app. It is where your changes live before publishing. See [Work on an app](/docs/team/work-on-an-app).
+
+## Working copy
+
+Your local or team-specific copy of an app while you work on changes. In team workspaces, each member works on their own copy before publishing. See [Work on an app](/docs/team/work-on-an-app).

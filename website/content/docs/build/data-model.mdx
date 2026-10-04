@@ -1,0 +1,109 @@
+---
+title: "Data model and semantic models"
+description: "Use the Model view to inspect Rayfin entities, relationships, access rules, and connected Fabric semantic models."
+---
+
+Use **Model** to understand the data behind your app. Fabricator can show your Rayfin data model from `rayfin/data/` and, when configured, a live Fabric semantic model.
+
+![The Model view showing the Expense entity as a card with its fields and types, an authenticated access tag, and Open, Harden and Focus buttons.](/screenshots/model.webp)
+
+## Open the Model view
+
+1. Open a project.
+2. Select **Model** in the project tabs.
+3. If the project has both a Rayfin data model and semantic model connections, choose **Data model** or **Semantic model**.
+
+Fabricator remembers that choice for the project.
+
+## Read the data model diagram
+
+The **Data model** view parses the Rayfin schema and draws an entity-relationship diagram. Each entity card shows:
+
+- The entity name.
+- Fields and their parsed types, such as `uuid`, `text`, `date`, `bool`, `decimal`, relation-to-one or relation-to-many.
+- Primary-key and relationship indicators.
+- Access grants, including role names and whether a grant has a row-level **policy**.
+- An access dot. The legend labels access as **Row-scoped**, **Any signed-in** or **Public**.
+
+Relationships appear as lines between entity cards. Hover an entity to highlight its related entities.
+
+Learn the Rayfin modeling concepts in the [Rayfin data modeling docs](https://rayfin.ai/docs/data/modeling).
+
+## Navigate and search the diagram
+
+Use the toolbar to:
+
+- Search with **Search entities & fields**.
+- **Collapse** or **Expand** all entities.
+- Zoom in or out.
+- Fit the diagram to view.
+- Reset the layout.
+
+You can drag entity cards to rearrange the diagram. Fabricator stores the layout in the app for that project.
+
+Each entity card also has:
+
+- **Open**, which opens the entity source file in **Code**.
+- **Focus**, which shows that entity and its neighbors. Use **Unfocus** to return to the full diagram.
+
+## Harden loose access
+
+Fabricator flags loose access on entities that are public, authenticated-only, default or mixed. Those cards show **Harden**.
+
+Select **Harden** to send a ready prompt to Copilot asking it to tighten the entity's access control with Rayfin decorators and row-level policy. Fabricator does not deploy from that prompt directly; the normal chat turn and redeploy flow applies.
+
+```prompt title="Add row-level access"
+Restrict the Customer and Order entities so each signed-in user only sees rows they own. Use Rayfin role or authenticated decorators with row-level policies, and keep the app building.
+```
+
+Learn more in the [Rayfin permissions docs](https://rayfin.ai/docs/data/permissions).
+
+## Add a data model
+
+If the app has no schema yet, the Model view says **No data model yet** and offers **Add a data model with Copilot**. If `rayfin/data/schema.ts` exists but has no entities, it says **Your schema has no entities** and offers **Add an entity with Copilot**.
+
+Those actions stage a prompt in the Build chat composer.
+
+```prompt title="Add an entity and relationship"
+Add Project and Task entities. A project has many tasks. Tasks have a title, due date, status and owner. Restrict access so users only see their own projects and tasks.
+```
+
+## View a semantic model
+
+When the project has semantic model connections in `fabric.yaml`, the **Semantic model** view reads the model live from Fabric and draws a diagram of:
+
+- Tables.
+- Columns and data types.
+- Measures. Select a measure to show its DAX.
+- Relationships, including one-to-many markers, inactive relationships and cross-filter direction.
+- Hidden tables or columns.
+- Storage mode and descriptions when Fabric returns them.
+
+Use **Search tables, columns & measures**, **Collapse** or **Expand**, focus controls, zoom, fit-to-view and **Refresh from Fabric** to work with the diagram.
+
+Learn about Rayfin semantic model connectors in the [Rayfin semantic models docs](https://rayfin.ai/docs/connectors/semantic-models).
+
+## Connect a Fabric semantic model
+
+You can start connecting a semantic model from the chat composer menu.
+
+1. In the Build chat composer, open the add menu.
+2. Select **Connect a semantic model**.
+3. In **Connect a semantic model**, choose a model from the workspace this app deploys to.
+4. Select **Add to chat**.
+5. Send the prepared request to Copilot.
+
+The dialog lists models in the app's deployment workspace. Models already declared in the project are marked **Connected**.
+
+If the app is not deployed yet, the dialog says: "Deploy this app to a Fabric workspace first — then you can connect the semantic models in that workspace."
+
+## Sign in and retry
+
+Listing workspace models uses Fabric authentication. If Fabricator cannot list them silently, the dialog says: "Sign in to Fabric to list this workspace's models. The preview uses a separate sign-in." Select **Sign in & retry**.
+
+Reading a semantic model schema can also require sign-in:
+
+- **Sign in to Fabric** appears when the Fabric session is missing.
+- **Sign in to Azure** appears when the schema query needs an Azure CLI session.
+
+If the schema cannot be read, the Model view shows "Couldn’t read the semantic model" and offers **Try again**. For Fabric deployment and authentication recovery, see [Deploy troubleshooting](/docs/troubleshooting/deploy).

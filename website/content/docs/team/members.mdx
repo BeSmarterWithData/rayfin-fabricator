@@ -1,0 +1,45 @@
+---
+title: "Invite your team"
+description: "Invite teammates by GitHub username, grant Fabric app access with work email, and manage member and app access lists."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+Invite teammates after the workspace setup finishes. GitHub access lets them change apps. Fabric access lets them open previews and published apps.
+
+## Open member settings
+
+You can open member settings from either place:
+
+1. From Home, in **Team workspaces**, select the workspace's **Overview** button or the gear button titled **Members and settings**.
+2. From a team app, open the team menu in the header and select **Workspace overview**, then select **Manage**.
+3. In the workspace panel, select **Members**.
+
+## Invite someone
+
+1. In **Members**, find **Invite a teammate**.
+2. Enter their **GitHub username**.
+3. Enter their **Work email** if they should open Fabric previews and published apps.
+4. Turn on **Owner** only if they should manage members and settings.
+5. Select **Send invitation**.
+
+Fabricator invites the GitHub user as a repository collaborator. If you entered a work email, it looks up that person in Microsoft Entra ID and grants Contributor on both Fabric workspaces.
+
+## Accept an invitation
+
+Invitees accept from Home:
+
+1. Turn on **Settings → Experiments → Team workspaces**.
+2. In **Team workspaces**, select **Join** or **Review invitations**.
+3. In **Invitations**, select **Accept and join**.
+
+Fabricator lists team workspace invitations. Other repository invitations are not shown there.
+
+## Manage app access
+
+Workspace owners can select **App access** to see **Who can open the apps**. This list shows users and groups with access to the workspace's Fabric workspaces. Use the remove button to remove a person's Fabric app access.
+
+## Remove a member
+
+In **Members**, owners can remove a member or cancel a pending invitation. Removing a member removes their repository access. If Fabricator gave that GitHub login Fabric access from this computer, it also removes that Fabric access. Their unpublished changes stay on GitHub.

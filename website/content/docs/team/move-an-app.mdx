@@ -1,0 +1,34 @@
+---
+title: "Move an existing app into a team workspace"
+description: "Copy a local Rayfin project into a team workspace as a new team app without changing the original local project."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+Move a local project into a team workspace when you want teammates to work on a copy of it. Fabricator keeps the original local project where it is.
+
+## Before you move
+
+The app must use Rayfin 1.36.2 or newer. If it is older, Fabricator stops with a message like:
+
+> "`<name>` uses Rayfin `<version>`, and team workspaces need Rayfin 1.36.2 or newer. Open the app, select Rayfin in the status bar, choose Update with Copilot, then move it again."
+
+Open the app, select Rayfin in the status bar, and choose **Update with Copilot**. Then try the move again.
+
+## Move the app
+
+1. On Home, find the local project.
+2. Select **Manage**.
+3. In **Manage project**, find **Move to a team workspace**.
+4. Choose the workspace.
+5. Select **Move**.
+
+Fabricator copies the project into the team repository, copies the chat history to the new team app, creates your working branch, saves the app to GitHub, and opens a pull request so the preview pipeline can deploy it.
+
+## What changes
+
+The team copy deploys as a new Fabric app. Data in the old deployment is not copied.
+
+The original local project stays as it is. You can keep it in Fabricator, remove it from recent projects, or remove it later with the normal local project controls.
+

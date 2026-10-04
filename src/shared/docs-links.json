@@ -1,0 +1,12 @@
+{
+  "base": "https://spatney.github.io/rayfin-fabricator",
+  "links": {
+    "home": "/docs",
+    "troubleshooting": "/docs/troubleshooting",
+    "setup": "/docs/troubleshooting/setup-and-sign-in",
+    "copilotSignIn": "/docs/troubleshooting/setup-and-sign-in#copilot-asks-you-to-sign-in-again",
+    "previewPorts": "/docs/troubleshooting/preview#all-preview-ports-are-busy",
+    "deployFailed": "/docs/troubleshooting/deploy#a-deploy-failed",
+    "teamAdmins": "/docs/team/administrators"
+  }
+}

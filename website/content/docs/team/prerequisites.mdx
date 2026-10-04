@@ -1,0 +1,41 @@
+---
+title: "Before you start"
+description: "Check the GitHub, Azure, Fabric, and Rayfin requirements before creating or joining a team workspace."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+Team workspace setup creates real GitHub, Microsoft Entra ID, and Microsoft Fabric resources. Check these requirements before you start.
+
+## GitHub CLI on github.com
+
+Fabricator uses the GitHub CLI, `gh`, for team repositories. Team workspaces use `github.com` only.
+
+You need to be signed in with these classic OAuth scopes:
+
+- `repo`
+- `read:org`
+- `workflow`
+
+When the scopes are missing, Fabricator shows **Grant GitHub access** and opens a terminal that runs `gh auth refresh --hostname github.com --scopes repo,read:org,workflow`. If you are not signed in, **Sign in to GitHub** runs `gh auth login --web --git-protocol https --hostname github.com --scopes repo,read:org,workflow`.
+
+## Azure CLI sign-in for Microsoft Entra ID
+
+Fabricator checks the Azure CLI sign-in before setup. You need an account in the tenant where the Fabric workspaces will live.
+
+To create the deploy identities yourself, your account must be allowed to create and update app registrations and service principals. That is commonly allowed for tenant users, but some organizations turn it off. If it is off, you need the Application Developer role or an administrator-provided app registration.
+
+## Fabric capacity and tenant setting
+
+You need access to an active Fabric or Premium capacity. Fabricator lists capacities it can use and creates the workspace on the one you choose.
+
+A Fabric administrator may also need to allow service principal API access. Fabricator's admin instructions use this exact setting name: *Service principals can call Fabric public APIs*.
+
+## Rayfin version in each app
+
+Team workspace deploys need Rayfin 1.36.2 or newer because the pipeline deploys apps by item name. New apps start with a supported version. For older apps, open the app, select Rayfin in the status bar, and choose **Update with Copilot** before moving it.
+
+## GitHub plan
+
+GitHub Free private repositories do not support branch protection. Fabricator still follows the publish flow in the app, but GitHub cannot enforce it for direct pushes to `main`. See [Team workspace limitations](/docs/team/limitations).

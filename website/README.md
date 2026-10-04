@@ -1,0 +1,51 @@
+# Fabricator docs site
+
+The documentation site for Fabricator, published at https://spatney.github.io/rayfin-fabricator/. It's a Next.js + Fumadocs static export, adapted from the [rayfin.ai](https://rayfin.ai) docs site. Pages are MDX files in `content/docs/`; read [`AGENTS.md`](./AGENTS.md), the authoring contract, before writing one.
+
+```powershell
+npm install
+npm run dev               # http://localhost:3000
+npm run check:docs        # content lint
+npm run build             # static export to out/, plus the agent surface
+npm run preview           # serve out/ like GitHub Pages (run after a Pages-style build)
+npm run verify:agent      # every page has a valid .md mirror
+npm run verify:app-links  # every page and heading the app links to exists (after a build)
+npm run typecheck
+```
+
+## Base path and site URL
+
+Local development defaults to no Next.js `basePath`. GitHub Pages builds set:
+
+```powershell
+$env:NEXT_PUBLIC_SITE_URL='https://spatney.github.io/rayfin-fabricator'
+$env:NEXT_PUBLIC_BASE_PATH='/rayfin-fabricator'
+npm run build
+```
+
+`NEXT_PUBLIC_SITE_URL` controls canonical URLs, metadata, sitemaps, Markdown mirrors, and agent bundles. `NEXT_PUBLIC_BASE_PATH` controls browser asset/search paths for the project site.
+
+## Agent surface
+
+| Route | What it is |
+| --- | --- |
+| `<any-docs-route>.md` | Raw Markdown mirror with frontmatter |
+| `/llms.txt` | Page index with descriptions and bulk sizes |
+| `/llms-full.txt` | Entire corpus |
+| `/llms-full/<section>.txt` | Section bundle |
+| `/AGENTS.md` | Site-root brief for coding agents |
+| `/sitemap.xml` | Canonical HTML URLs |
+
+## Deployment
+
+GitHub Pages deployment is handled by `.github/workflows/docs.yml` on pushes to `master` that touch the site, the root `package.json` (the documented app version comes from it), or `src/shared/docs-links.json`. Pull requests build and verify only.
+
+One-time setup: the repository's **Settings → Pages → Source** must be **GitHub Actions** (or run `gh api -X POST repos/spatney/rayfin-fabricator/pages -f build_type=workflow`). If you add a custom domain there, also update `base` in `src/shared/docs-links.json`; the workflow picks up the new URL and base path automatically.
+
+## In-app links
+
+The desktop app links to docs pages and headings listed in `../src/shared/docs-links.json`. `npm run verify:app-links` fails when one of them no longer exists, so rename a linked page or heading together with that file.
+
+## Screenshots
+
+Images live in `public/screenshots/` as WebP and are referenced as `![Alt text](/screenshots/name.webp)`. They're captured from a real Fabricator instance with personal details removed; the tooling and procedure are in [`scripts/docs-screenshots/README.md`](../scripts/docs-screenshots/README.md).

@@ -1,0 +1,47 @@
+---
+title: "Work on a team app"
+description: "Open a team app, work on your own branch, preview changes locally and in Fabric, and bring in teammates' published changes."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+When you open a team app, Fabricator gives you your own working branch. Your edits are saved to GitHub after each change, and the team pipeline deploys your personal preview.
+
+## Open a team app
+
+1. On Home, find **Team workspaces**.
+2. Open the workspace.
+3. Select **Open** on the app you want to change.
+
+Fabricator opens a working branch named like `fabricator/<login>/<app>-<timestamp>`. Your local files live in a worktree for that app.
+
+## Preview while Copilot works
+
+While Copilot is changing files, Fabricator starts a local Vite preview so frontend changes appear as they are made. See [Preview your app](/docs/build/preview) for the general preview controls.
+
+For a team app, the local preview uses your preview deployment's data when one exists. Until your first preview has deployed, the badge says **Local · published data**. Changes you make in that state use the published app's data. If nothing is deployed yet, the badge says **Local · no data yet**.
+
+If the local preview stops responding after a package install or another change, Fabricator starts it again.
+
+## Save and deploy your preview
+
+After each chat turn, Fabricator saves your changes to GitHub and opens or updates your pull request. The pipeline deploys your personal preview.
+
+You can see progress in two places:
+
+- the team app control in the app bar, which shows **Deploying preview…**
+- the preview pane, which shows **Deploying your first preview** for the first deploy or a progress bar above the existing preview later
+
+When the pipeline finishes, the preview switches to the deployed version.
+
+## Switch between your preview and the published app
+
+1. Open the team menu in the header.
+2. Under **Preview shows**, choose **My preview** or **Published**.
+
+## Bring in teammates' changes
+
+If teammates publish changes after you started, the team menu shows **Teammates' changes** and the button **Bring in their changes**.
+
+Select **Bring in their changes** to merge the published app into your working branch. If you both changed the same files, Fabricator reports the conflict. Select **Ask Copilot to finish** or **Let Copilot combine them** when offered so Copilot can combine the changes.

@@ -1,0 +1,113 @@
+---
+title: "Prompt ideas"
+description: "Copy prompts for starting Rayfin apps, adding data and access rules, building semantic-model dashboards, improving visuals, and fixing issues."
+---
+
+Use these prompts as starting points in Fabricator chat. Replace the example names, roles, fields, and metrics with your own details.
+
+## Tips for writing good prompts
+
+- Describe the people who use the app and what each person should do.
+- Name the records, fields, rules, and screens you want.
+- Ask for one meaningful change at a time when you are refining an app.
+- Describe the outcome, not the implementation. Copilot can choose the Rayfin code pattern.
+- For data apps, say who can see or edit each kind of record.
+- For analytics dashboards, name the Fabric semantic model, report, warehouse, or lakehouse you want to use, plus the business questions to answer.
+
+## Start an app
+
+```prompt title="Track customer visits"
+Build a customer visit tracker for field sales. Reps record each visit with customer, date, location, notes, next step and follow-up date. Show a home page with overdue follow-ups, visits this week and a list of recent notes.
+```
+
+```prompt title="Manage equipment requests"
+Build an equipment request app for an operations team. Employees request laptops, monitors and accessories. Managers approve or reject requests with a comment. Show request status, requester, needed-by date and a dashboard of open requests by category.
+```
+
+```prompt title="Coordinate nonprofit volunteers"
+Build a volunteer scheduling app. Coordinators create events with a date, location, capacity and required skills. Volunteers sign up for events and can see their upcoming commitments. Coordinators see open spots and a weekly schedule.
+```
+
+```prompt title="Plan product launches"
+Build a launch checklist app for product teams. Each launch has milestones, owners, due dates, risks and status notes. Show a dashboard of blocked items, upcoming due dates and launch readiness by product.
+```
+
+## Data and access rules
+
+```prompt title="Add per-user customer notes"
+Add customer notes to this app. Each note has customer, text, tags and created date. Users should only see and edit notes they created. Managers should be able to see all notes for their team.
+```
+
+```prompt title="Add approvals with history"
+Add an approval workflow for budget requests. Store the request, amount, business reason, requester, current status and approval history. Approvers can approve or reject with a comment, and requesters can see the full history for their own requests.
+```
+
+```prompt title="Model projects and tasks"
+Add Projects and Tasks. A project has name, sponsor, start date, target date and status. A task belongs to one project, has owner, due date, priority and status. Show each project's open tasks and overdue tasks.
+```
+
+## Sign-in and roles
+
+```prompt title="Require sign-in"
+Require users to sign in before using the app. Add a signed-in header with the current user's name and a sign-out action. Keep the public landing page simple and send signed-out users to the sign-in page before they can see app data.
+```
+
+```prompt title="Add manager and employee views"
+Add two role-based views. Employees can create and update their own requests. Managers can see all requests for their team and approve or reject them. Make the navigation show only the actions available to the signed-in user.
+```
+
+## Dashboards on existing Fabric data
+
+```prompt title="Dashboard from a semantic model"
+Build an executive sales dashboard from the Fabric semantic model I connected. Show revenue, margin, orders and average order value. Include a monthly revenue trend, revenue by region, top products and a detail table. Use existing model measures where possible.
+```
+
+```prompt title="Operations dashboard with DAX"
+Create an operations dashboard over our semantic model. I need on-time delivery %, average cycle time, backlog count and defects by plant. Add slicers for plant and month. Use DAX queries at the visual grain instead of pulling low-level rows into the app.
+```
+
+```prompt title="Warehouse KPI dashboard"
+Use the connected Fabric warehouse or lakehouse data to build a warehouse KPI dashboard. Show inbound volume, outbound volume, inventory value and late shipments. Add charts by week, facility and product category, plus a table of late shipments.
+```
+
+## Charts and visuals
+
+```prompt title="Add a KPI and trend chart"
+Add a dashboard section with a KPI card for total open requests and a line chart of requests created by week. Format large numbers compactly and include loading, empty and error states.
+```
+
+```prompt title="Compare categories"
+Add a bar chart that compares total spend by category, sorted highest to lowest. Use a clear title, formatted currency axis, accessible colors and a useful empty state when there is no spend yet.
+```
+
+```prompt title="Add filters"
+Add filters for date range, region and status. The charts and detail table should all respond to the filters, and the selected filters should be easy to clear.
+```
+
+## Polish and accessibility
+
+```prompt title="Polish the home page"
+Polish the home page so it feels like a finished business app. Improve spacing, typography, empty states and primary actions. Keep the design accessible, responsive and usable in light and dark themes.
+```
+
+```prompt title="Improve mobile layout"
+Make the main workflow work well on phone-sized screens. Stack multi-column sections, keep buttons easy to tap, avoid horizontal scrolling and preserve the most important actions near the top.
+```
+
+```prompt title="Accessibility pass"
+Review the app for accessibility issues. Fix missing labels, weak contrast, keyboard traps, unclear focus states and icon-only buttons without names. Summarize what changed.
+```
+
+## Fix and improve
+
+```prompt title="Act on Advisor findings"
+Fix the Advisor findings I just sent. Keep the app behavior the same unless a finding requires a behavior change. After the fixes, explain what I should verify in the preview.
+```
+
+```prompt title="Improve performance"
+Improve the dashboard performance. Look for unnecessary refetching, expensive re-renders and charts or tables that render too much at once. Keep the visible behavior the same.
+```
+
+```prompt title="Make an error easier to recover from"
+The request form error is confusing. Make the error state clear and recoverable: keep the user's input, explain what failed in plain language and provide a retry action when that makes sense.
+```

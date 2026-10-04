@@ -1,0 +1,99 @@
+---
+title: "Deploy to Microsoft Fabric"
+description: "Deploy your app to a Fabric workspace with one click, understand automatic redeploys after chat turns, and manage deployments across workspaces."
+---
+
+Deploying publishes the app in your current project to Microsoft Fabric. Fabricator runs the project's own `rayfin up`, records the deployment that Rayfin creates, and then loads the app in the preview.
+
+Rayfin apps deploy as Fabric apps in a Fabric workspace. For Rayfin's platform details, see [Deploy Fabric apps](https://rayfin.ai/docs/deploy/fabric-apps). Deployment uses your Fabric capacity; see [Rayfin pricing and capacity notes](https://rayfin.ai/docs/deploy/pricing).
+
+![The deployments panel listing the active Development deployment with its workspace, region, capacity and app address, and a New deployment link.](/screenshots/deployments.webp)
+
+## Sign in to Fabric
+
+Fabricator uses the Rayfin CLI credentials for Fabric deployment. You can sign in from the account control in the top-right app bar:
+
+1. Select **Sign in to Fabric**.
+2. Finish the browser sign-in that Rayfin opens.
+3. Return to Fabricator and deploy again if needed.
+
+The deployments picker also prompts you when Fabricator needs Fabric credentials to list workspaces. If credentials expire, it may show "Sign in to Microsoft Fabric to list your workspaces."
+
+## Deploy for the first time
+
+New projects ask for their first deployment right after you name them. In **Deploy your app**, pick a workspace and choose **Deploy app**; see [Build your first app](/docs/start/first-app#create-the-first-deployment). Chat stays locked until the app has its first Fabric deployment.
+
+![The Deploy your app step of a new project, with a deployment name, a list of Fabric workspaces with their region and capacity, and the Deploy app button.](/screenshots/first-deploy.webp)
+
+If you chose **Continue without deploying →**, or opened a project that has never been deployed, deploy it from the app bar:
+
+1. Open the project.
+2. In the app bar, select **Deploy**.
+3. In **New deployment**, enter a friendly **Name** if you want one, such as `Production`.
+4. Under **Deploy to workspace**, choose a Fabric workspace.
+5. Select **Create & deploy**.
+
+Eligible workspaces are on a Fabric **F-SKU** capacity or a Power BI Premium **P-SKU** capacity. Workspaces without an eligible capacity are listed under **Not eligible** with the reason. If Fabricator cannot find an eligible workspace, it offers **Start a free trial** and **Buy a capacity** links.
+
+To create a workspace from Fabricator, select **+ New workspace**, choose an eligible capacity, enter a name, and select **Create workspace**. The new workspace uses the selected capacity's region.
+
+## Same-name warning
+
+Before a first deploy into a workspace, Fabricator checks whether that workspace already has a Rayfin app with the same item name from `rayfin/rayfin.yml`.
+
+If it finds one, you see a warning that deploying there would replace that app. Choose another workspace, or select **Replace it anyway** to confirm.
+
+## What happens during deploy
+
+Fabricator streams `rayfin up` output and shows progress stages:
+
+1. **Connecting to Fabric**
+2. **Preparing deployment**
+3. **Building your app**
+4. **Packaging assets**
+5. **Uploading to Fabric**
+6. **Going live**
+
+![The workbench during a first deploy: chat is locked with a Deploying your app notice, and the preview shows the deploy at Packaging assets, step 4 of 6.](/screenshots/deploy-progress.webp)
+
+During the deploy you can select **View logs** in the deploy screen. If a deploy fails after the preview returns, the error banner includes **View deploy logs**.
+
+## Redeploy changes
+
+After the first successful deployment, the primary button changes to **Redeploy**. Select it to run `rayfin up` again for the active deployment.
+
+Fabricator also redeploys automatically after a successful Copilot turn when the project has undeployed changes. This includes edits that Copilot already committed to the project's git history. It does not redeploy when:
+
+- the Copilot turn failed or was cancelled,
+- there are no content changes since the last deployed revision,
+- a team workspace pipeline owns the app's deployment,
+- Fabricator cannot check whether changes are undeployed.
+
+If change detection fails, Fabricator shows "Could not check for undeployed changes." followed by "Use Redeploy to publish your changes." Use **Redeploy** to publish explicitly.
+
+When Fabricator switches to another deployment or cannot identify the deployed git baseline, the next successful turn deploys once to establish a new baseline.
+
+## Work with multiple deployments
+
+Select the **Deployment:** control in the app bar to open **Deployments**. From there you can:
+
+- see the active deployment,
+- select **+ New deployment** to deploy the same project to another workspace,
+- select **Switch** on another recorded deployment,
+- rename a deployment by selecting its name,
+- select **Refresh deployments** to reload the list,
+- select **Share** after a deployment exists.
+
+Switching uses Rayfin's recorded deployments for the project. Each deployment points to a Fabric workspace and may show its workspace region and capacity SKU.
+
+Fabricator does not show a per-deployment delete action in this panel.
+
+## Refresh Fabric authentication
+
+If deployment repeatedly fails even though you recently signed in, use **Refresh Fabric authentication** from the account menu or the preview error banner. Fabricator runs the selected project's `rayfin logout`, then `rayfin login`, verifies the new Fabric credential, and does not redeploy automatically. After it succeeds, select **Redeploy**.
+
+See [setup and sign-in troubleshooting](/docs/troubleshooting/setup-and-sign-in) and [deploy troubleshooting](/docs/troubleshooting/deploy) for recovery steps.
+
+## Redirect URIs for live preview
+
+When a chat turn starts, Fabricator may run the project's local Vite preview on an allowed `localhost` port. If the normal sign-in-compatible ports are busy and you choose another port, Fabricator can add that origin to `services.auth.allowedRedirectUris` in `rayfin/rayfin.yml` and push the runtime settings to Fabric without uploading the app. This keeps Fabric sign-in working in the live preview. The next normal deploy publishes the app code.

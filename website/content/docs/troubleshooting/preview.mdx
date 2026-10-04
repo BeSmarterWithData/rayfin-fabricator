@@ -1,0 +1,86 @@
+---
+title: "Preview problems"
+description: "Fix blank, stale, or stuck previews, busy live-preview ports, preview sign-in prompts, and old preview surfaces."
+---
+
+Use this page when the inline preview does not show the app you expect.
+
+## The preview is blank or stuck
+
+You see an empty preview, **Loading…** for a long time, a local browser error, or chat appears to hang while opening a preview.
+
+Fabricator shows either the deployed app or, during a chat turn, a local Vite preview. The local preview uses the existing Fabric deployment's configuration and can be interrupted by dependency installs, port conflicts, or a dev server that stops answering.
+
+1. Select **Reload** in the preview toolbar.
+2. Select **Focus** to hide chat, then **Exit focus** to return. This forces the preview bounds to be recalculated.
+3. If the preview is local and the turn is still running, wait for the turn to finish. The normal deployed preview returns after the turn and deploy.
+4. If the app is deployed but the preview is blank, select **Redeploy**.
+5. If a local preview log says "Local preview didn't become ready in time." or "Timed out waiting for Vite to start.", retry the chat turn after dependencies finish installing.
+6. If the same project repeatedly hangs while opening preview, restart Fabricator.
+
+If the preview still hangs, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## All preview ports are busy
+
+You see a dialog titled "localhost:5173 is in use" or a similar localhost port. The message may say "The live preview has to run on a port your app's sign-in accepts."
+
+![The dialog shown when localhost:5173 is in use, offering Skip live preview, Stop node.exe or Use port 5174.](/screenshots/port-conflict.webp)
+
+During a chat turn, Fabricator runs the project's local Vite server on a localhost port that the app's sign-in accepts. If every registered port is busy, Fabricator asks what to do instead of stopping an unrelated process without permission.
+
+1. If the dialog offers **Use port 5174** or another port, select it. Fabricator adds `http://localhost:<port>` to `rayfin/rayfin.yml`. If the app already has a Fabric backend, it pushes sign-in settings to Fabric without rebuilding the app.
+2. If the dialog identifies a process and offers **Stop** followed by an app name, use it only if you are sure that process can be closed. Unsaved work in that process is lost.
+3. Select **Skip live preview** to keep the chat turn moving without a local preview. You can use the deployed preview after the turn finishes.
+4. If Fabricator says switching ports cannot happen while Copilot is working, skip for now and send the next message after the turn ends.
+5. If the port becomes busy again, close the other app or choose another port when prompted.
+
+If Fabricator cannot identify or stop the process, [Report a problem](/docs/troubleshooting/report-a-problem) with the port number and dialog text.
+
+## The preview shows an old version
+
+The preview is live, but it does not include the changes Copilot just made.
+
+During a turn, the local preview shows frontend edits from Vite. After a successful turn, Fabricator checks for undeployed changes and runs **Redeploy** automatically. Failed or cancelled turns, deploy failures, and change-check errors can leave the preview on the previous deployment.
+
+1. Select **Reload** in the preview toolbar.
+2. Check whether the preview badge says **Local**. If it does, wait for the current turn to finish.
+3. If the deploy status says **Deploy failed**, open **View deploy logs** and fix the deploy first.
+4. Select **Redeploy** to publish the current project files.
+5. If Code or History says the live app is showing an earlier version, use the offered publish action or **Redeploy**.
+
+If the preview remains stale after a successful deploy, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## The preview asks you to sign in
+
+The app inside the preview opens a Microsoft sign-in prompt, asks again after Fabricator is signed in, or a semantic-model dialog offers **Sign in & retry**.
+
+The preview browser session is separate from Fabricator's Rayfin CLI session. Fabricator can be signed in to Fabric for deploy while the embedded app still needs an interactive browser token. On Windows, Fabricator's WebView2 preview supports compliant-device Conditional Access through the OS primary account.
+
+1. Complete the sign-in inside the preview when the app asks.
+2. If a semantic-model dialog shows **Sign in & retry**, select it and complete the browser flow.
+3. If your organization requires a compliant or managed Windows device, make sure Microsoft Edge can sign in to the same app on this computer.
+4. On macOS, passwordless SSO for some tenants may still require opening the app externally or using a Windows compliant device.
+5. If Fabricator deploys fail too, use **Refresh Fabric authentication** separately. That does not clear the preview browser session.
+
+If the preview sign-in loops, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## The preview covers other Fabricator controls
+
+The native preview appears on top of chat, settings, menus, or other UI after zooming, moving windows, or switching monitors.
+
+This was fixed in Fabricator 1.3.2. Current versions position the native preview using the renderer's actual display scale and browser zoom.
+
+1. Update to the latest Fabricator version.
+2. Restart Fabricator.
+3. If it happens again on the latest version, note your display scale, browser zoom, and monitor arrangement.
+
+Then [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## A team app local preview restarts
+
+A team app's local preview briefly disconnects and comes back while Copilot edits files or dependencies install.
+
+Fabricator health-checks team local previews and starts Vite again when it stops answering. If it keeps stopping, use the team troubleshooting page.
+
+1. Wait for the preview to come back.
+2. If it keeps restarting, open [Team workspace problems](/docs/troubleshooting/team).

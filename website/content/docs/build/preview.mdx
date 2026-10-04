@@ -1,0 +1,62 @@
+---
+title: "Live preview"
+description: "Use the preview pane to watch local changes during Copilot turns, check the deployed app, switch Fabric shell views, and handle busy preview ports."
+---
+
+The preview pane shows your Rayfin app while you build. During a Copilot turn, Fabricator may show a local Vite preview so frontend changes appear as they are made. After the turn finishes, the pane returns to the deployed app.
+
+![The preview toolbar above the running app: back, forward and reload, the Live status with the app’s address, and the Fabric, Design and full-screen buttons.](/screenshots/preview-toolbar.webp)
+
+## What the preview shows
+
+Fabricator uses two preview sources:
+
+1. **Local** appears while Copilot is working, when the project has Vite installed under `node_modules`. Fabricator starts the project's own local Vite server directly. It does not require an `npm run dev` script.
+2. **Live** appears when the deployed app is loaded. After a successful turn, Fabricator redeploys eligible changes and reloads the deployed preview.
+
+The local preview uses the existing Fabric deployment's `VITE_*` configuration. It does not start a local Fabric backend. If the project has no local Vite installation, Fabricator keeps showing the deployed preview instead.
+
+Team app previews are handled by the team pipeline and local preview behavior. See [Work on a team app](/docs/team/work-on-an-app).
+
+## Use the toolbar
+
+The preview toolbar gives you browser-like controls and Fabricator-specific tools:
+
+- **Back**, **Forward** and **Reload** navigate the preview history.
+- The status label shows **Live**, **Local**, **Deploying…**, **Deploy failed** or **Not deployed**.
+- The URL button opens the current preview URL in your default browser.
+- **Fabric** switches between the direct app view and the app embedded in the Fabric portal shell, when the deployment has a portal link. If the Fabric shell is unavailable, the button is disabled.
+- **Design** opens Design mode when the deployed app is visible. It is disabled during local live preview because Design works on the deployed app.
+- **Focus** hides the chat and gives the preview more room. **Exit focus** shows the chat again.
+
+When Design mode is on, the extra preview-width buttons are **Desktop**, **Tablet** and **Phone**. **Desktop** fills the pane, **Tablet** previews at 820 CSS pixels, and **Phone** previews at 390 CSS pixels.
+
+> [!NOTE]
+> Browser devtools are available from the native preview's webview, not as a separate toolbar button in the current PreviewPane source.
+
+## Zoom and display scale
+
+The preview tracks Fabricator's UI scale and the browser surface's pixel ratio. That matters when you move Fabricator between monitors or change display scaling: the native preview is resized and repositioned to stay aligned with its pane.
+
+In Design mode, device widths account for Fabricator's UI scale, so **Tablet** and **Phone** still represent the app's CSS width instead of the physical monitor width.
+
+## Sign in inside the preview
+
+Signing in inside the preview is separate from Fabricator's Fabric CLI session. The app preview has its own browser session and cookies. If the app opens a Fabric or Microsoft Entra sign-in popup, Fabricator lets the preview browser handle that popup.
+
+Refreshing Fabricator's Fabric authentication affects Rayfin CLI deployment credentials. It does not sign the preview browser in or out.
+
+## When every preview port is busy
+
+The live local preview must use a `localhost` port your app accepts for sign-in. Fabricator first tries the registered `http://localhost:N` ports from `rayfin/rayfin.yml`. If all registered ports are busy, you see a dialog titled like `localhost:5173 is in use`.
+
+Depending on the situation, the dialog can offer:
+
+1. **Use port N**. Fabricator adds `http://localhost:N` to `rayfin/rayfin.yml`. If the app is already deployed, it also pushes the sign-in setting to Fabric without rebuilding the app.
+2. a **Stop node.exe**-style button. Fabricator stops the specific process it identified, then uses the original port. The dialog warns that unsaved work in that process is lost.
+3. **Skip live preview**. Fabricator skips the local Vite preview for this turn. You can keep chatting, and the deployed preview takes over after the turn.
+
+If switching ports would require a push while Copilot is already working, the dialog explains that it cannot happen during the turn and asks you to skip for now.
+
+For recovery steps, see [Preview problems](/docs/troubleshooting/preview), especially the "All preview ports are busy" section.
+

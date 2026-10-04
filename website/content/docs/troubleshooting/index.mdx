@@ -1,0 +1,57 @@
+---
+title: "Troubleshooting overview"
+description: "Start here when Fabricator is not working, then jump to the symptom that matches what you see."
+---
+
+Use this page when Fabricator gets stuck, a sign-in fails, a preview is blank, or a deploy does not finish. Start with the checks below, then use the symptom index.
+
+## First steps for any problem
+
+1. Update to the latest version. Open **Settings**, select **Check for updates**, and install the update if Fabricator offers one. If you installed an old build from before auto-update existed, download and install the latest release once from [GitHub Releases](https://github.com/spatney/rayfin-fabricator/releases/latest). Future updates are in-app.
+2. Restart Fabricator. This refreshes the bundled Copilot engine, PATH discovery, the preview surface, and any setup checks that depend on tools installed while the app was open.
+3. Re-check setup. On the setup screen, select **Re-check** after installing Node.js, Git, Azure CLI, GitHub CLI, or after signing in.
+4. Check the status bar version. The lower-right status bar shows the Fabricator app version. Include that version in reports.
+5. Read the exact message. The fastest fix usually depends on the exact quoted error in the banner, modal, chat card, or setup row.
+
+## Symptom index
+
+| If you see this | Go here |
+| --- | --- |
+| Windows SmartScreen warns about the installer | [Windows says the installer is uncommon](/docs/troubleshooting/install-and-updates#windows-says-the-installer-is-uncommon) |
+| macOS says the app is damaged | [macOS says Fabricator is damaged and can't be opened](/docs/troubleshooting/install-and-updates#macos-says-fabricator-is-damaged-and-cant-be-opened) |
+| An update prompt, banner, or manual update problem | [An update won't install or keeps prompting](/docs/troubleshooting/install-and-updates#an-update-wont-install-or-keeps-prompting) |
+| A setup tool is missing, outdated, or failed its version check | [A tool shows as missing or failed](/docs/troubleshooting/setup-and-sign-in#a-tool-shows-as-missing-or-failed) |
+| GitHub Copilot sign-in fails | [GitHub Copilot sign-in doesn't work](/docs/troubleshooting/setup-and-sign-in#github-copilot-sign-in-doesnt-work) |
+| Chat asks you to sign in again | [Copilot asks you to sign in again](/docs/troubleshooting/setup-and-sign-in#copilot-asks-you-to-sign-in-again) |
+| Azure CLI is using the wrong tenant or account | [Azure CLI is signed in to the wrong account](/docs/troubleshooting/setup-and-sign-in#azure-cli-is-signed-in-to-the-wrong-account) |
+| Fabric sign-in does nothing or does not finish | [Fabric sign-in doesn't complete](/docs/troubleshooting/setup-and-sign-in#fabric-sign-in-doesnt-complete) |
+| Chat shows a Copilot error | [Chat shows a Copilot error](/docs/troubleshooting/chat#chat-shows-a-copilot-error) |
+| A chat turn looks stuck | [A chat turn seems stuck](/docs/troubleshooting/chat#a-chat-turn-seems-stuck) |
+| The chat history changed or a new Copilot session started | [The conversation disappeared or a new session started](/docs/troubleshooting/chat#the-conversation-disappeared-or-a-new-session-started) |
+| Copilot credits or premium requests run out | [Copilot credits run out quickly](/docs/troubleshooting/chat#copilot-credits-run-out-quickly) |
+| Rayfin CLI reports missing packages such as `rxjs`, `commander`, or `jsonwebtoken` | [Rayfin CLI reports missing dependencies](/docs/troubleshooting/chat#rayfin-cli-reports-missing-dependencies) |
+| Preview is blank, stale, or stuck opening | [The preview is blank or stuck](/docs/troubleshooting/preview#the-preview-is-blank-or-stuck) |
+| Every preview port is taken | [All preview ports are busy](/docs/troubleshooting/preview#all-preview-ports-are-busy) |
+| Preview shows an older app | [The preview shows an old version](/docs/troubleshooting/preview#the-preview-shows-an-old-version) |
+| The app inside the preview asks you to sign in | [The preview asks you to sign in](/docs/troubleshooting/preview#the-preview-asks-you-to-sign-in) |
+| Preview covers chat or other UI | [The preview covers other Fabricator controls](/docs/troubleshooting/preview#the-preview-covers-other-fabricator-controls) |
+| Team app local preview restarts | [A team app local preview restarts](/docs/troubleshooting/preview#a-team-app-local-preview-restarts) |
+| A deploy banner says the deployment failed | [A deploy failed](/docs/troubleshooting/deploy#a-deploy-failed) |
+| Automatic redeploy no longer runs after chat | [Automatic redeploy stopped](/docs/troubleshooting/deploy#automatic-redeploy-stopped) |
+| Deploy keeps failing after Fabric sign-in | [Fabric authentication blocks deploy](/docs/troubleshooting/deploy#fabric-authentication-blocks-deploy) |
+| Semantic model reads fail | [Couldn't read the semantic model](/docs/troubleshooting/deploy#couldnt-read-the-semantic-model) |
+| Workspace or Fabric capacity blocks deployment | [The workspace or capacity blocks deploy](/docs/troubleshooting/deploy#the-workspace-or-capacity-blocks-deploy) |
+| Rayfin CLI is missing or npm reports `ETARGET` | [Rayfin CLI or npm package resolution failed](/docs/troubleshooting/deploy#rayfin-cli-or-npm-package-resolution-failed) |
+| Someone else cannot open the shared app | [Recipients can't open the shared app](/docs/troubleshooting/deploy#recipients-cant-open-the-shared-app) |
+| A team workspace setup step needs admin help | [Setup needs an administrator](/docs/troubleshooting/team#setup-needs-an-administrator) |
+| Any team workspace problem | [Team workspace problems](/docs/troubleshooting/team) |
+
+## Get help
+
+If the fix for your symptom does not work, collect diagnostics and open a report:
+
+1. In the status bar, select **Report an issue**.
+2. Drag the diagnostics file that Fabricator created onto the GitHub issue.
+3. Add the exact message you saw, the steps that led to it, and screenshots with personal data hidden.
+
+See [Report a problem](/docs/troubleshooting/report-a-problem) for what Fabricator includes and what to remove before posting publicly.

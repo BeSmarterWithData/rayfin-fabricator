@@ -1,0 +1,62 @@
+---
+title: "Set up and sign in"
+description: "Use Fabricator setup to check tools, sign in to Copilot and Azure CLI, and enter the app."
+---
+
+Setup prepares your computer for Fabricator. Complete the required tool checks, sign in to the two required accounts, then choose **Enter Fabricator**.
+
+![The setup screen with all five tools installed and both GitHub Copilot and the Azure CLI connected, ready to enter Fabricator.](/screenshots/setup.webp)
+
+## Step 1: Tools
+
+The **Tools** card checks command-line tools Fabricator needs locally.
+
+| Tool | Required | Minimum | What it is used for |
+| --- | --- | --- | --- |
+| Node.js | Yes | 20 | Creating and running Rayfin app projects. |
+| npm | Yes | Any installed version | Installing project dependencies. |
+| Git | Yes | Any installed version | Tracking app changes and history. |
+| Azure CLI | Yes | Any installed version | Signing in to Azure. |
+| GitHub CLI (gh) | No | Any installed version | Optional repository browsing and cloning. |
+
+For missing tools, choose **Install** on one row or **Install all** when it appears. On Windows, Fabricator tries `winget`. On macOS, it tries Homebrew. If that is not available or an install cannot run automatically, Fabricator opens the tool's official installer and shows **Get it**.
+
+After a tool install, setup can show:
+
+> "Almost there. Restart to finish setting up the tools that were just installed."
+
+Choose **Restart now**, then return to setup. Use **Re-check** when you have installed or fixed a tool yourself.
+
+## Step 2: Sign in
+
+The **Sign in** card has two required accounts.
+
+### GitHub Copilot
+
+GitHub Copilot is the AI agent that writes and edits your app. Fabricator uses its bundled Copilot engine, so setup verifies that the chat engine can actually use your account.
+
+For a standard GitHub account, leave **GitHub host** as `github.com`. For GitHub Enterprise Cloud with data residency, enter your Enterprise Cloud host, such as `company.ghe.com` or `https://company.ghe.com`. The field accepts `github.com` or a `.ghe.com` Enterprise Cloud host. GitHub Enterprise Server is not supported by this sign-in flow.
+
+Choose **Sign in**, then finish the browser or device-code instructions shown by Fabricator.
+
+### Azure CLI
+
+Azure CLI sign-in lets Fabricator verify your Azure account. Choose **Sign in**, then complete `az login` in the browser. The Azure CLI row stays disabled until the Azure CLI tool check passes.
+
+## What each account is for
+
+- GitHub Copilot writes code, edits files, and answers chat prompts.
+- Azure CLI verifies Azure account access during setup.
+- Fabric sign-in is separate. Fabricator asks you to **Sign in to Fabric** later when it needs the project's Rayfin CLI to list workspaces, deploy, share, or refresh Fabric credentials.
+
+## Sign out and re-check
+
+When an account is signed in, its row offers **Sign out**. Copilot sign-out removes the current Copilot account from the bundled engine. Azure sign-out runs `az logout` and verifies that Azure has no signed-in accounts left.
+
+After signing out, installing a tool, or changing account state, choose **Re-check**.
+
+## Enter Fabricator
+
+When required tools are installed and both setup accounts are verified, setup says **All checks passed** and enables **Enter Fabricator**. Choose it to open Home.
+
+If setup does not pass, see [Setup and sign-in troubleshooting](/docs/troubleshooting/setup-and-sign-in).

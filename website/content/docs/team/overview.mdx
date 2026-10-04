@@ -1,0 +1,71 @@
+---
+title: "Use the workspace overview"
+description: "Use the app-centered workspace overview to inspect apps, working copies, previews, published deployments, data, connections, and pipeline health."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+The workspace overview shows a team workspace as a map centered on apps. Use it to see who is changing what, what is deployed, and where app data and connections point.
+
+![The workspace overview of a sample Sales team workspace. It maps published apps and working copies to each app, the app’s data and connections, and what those connect to, with deployments listed on the right.](/screenshots/team-overview.webp)
+
+## Open the overview
+
+You can open the overview from Home or from a team app:
+
+1. On Home, in **Team workspaces**, select **Overview** for a workspace.
+2. From a team app, open the team menu in the header and select **Workspace overview**.
+3. You can also select the overview button in the app header.
+
+## Read the app map
+
+Each app appears in the middle of the map. To the left, the overview shows the app's published version and active working copies. To the right, it shows **Data & connections** and **Connected to** when Fabricator can read the app configuration.
+
+For each app, the map can show:
+
+- whether the app is **Published** or **Not published yet**
+- each working copy, including **You** or the teammate's login
+- the pull request number, draft state, saves, changed files, additions, and deletions
+- whether a preview is live, failed, older than the latest save, or deploying
+- current pipeline progress with links to GitHub runs
+
+Select a working copy to open **Changes**. You can expand each file to read its diff. Large or binary files may show "No preview for this file (it’s binary or very large)."
+
+## Inspect data and connections
+
+The redesigned overview still includes the data and connections view. Fabricator reads each app's `rayfin/rayfin.yml`, data model files, and functions source when available.
+
+The map can show:
+
+- the app database, tables, and relationships
+- file storage
+- functions and which services they reach
+- connectors and what they do, such as "Runs queries"
+- Fabric sources such as semantic models, warehouses, lakehouses, and other Fabric items
+- external services reached by functions
+
+A shared source appears once and lists the apps that use it. Working-copy changes are marked with the author's name, so you can see what a branch adds, changes, or removes.
+
+## Watch deployments
+
+When nothing is selected, the side panel is **Deployments**. It shows recent pipeline activity, active deploys, and where apps deploy:
+
+- **Published apps**
+- **Previews**
+
+Use **All pipeline runs on GitHub** to open the repository's Actions page.
+
+## Manage the workspace
+
+Select **Manage** to open workspace settings. Owners can use:
+
+- **Members** to invite or remove teammates
+- **App access** to remove Fabric app access
+- **Settings** to change **Require a review**, open Fabric workspaces, check pipeline health, or leave and delete the workspace
+
+When Fabricator ships a newer pipeline template, **Pipeline health** can mark an item repairable. Select **Repair** to update the managed workflow, repository variables, merge settings, branch protection, and Fabric access as needed. If no repair is needed, the button says **Check the pipeline**.
+
+## Remove an app
+
+Workspace owners can select an app, then **Remove from workspace…**. Fabricator removes the app folder through a merged pull request. If you choose **Also delete its published app and previews in Fabric, with their data**, Fabricator also deletes the matching Fabric items it can find.

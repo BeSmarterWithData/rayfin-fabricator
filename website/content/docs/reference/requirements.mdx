@@ -1,0 +1,71 @@
+---
+title: "System requirements"
+description: "Operating systems, tools, accounts, Fabric access, and network access required by Fabricator."
+---
+
+Use this page to check whether your computer and accounts can run Fabricator and deploy Rayfin apps.
+
+## Operating systems
+
+Fabricator supports:
+
+- Windows 10 or Windows 11. The app uses WebView2 for its embedded browser surfaces.
+- macOS on Apple Silicon. The bundle targets macOS 11.0 or newer.
+
+The published macOS build is Apple Silicon (`aarch64`/arm64). The release workflow does not publish an Intel macOS installer.
+
+## Required tools
+
+Setup checks these tools:
+
+| Tool | Required | Minimum | Setup behavior |
+| --- | --- | --- | --- |
+| Node.js | Yes | 20 | Can install with `winget` on Windows or Homebrew on macOS, or open the Node.js download page. |
+| npm | Yes | Any installed version | Installed with Node.js. |
+| Git | Yes | Any installed version | Can install with `winget` or Homebrew, or open the Git download page. |
+| Azure CLI | Yes | Any installed version | Can install with `winget` or Homebrew, or open the Azure CLI install page. |
+| GitHub CLI (`gh`) | No | Any installed version | Optional repository browsing and cloning. |
+
+Fabricator bundles the Copilot engine it uses for chat. You do not need to install a separate Copilot CLI.
+
+Fabricator does not require a global Rayfin CLI for ordinary projects. It uses each project's locally installed Rayfin CLI and SDK. Learn more about Rayfin at [rayfin.ai/docs](https://rayfin.ai/docs).
+
+## Accounts
+
+You need:
+
+- A GitHub account with GitHub Copilot access.
+- For GitHub Enterprise Cloud with data residency, a `.ghe.com` Enterprise Cloud host. GitHub Enterprise Server is not supported by Fabricator's Copilot sign-in flow.
+- Azure CLI sign-in for setup.
+- Microsoft Fabric access for deploys.
+
+Fabric sign-in happens when Fabricator needs the project's Rayfin CLI to access Fabric, such as listing workspaces, deploying, sharing, or refreshing Fabric credentials. The app bar and deployment picker show **Sign in to Fabric** when needed.
+
+## Fabric capacity for deploys
+
+To deploy a Rayfin app, you need a Fabric workspace on an eligible capacity:
+
+- Fabric capacity, shown as **F-SKU**.
+- Power BI Premium capacity, shown as **P-SKU**.
+
+Workspaces without an eligible capacity are listed as not eligible. If no eligible workspace is available, Fabricator offers **Start a free trial** and **Buy a capacity** links from the deployment picker.
+
+## Network access
+
+Fabricator needs network access to the services it calls in the app:
+
+- GitHub Releases for downloading and updating Fabricator.
+- GitHub sign-in for Copilot, and GitHub APIs when using repository features.
+- Tool download sites when setup opens an installer page.
+- npm package feeds when creating or installing app projects.
+- Azure CLI sign-in.
+- Microsoft Fabric and Rayfin deploy endpoints used by the project's Rayfin CLI.
+- `https://rayfin.ai` when Advisor or Copilot follows Rayfin documentation links.
+
+If your organization filters network traffic, allow the domains required by GitHub, npm, Azure CLI, Microsoft Fabric, and Rayfin for your tenant.
+
+## Optional tools
+
+GitHub CLI (`gh`) is optional. Install it if you want Fabricator to browse or clone GitHub repositories from the app. It is separate from the bundled Copilot engine.
+
+VS Code is optional. In the **Code** view, **Open in VS Code** opens the project folder when the `code` command is available. If it is not, Fabricator opens the folder in the operating system file manager instead.

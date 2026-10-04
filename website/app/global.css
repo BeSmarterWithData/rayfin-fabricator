@@ -1,0 +1,31 @@
+@import 'tailwindcss';
+@import 'fumadocs-ui/css/neutral.css';
+@import 'fumadocs-ui/css/preset.css';
+
+@source '../node_modules/fumadocs-ui/dist/**/*.js';
+
+:root {
+  --color-fd-primary: #0f6cbd;
+  --color-fd-primary-foreground: #ffffff;
+  --fabricator-accent: #0f6cbd;
+  --fabricator-secondary: #1aa1be;
+  --fabricator-grid-size: 56px;
+  --fabricator-spark: color-mix(in srgb, var(--fabricator-accent) 55%, transparent);
+  --fabricator-pulse: color-mix(in srgb, var(--fabricator-secondary) 85%, white 15%);
+}
+.dark {
+  --color-fd-primary: #35a3ea;
+  --color-fd-primary-foreground: #04273f;
+  --fabricator-accent: #35a3ea;
+  --fabricator-secondary: #46ccb0;
+}
+
+@keyframes fabricator-charge { 0%, 100% { opacity: 0.25; } 50% { opacity: 0.6; } }
+@keyframes fabricator-flow { 0% { offset-distance: 0%; opacity: 0; } 8%, 88% { opacity: 1; } 100% { offset-distance: 100%; opacity: 0; } }
+
+.fabricator-grid, .fabricator-grid-charge { background-size: var(--fabricator-grid-size) var(--fabricator-grid-size); background-position: 50% 0; }
+.fabricator-grid { background-image: linear-gradient(to right, var(--color-fd-border) 1px, transparent 1px), linear-gradient(to bottom, var(--color-fd-border) 1px, transparent 1px); }
+.fabricator-grid-charge { background-image: linear-gradient(to right, var(--fabricator-spark) 1px, transparent 1px), linear-gradient(to bottom, var(--fabricator-spark) 1px, transparent 1px); -webkit-mask-image: radial-gradient(ellipse 38% 55% at 50% 14%, #000, transparent 70%); mask-image: radial-gradient(ellipse 38% 55% at 50% 14%, #000, transparent 70%); animation: fabricator-charge 7s ease-in-out infinite; }
+.fabricator-flow { display: none; }
+@supports (offset-path: path('M 0 0 L 1 1')) { .fabricator-flow { display: block; position: absolute; top: 0; left: 0; width: 54px; height: 2px; border-radius: 1px; background-image: linear-gradient(to right, transparent 0%, color-mix(in srgb, var(--fabricator-secondary) 10%, transparent) 45%, color-mix(in srgb, var(--fabricator-secondary) 50%, transparent) 80%, var(--fabricator-pulse) 100%); filter: drop-shadow(0 0 5px color-mix(in srgb, var(--fabricator-secondary) 45%, transparent)); offset-rotate: auto; offset-anchor: 100% 50%; offset-distance: 0%; opacity: 0; animation: fabricator-flow var(--fabricator-dur) linear var(--fabricator-delay) infinite; } }
+@media (prefers-reduced-motion: reduce) { .fabricator-grid-charge { animation: none; opacity: 0.35; } .fabricator-flow { display: none; } }

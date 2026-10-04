@@ -1,0 +1,79 @@
+---
+title: "Report a problem"
+description: "Create a useful Fabricator bug report with diagnostics, logs, version details, and privacy checks."
+---
+
+Use this page when the troubleshooting fix did not work or Fabricator shows an error that is not covered.
+
+## Use Report an issue
+
+The fastest report starts in Fabricator.
+
+1. In the status bar, select **Report an issue**.
+2. Fabricator exports a diagnostics bundle and opens a prefilled GitHub issue.
+3. The issue body includes app, Tauri, WebView2, Copilot CLI, and user-agent versions.
+4. If Fabricator saved a diagnostics file, drag that file from the opened logs folder onto the GitHub issue before submitting.
+5. Add what happened, numbered steps to reproduce it, and what you expected instead.
+
+The public issue tracker is [https://github.com/spatney/rayfin-fabricator/issues](https://github.com/spatney/rayfin-fabricator/issues).
+
+## Export diagnostics from Settings
+
+Use settings when you want to export diagnostics without opening a GitHub issue.
+
+1. Open **Settings**.
+2. Go to **Diagnostics**.
+3. Select **Export diagnostics** to create a bundle and open the logs folder.
+4. Select **Open logs folder** if you need to browse existing logs.
+5. Use **Full diagnostics** only when you need more detail for a bug. It is off by default.
+
+**Full diagnostics** also captures prompts, responses, and tool output for each chat turn. Leave it off unless you are comfortable sharing that extra content with the maintainer.
+
+## What diagnostics include
+
+A diagnostics export is a Markdown file named like `fabricator-diagnostics-20261004-010507.md` in the logs folder. It contains:
+
+- Fabricator version.
+- Operating system and architecture.
+- Tauri version.
+- WebView2 version when available.
+- Copilot CLI version.
+- Recent chat-turn diagnostics as JSON lines.
+- Recent crash or hang log entries.
+
+By default, chat-turn diagnostics are lightweight metadata: timing, model or mode when present, attachment count, files modified count, tool names and success, deploy involvement, outcome, and errors.
+
+## What diagnostics do not include
+
+Diagnostics are local files. Fabricator does not send them automatically.
+
+The export says "Attach this file to your bug report. It contains no credentials." Fabricator also redacts bearer tokens and JWT-looking strings from Fabric helper errors before they can cross into diagnostics.
+
+Still review the file before posting publicly. With **Full diagnostics** on, prompts, assistant responses, and tool output can include app details, file paths, data names, or text you typed.
+
+## Where logs are stored
+
+Logs live in Fabricator's per-user data folder under `logs`.
+
+- Windows: `%APPDATA%\Rayfin Fabricator\logs`
+- macOS: `~/Library/Application Support/Rayfin Fabricator/logs`
+
+Use **Settings → Diagnostics → Open logs folder** instead of browsing manually when possible. See [Files and folders](/docs/reference/files) for the rest of Fabricator's stored data.
+
+## What to include in a report
+
+A useful report includes:
+
+1. The exact quoted message from Fabricator, chat, the preview, or the deploy log.
+2. Numbered steps from a fresh launch to the problem.
+3. Whether the issue happens after **Restart**, **Re-check**, **Refresh Fabric authentication**, or **Redeploy**.
+4. The Fabricator version from the status bar.
+5. The diagnostics bundle.
+6. Screenshots or screen recordings with names, emails, tenant names, workspace names, URLs, and app data hidden.
+7. Whether you are on Windows 10/11 or macOS Apple Silicon.
+
+## Report security issues privately
+
+Do not open a public GitHub issue for a security vulnerability or sensitive credential exposure.
+
+Use the repository security policy instead: [SECURITY.md](https://github.com/spatney/rayfin-fabricator/blob/master/SECURITY.md).

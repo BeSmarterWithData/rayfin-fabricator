@@ -1,0 +1,77 @@
+---
+title: "Chat and Copilot problems"
+description: "Fix Copilot chat errors, stuck turns, new engine sessions, Copilot credit use, and Rayfin dependency failures."
+---
+
+Use this page when the chat panel shows an error, a turn does not finish, or Copilot seems to lose context.
+
+## Chat shows a Copilot error
+
+You see an error bubble in chat, **Copilot needs your attention**, or a message such as "GitHub Copilot is not signed in. Sign in to Copilot in Fabricator, then retry your message.", "Session not found", "Execution failed: Error: Session was not created with authentication info or custom provider", "rate limit exceeded", or a model access error.
+
+Fabricator sends your prompt to the bundled GitHub Copilot engine. Authentication, model access, policy, rate-limit, and session errors come from that engine.
+
+1. If the error asks you to sign in, select **Sign in to Copilot** in chat and complete the browser or device-code flow.
+2. Retry the message yourself. Fabricator keeps your displayed conversation and draft, but does not automatically replay work after a failed or partially started turn.
+3. If the model was marked **Unavailable** in the **Model** menu, open the model picker and choose **Auto** or another listed model.
+4. If models do not load, sign out and back in to Copilot from setup or the chat notice.
+5. If the error mentions rate limits or unavailable service, wait a few minutes, choose **Auto** or a fast model, and retry.
+6. If repeated "Session not found" errors continue on the latest version, start **New chat**. This clears the conversation view, not your app files.
+
+If the same error repeats, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## A chat turn seems stuck
+
+The assistant appears to keep working, the work log stops changing, or you cannot tell whether a turn is still active.
+
+Long turns can run for many minutes. Fabricator streams the work log, command output, file edits, and the final "Worked for …" summary when the engine reports the turn is idle.
+
+1. Expand the work log and check the latest step or command output.
+2. If you know what should happen next, type a short steering message while the turn is running. Fabricator queues it for the active session.
+3. If the turn is clearly wrong or waiting forever, select **Stop**.
+4. After stopping, send a smaller follow-up prompt that names the file or problem to continue from the current project state.
+5. If the preview or deploy is also running, wait for it to finish before starting another large request.
+6. If Fabricator stops responding, restart it. Your project files and saved chat history are stored on disk.
+
+If stuck turns happen repeatedly, turn on **Settings → Diagnostics → Full diagnostics**, reproduce once, then [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## The conversation disappeared or a new session started
+
+You see an explanation that Fabricator started a new Copilot session, or chat history looks different after sign-in, restart, or **New chat**.
+
+Fabricator keeps displayed chat history separately from the Copilot engine session. When the saved engine session is unavailable, Fabricator creates a new one so you can continue. **New chat** intentionally clears the visible conversation after confirmation and does not change your app files.
+
+1. Update to the latest Fabricator version if this followed a "Session not found" error.
+2. Continue in the visible chat if the history is still shown. Copilot can read the project files even if the engine session changed.
+3. If history was cleared by **New chat**, describe the current task again or refer to the files that already changed.
+4. Use the Code and History views to inspect or restore app file changes.
+
+If history disappears without using **New chat**, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## Copilot credits run out quickly
+
+Your GitHub Copilot plan shows included credits or premium requests being used faster than expected during Fabricator work.
+
+Fabricator uses your own GitHub Copilot entitlement. Each chat turn, deep review, design option, model selection, image attachment, and retry can use Copilot capacity. Fabricator cannot increase your plan limits.
+
+1. Use the **Model** menu and choose **Auto** or a model marked **Fast** when you do not need a deep implementation pass.
+2. Leave **Reasoning effort** on **Auto** or a lower effort for small edits.
+3. Break broad requests into smaller prompts with clear acceptance criteria.
+4. Avoid repeated **Try again** or **Retry** on the same large prompt; steer with a shorter correction instead.
+5. Use quick checks and local inspection before running deep Copilot reviews.
+6. Attach screenshots only when visual context is necessary.
+
+If usage looks unrelated to your prompts, collect diagnostics and [Report a problem](/docs/troubleshooting/report-a-problem). Diagnostics do not include your Copilot billing data.
+
+## Rayfin CLI reports missing dependencies
+
+During chat, preview, or deploy, a command fails with Node package errors for transitive dependencies such as `rxjs`, `commander`, or `jsonwebtoken`.
+
+Fabricator runs the project's locally installed Rayfin CLI and app dependencies. Missing transitive packages usually mean the project's `node_modules` tree is incomplete or was changed while tools were running. This is a known open problem for some projects.
+
+1. Ask Copilot to repair the project dependencies and then retry the failed command.
+2. If you are comfortable using a terminal, open the project folder and run `npm ci` when the project has `package-lock.json`. Otherwise run `npm install`.
+3. Return to Fabricator and retry the preview, chat request, or **Redeploy**.
+4. If the error happens after Copilot edits `package.json`, ask Copilot to keep the Rayfin CLI and SDK package versions in sync.
+
+If dependency repair does not help, [Report a problem](/docs/troubleshooting/report-a-problem) and include the exact npm error.

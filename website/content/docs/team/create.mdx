@@ -1,0 +1,49 @@
+---
+title: "Create a team workspace"
+description: "Create the private repository, Fabric workspaces, deploy identities, OIDC trust, pipeline, and first verification run."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+Create a team workspace from Home when you want Fabricator to set up a shared repository and Fabric deployment pipeline for your team.
+
+![The Create a team workspace dialog with fields for the workspace name, the GitHub owner and the Fabric capacity.](/screenshots/team-create.webp)
+
+## Create the workspace
+
+1. On Home, find **Team workspaces**.
+2. Select **Create a team workspace**. If you already have a team workspace, select **New team workspace**.
+3. Complete any GitHub or Azure sign-in checks.
+4. Enter a **Workspace name**.
+5. Choose the **GitHub owner**. This can be your account or an organization.
+6. Choose a **Fabric capacity**.
+7. Select **Create workspace**.
+
+## What Fabricator creates
+
+Fabricator runs these setup steps in order:
+
+1. **Create the private GitHub repository**.
+2. **Create the production and preview Fabric workspaces**.
+3. **Create the deploy identities (service principals)**.
+4. **Let the repository's pipeline sign in as those identities**.
+5. **Give the deploy identities access to Fabric**.
+6. **Add the deploy pipeline to the repository**.
+7. **Protect the main branch**.
+8. **Download the workspace to this computer**.
+9. **Check that the pipeline can reach Fabric**.
+
+The GitHub repository gets `README.md`, `.gitignore`, `fabricator.workspace.json`, and `.github/workflows/fabricator.yml`. It also gets GitHub Actions variables for the tenant ID, deploy identity client IDs, and Fabric workspace IDs.
+
+## If setup needs an administrator
+
+Setup can stop when your organization does not allow your account to do a step. Common examples are:
+
+- Microsoft Entra ID does not let you create or change app registrations.
+- Fabric refuses service principal access to the Fabric API.
+- Your GitHub organization blocks repository or workflow changes.
+
+When Fabricator has administrator instructions, it shows **Copy instructions for your admin**. Send that text to the right administrator, then come back to the same setup window and select **Retry**.
+
+If an administrator creates an app registration for you, expand **Advanced options**, paste its application client ID in **Existing app registration (optional)**, and continue. An administrator-provided app registration is used for both previews and published apps.

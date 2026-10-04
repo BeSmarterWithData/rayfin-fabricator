@@ -1,0 +1,87 @@
+---
+title: "Settings"
+description: "Every option in Fabricator's Settings: theme, text size, workspace folder, updates, diagnostics and experiments."
+---
+
+Open **Settings** to change how Fabricator looks, where new projects are created, how diagnostics are captured, and whether experimental features are visible.
+
+![The Settings dialog with Theme, Text size, Workspace folder, Usage stats, Updates and Diagnostics.](/screenshots/settings.webp)
+
+## Theme
+
+**Theme** controls the app's color theme.
+
+| Option | What it does |
+| --- | --- |
+| **System** | Follows your operating system light or dark setting. This is the default. |
+| **Dark** | Uses Fabricator's dark theme. |
+| **Light** | Uses Fabricator's light theme. |
+
+## Text size
+
+**Text size** scales the whole interface. The choices are 100%, 110%, 125%, and 150%. The default is 100%.
+
+Use this when Fabricator is hard to read on a large or high-DPI monitor. The setting is saved as the UI scale and is clamped by the app between `80%` and `200%` when stored.
+
+## Interface zoom in the status bar
+
+The status bar has an **Interface zoom** menu with the same values as **Text size**. Changing it updates the same setting and also scales the design tools.
+
+## Workspace folder
+
+**Workspace folder** shows where Fabricator creates new projects. The default is a `RayfinProjects` folder in your home directory.
+
+Select **Change…** to pick a different folder. This changes where new projects are created; it does not move existing project folders.
+
+## Usage stats
+
+**Usage stats** is an informational note. In the app, it says:
+
+> We send your sign-in domain and a hashed email so we can see how the product is used. Your email, code, and apps stay on this device.
+
+Telemetry is only active when a build includes a telemetry connection string. See [Privacy and telemetry](/docs/reference/privacy).
+
+## Updates
+
+**Updates** shows the installed Fabricator version and lets you check manually.
+
+Select **Check for updates** to ask GitHub Releases for the latest signed updater manifest. While it runs, the button changes to **Checking…**. If an update is ready, Fabricator downloads it and asks you to restart from the update banner.
+
+## Diagnostics
+
+Diagnostics are saved on this device under the logs folder.
+
+### Full diagnostics
+
+**Full diagnostics** is off by default. When it is off, Fabricator records lightweight chat-turn metadata such as timing, model, mode, tool names, outcomes, errors, attachment count, files modified, and whether deploy ran.
+
+When **Full diagnostics** is on, Fabricator also captures prompts, responses, and tool output for each chat turn. Text fields are truncated before they are saved. Turn this on only when you need a more detailed bug report.
+
+### Export diagnostics
+
+**Export diagnostics** creates a Markdown diagnostics bundle in the logs folder and opens that folder. The bundle includes environment details, recent chat-turn diagnostics, and recent crash or hang log entries. You decide whether to attach it to a bug report.
+
+### Open logs folder
+
+**Open logs folder** opens the local logs folder without creating a new export.
+
+## Experiments
+
+**Experiments** is collapsed by default. It includes features that are off by default and may change or be removed.
+
+### Team workspaces
+
+**Team workspaces** lets you build apps with a team in a private GitHub repository. Everyone works on their own copy, and a pipeline publishes to Fabric with a deploy identity that Fabricator sets up. Team apps never deploy from this computer. This experiment needs the GitHub CLI.
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+## Version footer
+
+The Settings footer shows the versions Fabricator is using:
+
+```text
+Fabricator <version> · Tauri <version> · WebView2 <version> · Copilot CLI <version>
+```
+
+The exact Tauri, WebView2, and Copilot CLI values depend on the build and your computer.

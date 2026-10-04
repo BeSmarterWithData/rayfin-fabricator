@@ -1,0 +1,81 @@
+---
+title: "Setup and sign-in problems"
+description: "Fix setup tool checks, GitHub Copilot sign-in, account switching, Azure CLI sign-in, and Fabric sign-in."
+---
+
+Use this page for the first-run setup screen and account problems. Fabricator verifies the tools and sign-ins it actually uses; a remembered account is not enough if the underlying CLI token has expired.
+
+## A tool shows as missing or failed
+
+You see **Getting your environment ready**, a tool row such as **Node.js**, **npm**, **Git**, **Azure CLI**, or **GitHub CLI (gh)** is not **Installed**, or the row has a **Re-check** button. A failed version check can say a tool "was found, but its version check failed".
+
+Fabricator needs Node.js 20 or newer, npm, Git, and Azure CLI. **GitHub CLI (gh)** is optional repository tooling. It is separate from the bundled GitHub Copilot engine, so installing Copilot with pnpm does not satisfy the **GitHub CLI (gh)** check.
+
+1. If Fabricator offers **Install** or **Install all**, use it.
+2. If setup says **Almost there.** and shows **Restart now**, select **Restart now**. Installed tools are often not visible to the running app until restart.
+3. If a tool was installed outside Fabricator, restart Fabricator and select **Re-check**.
+4. On Windows, use **Re-check** before installing a second copy. Fabricator refreshes PATH from the saved user and machine PATH and common Scoop, pnpm, and Azure CLI locations.
+5. If a found tool's version check fails, open a terminal and run the command shown in the setup row, such as `az version`, to repair that existing installation.
+6. Do not install a global Rayfin CLI just to satisfy setup. Fabric sign-in and deploy use the Rayfin CLI pinned by each project.
+
+If a required tool still cannot be verified, [Report a problem](/docs/troubleshooting/report-a-problem) and include the setup row text.
+
+## GitHub Copilot sign-in doesn't work
+
+You select **Sign in** for **GitHub Copilot**, but the browser or device-code flow fails, the code is not accepted, or setup stays unsigned in.
+
+Fabricator signs in through its bundled Copilot engine. For GitHub Enterprise Cloud with data residency, the device code must be requested from the same enterprise host where you redeem it.
+
+1. Leave **GitHub host** as `github.com` for a normal GitHub account.
+2. For GitHub Enterprise Cloud with data residency, enter the enterprise host in **GitHub host**, such as `company.ghe.com` or `https://company.ghe.com`.
+3. Select **Sign in**.
+4. Complete the browser or device-code instructions shown by that exact sign-in attempt. A code from `github.com` cannot be redeemed on an enterprise host.
+5. If Fabricator reports "Enter github.com or a GitHub Enterprise Cloud hostname such as company.ghe.com (optionally with https://). Do not include a path, credentials, or a non-HTTPS port.", remove paths such as `/login/device`, ports, query strings, and credentials from the host.
+6. If Fabricator says the chat engine is using a different host or mentions `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN`, remove those environment variables at their source and restart Fabricator.
+7. If Fabricator says Copilot is authenticated through GitHub CLI, run `gh auth logout` for the unintended account, then restart Fabricator.
+
+GitHub Enterprise Server is not supported by this Copilot sign-in flow. If a supported sign-in still fails, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## Copilot asks you to sign in again
+
+In chat, you see **Copilot needs your attention**, **Sign in to Copilot**, or the exact message "GitHub Copilot is not signed in. Sign in to Copilot in Fabricator, then retry your message." You may also see errors such as "Execution failed: Error: Session was not created with authentication info or custom provider" or "Session not found".
+
+Copilot credentials can expire or the engine can lose a saved session handle. Current Fabricator versions reconnect when possible. If the saved engine session is gone, Fabricator starts a new engine session but keeps the displayed chat history and your draft.
+
+1. Select **Sign in to Copilot** in the chat notice.
+2. Complete the browser or device-code flow.
+3. Retry your message. Fabricator does not automatically replay prompts after work has started.
+4. If you are on an older Fabricator version and see repeated "Session not found" errors, update to the latest version.
+5. If you were switching accounts, use **Sign out** on the **GitHub Copilot** setup card, then sign in again. Credentials supplied by environment variables or GitHub CLI must be removed outside Fabricator.
+
+If the notice returns immediately after sign-in, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## Azure CLI is signed in to the wrong account
+
+Setup shows **Azure CLI** as connected to the wrong user or tenant, or Azure sign-in works but later Fabric operations use the wrong tenant.
+
+Fabricator checks Azure CLI by running token and account commands. Azure CLI credentials are shared with your terminal and are separate from Fabric/Rayfin credentials and the preview browser.
+
+1. In setup, select **Sign out** on the **Azure CLI** card.
+2. If more than one Azure account remains, open a terminal and run `az logout`.
+3. Select **Sign in** on the **Azure CLI** card and complete the browser sign-in for the tenant you need.
+4. Select **Re-check**.
+5. If you need a different Fabric/Rayfin account for deploy, also use **Refresh Fabric authentication** from the account menu after opening the project.
+
+If Azure still reports the wrong account, [Report a problem](/docs/troubleshooting/report-a-problem).
+
+## Fabric sign-in doesn't complete
+
+You select **Sign in to Fabric**, **Refresh Fabric authentication**, or a deploy triggers sign-in, but no browser appears, the button returns to normal, or workspace listing does not continue. You may see a Rayfin CLI line such as "❌ Login failed: OS keychain is not available and plaintext token storage is not enabled."
+
+Fabricator runs the selected project's Rayfin CLI with `rayfin login --select`, then verifies the credential against Fabric. On locked-down machines the OS keychain can block token storage; current Fabricator versions allow Rayfin's plaintext fallback so sign-in can finish. On macOS, some passwordless SSO flows can still be limited by the embedded browser and system account setup.
+
+1. Update to the latest Fabricator version.
+2. Look for a browser sign-in window behind Fabricator or minimized on the taskbar or Dock.
+3. Complete the sign-in for the tenant that owns the Fabric workspace.
+4. If the sign-in button returns with an error, copy the exact message.
+5. In the project folder, run `npx rayfin login` only to reveal the full Rayfin CLI error. Return to Fabricator after sign-in succeeds.
+6. In Fabricator, open the account menu and choose **Refresh Fabric authentication**. The dialog runs `rayfin logout`, then `rayfin login`, and verifies the credential. It does not clear Copilot, Azure CLI, or preview-browser sessions.
+7. After a successful refresh, select **Redeploy**. Fabricator does not redeploy automatically after a credential refresh.
+
+If you are using a client tenant, confirm that your account can access the target Fabric workspace and capacity. If sign-in still does nothing, [Report a problem](/docs/troubleshooting/report-a-problem) with diagnostics.

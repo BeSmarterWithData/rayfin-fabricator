@@ -1,0 +1,75 @@
+---
+title: "Tour the workbench"
+description: "Find Home, project tabs, chat, preview, code, model, Advisor, accounts, settings and the status bar."
+---
+
+Fabricator has two main places: Home, where you choose a project, and the project workbench, where you build, inspect, preview, and deploy one app.
+
+## Home
+
+![Home, with the New project, Open folder and Clone from GitHub actions above a list of three recent projects.](/screenshots/home.webp)
+
+Home is titled **Your projects**. Use it to start or open work:
+
+- **New project** creates a Rayfin app and starts the deploy flow.
+- **Open folder** opens an existing local project.
+- **Clone from GitHub** brings a repository into Fabricator.
+- **Recent projects** lists projects you have opened before. A project can show **Open now** or **Missing**.
+- **Change folder** changes where new local projects are saved.
+
+If **Team workspaces** is turned on in **Settings → Experiments**, Home also shows the team workspace section.
+
+## Project app bar
+
+![The Fabricator workbench. On the left, the chat shows a finished Copilot turn that built an expense tracker; on the right, the live preview shows the deployed app with a monthly total and a spending chart.](/screenshots/workbench.webp)
+
+When a project is open, the app bar starts with the project switcher. Choose the project name to return to Home while the project keeps running. Choose the `Back to <project name>` button to return.
+
+The center of the app bar has project tabs:
+
+- **Build**: chat and live preview.
+- **Code**: files, history, and skills.
+- **Model**: a visual view of the app's data model.
+- **Advisor**: app health checks and fixes.
+
+The right side can include deployment controls:
+
+- **Deployment:** shows the active deployment or **Not deployed**.
+- **Deploy** creates the first deployment.
+- **Redeploy** publishes to the active deployment again.
+- **Share** opens sharing for the active deployment.
+
+The app bar also has **Settings** and the account menu.
+
+## Build view
+
+**Build** is where you spend most of your time. Chat is on the left. The preview is on the right. During a turn, the chat work log shows what Copilot is doing. The preview can show a live local app while Copilot edits, then return to the deployed app after the turn.
+
+The preview toolbar includes **Reload**, a URL button, **Fabric**, **Design**, and **Focus**. **Design** lets you click the deployed app, queue visual changes, and send them to Copilot. See [Live preview](/docs/build/preview) and [Design mode](/docs/build/design).
+
+## Code, Model, and Advisor
+
+**Code** has three sub-tabs: **Files**, **History**, and **Skills**. **Files** opens a read-only code viewer. **History** shows a timeline of changes. **Skills** manages reusable Copilot instructions. See [Code and history](/docs/build/code-and-history) and [Skills](/docs/build/skills).
+
+**Model** shows the Rayfin data model and can hand model-related fixes to chat. See [Data model and semantic models](/docs/build/data-model).
+
+**Advisor** checks app health. The tab can show a badge for open high or medium issues. See [Check app health with the Advisor](/docs/ship/advisor).
+
+## Account menu and Settings
+
+![The account menu opened from the avatar in the top-right corner, showing the signed-in Fabric account with Refresh Fabric authentication and Sign out.](/screenshots/account-menu.webp)
+
+When you are signed in to Fabric, the account menu shows your account initials. It can show **Refresh Fabric authentication** and **Sign out**. When you are not signed in, it shows **Sign in to Fabric**. Fabric sign-in is separate from setup's GitHub Copilot and Azure CLI sign-ins.
+
+Open **Settings** from the gear button. Settings includes **Theme**, **Text size**, **Workspace folder**, **Usage stats**, **Updates**, **Diagnostics**, and experiments such as **Team workspaces**.
+
+## Status bar
+
+The footer shows project and app status:
+
+- Git status for local projects, or team workspace and branch for team apps.
+- The project's Rayfin version control.
+- The active Fabric workspace, when known.
+- Interface zoom.
+- Fabricator app version, such as `v1.7.2`.
+- **Report an issue**, which opens a prefilled GitHub issue with app and system information.

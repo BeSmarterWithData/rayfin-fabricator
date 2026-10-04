@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Fabricator docs screenshot harness</title>
+    <!-- Headless capture freezes animations mid-frame; render final states. -->
+    <style>
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/docs-harness.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,39 @@
+---
+title: "Team workspace limitations"
+description: "Understand current team workspace limits for GitHub plans, github.com, Rayfin versions, and the experiment toggle."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+Team workspaces are useful for collaboration, but they are still experimental and have important limits.
+
+## GitHub Free cannot enforce branch protection on private repositories
+
+Fabricator asks GitHub to protect `main`. On GitHub Free private repositories, GitHub does not offer that branch protection feature.
+
+In that case, Fabricator still follows the publish flow itself: each person works on a branch, opens a pull request, checks the preview, and publishes by merging. However, a member with write access to the repository could push to `main` directly outside Fabricator. A paid GitHub plan lets GitHub enforce the flow and required reviews.
+
+## Team workspaces use github.com only
+
+The team workspace GitHub code forces `gh` API calls and git credential use to `github.com`. GitHub Enterprise Server is not supported for team workspaces. GitHub Enterprise Cloud with data residency hosts are not used by the team workspace repository operations.
+
+## Apps need Rayfin 1.36.2 or newer
+
+The team pipeline deploys by item name with `rayfin up --item-name`. Apps using older Rayfin versions must be updated with **Update with Copilot** before they can move into or deploy reliably from a team workspace.
+
+## Turning off the experiment hides team workspaces
+
+Turning off **Settings → Experiments → Team workspaces** hides team workspaces and team apps in Fabricator. It does not delete repositories, Fabric workspaces, deploy identities, previews, published apps, or local files.
+
+## Previews are deployed by GitHub Actions
+
+Team apps do not deploy from your computer. Your local preview is temporary while Copilot works and while the pipeline catches up. The deployed preview appears only after the GitHub Actions workflow finishes.
+
+## One repository holds all apps in the workspace
+
+Every app is a top-level folder in one private repository. Folder names must be safe path segments and cannot use reserved names such as `node-modules`, `dist`, `build`, `out`, `github`, `repo`, or `fabricator`.
+
+## Administrator-created identity is shared
+
+When setup uses an app registration supplied by an administrator, Fabricator uses that same identity for previews and published apps. Separate preview and deploy identities are created only when Fabricator is allowed to create the app registrations itself.

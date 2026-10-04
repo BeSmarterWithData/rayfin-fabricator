@@ -1,0 +1,96 @@
+---
+title: "Skills"
+description: "Browse Fabricator skills, understand the bundled Rayfin app-building skills, and add custom skills for your own project guidance."
+---
+
+Skills are instructions Copilot can read while it builds your Rayfin app. They teach the agent app-building patterns, design preferences, data-model rules, analytics workflows, and your own team conventions.
+
+Fabricator installs the core Rayfin guidance for a project when it creates or opens it. Optional skills can be added from the **Skills** tab.
+
+![The Skills view with always-on Rayfin skills, optional skills grouped into Data & forms, Look & feel, Performance and Quality, and the skills added in this app.](/screenshots/skills.webp)
+
+## Open the Skills tab
+
+1. Open a project.
+2. In the app bar, select **Code**.
+3. In the code view's segmented control, select **Skills**.
+4. Review the grouped skill cards.
+
+A skill can show:
+
+- **Always on** for managed core skills;
+- **Active** when it is enabled for this project;
+- **Preview** to inspect the raw `SKILL.md`;
+- **Add** or **Remove** to change whether the skill is copied into this app.
+
+Turning a skill on or off writes the project's `.agents/skills/<skill id>/SKILL.md` folder and saves that change to git history.
+
+## Built-in project skills at a glance
+
+The Universal App starter ships with skills that route common Rayfin app requests:
+
+| Skill | What it helps Copilot do |
+| --- | --- |
+| `capability-router` | Choose the smallest needed capability packs before changing code. |
+| `rayfin-web-docs` | Look up official Rayfin documentation for version-aware Rayfin API work. |
+| `authentication` | Wire the existing Fabric sign-in scaffolding for protected pages and per-user data. |
+| `data-modeling` | Add Rayfin entities, schema registration, typed client reads and writes, and row-level security patterns. |
+| `graphein-visuals` | Build charts, KPIs, tables and dashboards with Graphein specs over app data. |
+| `analytics` | Turn on the Power BI or Fabric semantic-model dashboard pack. |
+| `build-workflow` | Build analytics dashboards in small loops: one hero visual, preview, then breadth and polish. |
+| `fabric-data` | Add and query Fabric semantic model connections with `fabric-app-data`. |
+| `dax` | Discover semantic model schema and write DAX queries at the visual grain. |
+| `visuals` | Author analytics dashboard visuals, KPI cards, tables, slicers and chart specs. |
+| `headless-preview` | Validate visuals with `npm run preview` and a PNG/report loop. |
+| `app-design` | Make dashboard layout, typography, tokens, states and visual polish cohesive. |
+
+These skills are project files, so they travel with the app. Fabricator also injects Fabricator-specific operating instructions during chat, such as not running `rayfin up` because Fabricator deploys after a turn.
+
+## Add a catalog skill
+
+Fabricator's skill catalog includes optional app-building guidance such as **Polished, modern UI**, **Buttery animations**, **Responsive on every screen**, **Accessible to everyone**, **Loading & empty states**, **Solid data modeling**, **Beautiful charts & dashboards**, **Friendly forms & validation**, and **Fast & snappy**.
+
+1. Open **Skills**.
+2. Find the skill card.
+3. Select **Preview** if you want to inspect the `SKILL.md` first.
+4. Select **Add**.
+
+Fabricator copies the skill into this project. Select **Remove** to delete that project copy. Managed core skills cannot be removed.
+
+## Add a custom skill
+
+Use a custom skill for guidance that is specific to your organization, brand, data vocabulary, or review checklist.
+
+1. Open **Skills**.
+2. Select **+ Add custom skill**.
+3. Choose **Write** to author one in Fabricator, or **Upload** to bring in an existing skill.
+4. Give it a **Title**, optional **Icon**, and **Short description**.
+5. Write the **Skill instructions (SKILL.md)**. The file must start with YAML frontmatter that includes `name` and `description`.
+6. Decide whether to turn on **Save to my skill library**.
+7. Select **Add skill**.
+
+A skill's frontmatter `description` tells Copilot when to use it. The body tells Copilot what to do.
+
+## Upload a custom skill
+
+The **Upload** tab accepts a folder, a Markdown file, or a `.zip` that contains `SKILL.md`. If the skill has `references/*.md` files, Fabricator brings those along too.
+
+Fabricator previews the skill before adding it. Review the preview, then select **Add skill**.
+
+## Project skills and the skill library
+
+Custom skills have two scopes:
+
+- The app copy lives in the project under `.agents/skills/<id>/`. Apps that already use a skill keep their copy.
+- Reusable skills are listed under **Your skill library** and stored once in Fabricator's app data under `custom-skills/<id>/`. Turn a library skill on to copy it into the current app.
+
+Use **Save to library** on a project-only custom skill to make it reusable in other apps.
+
+## Edit or delete a library skill
+
+Library skills show **Edit** and **Delete**.
+
+- **Edit** opens **Edit custom skill**, where you can change the card details and `SKILL.md`.
+- **Delete** removes the skill from your reusable library.
+
+Deleting a library skill does not remove copies that are already active in apps. Remove those from each app's **Skills** tab if you no longer want Copilot to use them there.

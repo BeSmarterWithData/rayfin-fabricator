@@ -1,0 +1,128 @@
+---
+title: "Information for administrators"
+description: "Review the Entra ID, Fabric, GitHub, and GitHub Actions resources that Fabricator creates for team workspaces."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+This page is for administrators who need to approve or help repair a Fabricator team workspace. Fabricator is a personal project by Sachin Patney, not a Microsoft product.
+
+## What Fabricator creates in GitHub
+
+Fabricator creates one private repository on `github.com`. The repository description starts with `Fabricator team workspace:` and Fabricator tries to add the `fabricator-workspace` topic.
+
+Repository settings are configured for squash merges:
+
+- squash merge enabled
+- merge commits disabled
+- rebase merges disabled
+- delete branch on merge enabled
+- auto-merge enabled
+- squash title from the pull request title
+- squash message from the pull request body
+
+Fabricator writes these files:
+
+- `README.md`
+- `.gitignore`
+- `fabricator.workspace.json`
+- `.github/workflows/fabricator.yml`
+
+It creates or updates these GitHub Actions variables:
+
+- `AZURE_CLIENT_ID`
+- `AZURE_PREVIEW_CLIENT_ID`
+- `AZURE_TENANT_ID`
+- `FABRIC_WORKSPACE_ID`
+- `FABRIC_PREVIEW_WORKSPACE_ID`
+
+It asks GitHub to protect `main` with force pushes and deletions disabled, no status-check requirement, no push restrictions, and pull request reviews configured with zero required approvals by default. When the workspace setting **Require a review** is on, Fabricator asks for one approving review. If GitHub says the plan does not support branch protection for the private repository, Fabricator records that only the app enforces the publish flow.
+
+## What Fabricator creates in Microsoft Fabric
+
+Fabricator creates two Fabric workspaces on the selected capacity:
+
+- `<workspace name>` for published apps
+- `<workspace name> previews` for personal previews
+
+It grants Contributor on the published workspace to the deploy service principal. It grants Contributor on the previews workspace to the preview service principal. If an administrator-provided app registration is used, the same service principal is granted Contributor on both workspaces.
+
+When owners invite teammates with a work email, Fabricator grants that user Contributor on both Fabric workspaces. Removing a member removes the Fabric access that this Fabricator installation recorded for that GitHub login.
+
+## What Fabricator creates in Microsoft Entra ID
+
+When the user can create app registrations, Fabricator creates these app registrations and service principals:
+
+- `Fabricator deploy - <workspace name>` for published apps
+- `Fabricator previews - <workspace name>` for previews
+
+Each app registration gets GitHub Actions federated identity credentials. Fabricator uses issuer `https://token.actions.githubusercontent.com` and audience `api://AzureADTokenExchange`.
+
+The deploy identity trusts `main` subjects:
+
+- `repo:<owner>/<repo>:ref:refs/heads/main`
+- `repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:refs/heads/main`
+
+The preview identity trusts pull-request subjects and `main` subjects, so setup can run verification:
+
+- `repo:<owner>/<repo>:pull_request`
+- `repo:<owner>@<owner-id>/<repo>@<repo-id>:pull_request`
+- `repo:<owner>/<repo>:ref:refs/heads/main`
+- `repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:refs/heads/main`
+
+If one administrator-provided app registration is used, that one app registration trusts both pull-request and `main` subjects and is used for both previews and published apps.
+
+## What the workflow does
+
+The managed workflow is named `Fabricator`. It runs on pushes to `main`, pull requests into `main`, and manual `workflow_dispatch` runs.
+
+The workflow permissions are:
+
+- `contents: read`
+- `id-token: write`
+- `deployments: write`
+
+It checks out code, installs Node.js 22, installs app dependencies with `npm ci` when `package-lock.json` exists or `npm install` otherwise, checks that `npx --no-install rayfin up --help` supports `--item-name`, signs in with `azure/login@v3`, gets a Fabric API token with Azure CLI, and runs `npx rayfin up --workspace-id "$WORKSPACE" --item-name "$ITEM" --yes`.
+
+Pull requests deploy to the previews workspace with item names like `<app>-pv-<github-login>` and use the preview identity. Pushes to `main` deploy to the published apps workspace with item name `<app>` and use the deploy identity.
+
+If Rayfin is too old, the workflow emits:
+
+> "`<app> uses Rayfin CLI <version>`. Team workspaces need Rayfin 1.36.2 or newer: open the app in Fabricator, select Rayfin in the status bar and choose Update with Copilot."
+
+If a published deploy would delete data, it emits:
+
+> "This change would delete data in the published app. Publish it again from Fabricator and confirm to allow it."
+
+## Permissions and settings needed
+
+The person setting up the workspace needs the GitHub CLI signed in to `github.com` with `repo`, `read:org`, and `workflow`. Fabricator uses those scopes to create and use the repository and its workflow.
+
+The Azure CLI sign-in must be in the target tenant. To create identities, the user must be allowed to create and update app registrations and service principals, or must have an administrator-provided app registration.
+
+Fabric must allow the deploy identities to call Fabric APIs. Fabricator's admin note says:
+
+> "In the Fabric admin portal, open Tenant settings → Developer settings and turn on \"Service principals can call Fabric public APIs\" (for the organization, or for a security group that includes the workspace's deploy identity)."
+
+## What users may send to an administrator
+
+When app registration creation is blocked, Fabricator says:
+
+> "Your organization doesn't let you create or change app registrations in Microsoft Entra ID."
+
+It asks the user to send instructions that start with:
+
+> "Please create a deploy identity for the Fabricator team workspace \"`<owner>`/`<repo>`\":"
+
+The instructions include `az ad app create --display-name "Fabricator deploy - <workspace name>" --sign-in-audience AzureADMyOrg`, `az ad sp create --id <appId>`, and one `az ad app federated-credential create` command for each required GitHub OIDC subject. They end with:
+
+> "Then send me the application (client) ID so I can finish setup in Fabricator."
+
+## Cleanup
+
+Owners can select **Delete workspace…** in **Manage → Settings**. Fabricator deletes deploy identities it created, archives the GitHub repository, removes the workspace from this computer, and can also delete both Fabric workspaces and every app in them if the owner selects **Also delete both Fabric workspaces and every app in them, with their data**.
+
+Fabricator does not delete an administrator-provided app registration. It only deletes managed identities whose display names start with `Fabricator deploy - ` or `Fabricator previews - `.
+
+

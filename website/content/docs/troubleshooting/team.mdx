@@ -1,0 +1,106 @@
+---
+title: "Team workspace problems"
+description: "Fix team workspace setup, GitHub CLI, pipeline, publish, preview, invitation, and Repair problems."
+---
+
+> [!WARNING]
+> Team workspaces are an experiment. Turn them on in **Settings → Experiments**. They may change or be removed in a future update.
+
+Use this page when a team workspace setup, preview deploy, publish, invitation, or pipeline repair does not finish.
+
+## Setup needs an administrator
+
+You see setup stop on an identity, trust, access, or verification step. Fabricator may show "Your organization doesn't let you create or change app registrations in Microsoft Entra ID." It may also say "The pipeline signed in, but Fabric refused it."
+
+This happens when your organization blocks app registration changes, or when Fabric service principal API access is not enabled.
+
+1. Select **Copy instructions for your admin** if Fabricator shows it.
+2. Send the copied text to the right Microsoft Entra ID or Fabric administrator.
+3. If the administrator gives you an application client ID, paste it into **App registration from your administrator** or **Existing app registration (optional)**.
+4. Select **Retry**.
+
+If it still fails, include the setup step and copied instructions when you [report a problem](/docs/troubleshooting/report-a-problem).
+
+## GitHub CLI is missing, signed out, or missing scopes
+
+You see "The GitHub CLI (gh) isn't installed. Install it from setup, then try again." You may also see **Sign in to GitHub** or **Grant GitHub access**.
+
+Fabricator needs `gh` on PATH, signed in to `github.com` with `repo`, `read:org`, and `workflow`.
+
+1. Install the GitHub CLI from setup if it is missing.
+2. Select **Sign in to GitHub** if you are signed out.
+3. Select **Grant GitHub access** if Fabricator lists missing scopes.
+4. Finish the terminal sign-in or refresh flow.
+5. Return to Fabricator and select **Check again**.
+
+If the terminal cannot open, run the command Fabricator shows, then [report a problem](/docs/troubleshooting/report-a-problem) if the check still fails.
+
+## A pipeline failed
+
+You see **Deploying your preview** or **Publishing for everyone** fail, or the team menu shows **Last publish** with **View on GitHub**.
+
+The GitHub Actions workflow builds and deploys team apps. Common verified causes include an old Rayfin version and destructive data changes.
+
+1. Open the team menu and select **View logs**, **View on GitHub**, or **View logs on GitHub**.
+2. If the log says "Team workspaces need Rayfin 1.36.2 or newer", open the app, select Rayfin in the status bar, choose **Update with Copilot**, then save another change.
+3. If the log says "This change would delete data in the published app. Publish it again from Fabricator and confirm to allow it.", return to the app and publish again.
+4. If Fabricator offers **Deploy anyway (deletes data)**, select it only if you accept the data deletion.
+
+If the log does not explain the failure, attach the GitHub run URL when you [report a problem](/docs/troubleshooting/report-a-problem).
+
+## Publish is blocked or has conflicts
+
+You see "Your teammates changed some of the same files as you. Bring in their changes and resolve the conflicts first." You may also see **Let Copilot combine them** or **Ask Copilot to finish**.
+
+This happens when your branch cannot merge the published app cleanly.
+
+1. Open the team menu.
+2. Select **Bring in their changes** if it is available.
+3. If conflicts remain, select **Let Copilot combine them** or **Ask Copilot to finish**.
+4. Review the result in your preview.
+5. Select **Publish** again.
+
+If Copilot cannot resolve the conflict, include the conflicted file names when you [report a problem](/docs/troubleshooting/report-a-problem).
+
+## Previews are not deploying
+
+You see your local preview, but **My preview** stays missing, failed, or older than your latest save. The preview pane may keep showing **Deploying your first preview**.
+
+Team previews are deployed by the repository's GitHub Actions workflow. They do not deploy from your computer.
+
+1. Open the workspace overview.
+2. Select your working copy.
+3. In **Preview**, use **Watch on GitHub** or **See why it failed** if shown.
+4. Open **Manage → Settings** and check **Pipeline health** if runs are not starting.
+5. Select **Repair** if Fabricator says the pipeline needs repair.
+
+If the workflow did not start, check that GitHub Actions is enabled for the repository, then [report a problem](/docs/troubleshooting/report-a-problem).
+
+## Invitations are not showing
+
+You expect an invitation, but **Invitations** says "No pending invitations. Ask the workspace’s owner to invite your GitHub username."
+
+Fabricator lists pending invitations only for repositories that look like Fabricator team workspaces.
+
+1. Ask the owner to verify the GitHub username.
+2. Ask the owner to resend the invitation from **Members** with **Send invitation**.
+3. Make sure you are signed in to `gh` as that GitHub user on `github.com`.
+4. In **Join a team workspace**, use **Or enter its GitHub repository** and enter `owner/repository` if you already have access.
+
+If you still cannot join, include the repository name when you [report a problem](/docs/troubleshooting/report-a-problem).
+
+## Repair is needed after updates
+
+You see **Repair** in **Manage → Settings → Pipeline health**, or a local preview error starts with "Couldn't read the deployment's settings:" and tells you to sign in to Fabric or repair the pipeline.
+
+Fabricator updates the managed workflow over time. Existing workspaces can need the newer template or refreshed settings.
+
+1. Open the workspace overview.
+2. Select **Manage**.
+3. Select **Settings**.
+4. In **Pipeline health**, select **Repair**.
+5. Wait for the repair checklist to finish.
+6. Save a change or publish again.
+
+If repair fails, copy the shown problem and [report a problem](/docs/troubleshooting/report-a-problem).
+
