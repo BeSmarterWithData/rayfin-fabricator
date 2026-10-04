@@ -10,7 +10,7 @@
   --tmap-busy: var(--accent);
   --tmap-failed: var(--danger);
   --tmap-idle: var(--text-faint);
-  --tmap-line: color-mix(in srgb, var(--text-faint) 50%, transparent);
+  --tmap-line: color-mix(in srgb, var(--text-faint) 55%, transparent);
 }
 
 .tmap {
@@ -192,51 +192,86 @@
 }
 
 .tmap-edge {
+  /* Its color, and its color while highlighted. */
+  --edge: var(--tmap-line);
+  --edge-hot: var(--text-dim);
   transition: opacity 0.15s ease;
+}
+
+/* A version's line takes the color of its deployment: live, deploying or failed. */
+.tmap-edge--version.tmap-edge--live {
+  --edge: color-mix(in srgb, var(--tmap-live) 50%, transparent);
+  --edge-hot: var(--tmap-live);
+}
+
+.tmap-edge--version.tmap-edge--deploying {
+  --edge: color-mix(in srgb, var(--tmap-busy) 28%, transparent);
+  --edge-hot: color-mix(in srgb, var(--tmap-busy) 45%, transparent);
+}
+
+.tmap-edge--version.tmap-edge--failed {
+  --edge: color-mix(in srgb, var(--tmap-failed) 60%, transparent);
+  --edge-hot: var(--tmap-failed);
 }
 
 .tmap-edge-base {
   fill: none;
-  stroke: var(--tmap-line);
-  stroke-width: 1;
+  stroke: var(--edge);
+  stroke-width: 1.5;
   stroke-linecap: round;
-  stroke-linejoin: round;
   transition: stroke 0.15s ease;
 }
 
-.tmap-edge--deploy.tmap-edge--live .tmap-edge-base {
-  stroke: color-mix(in srgb, var(--tmap-live) 60%, transparent);
+.tmap-edge--hot .tmap-edge-base {
+  stroke: var(--edge-hot);
 }
 
-.tmap-edge--deploy.tmap-edge--idle .tmap-edge-base {
-  stroke-dasharray: 2 4;
+/* Not deployed yet: dotted. Failed, or only in working copies: dashed. */
+.tmap-edge--version.tmap-edge--idle .tmap-edge-base {
+  stroke-dasharray: 0.5 5;
 }
 
-.tmap-edge--deploy.tmap-edge--failed .tmap-edge-base {
-  stroke: color-mix(in srgb, var(--tmap-failed) 70%, transparent);
-  stroke-dasharray: 4 4;
-}
-
-.tmap-edge--deploy.tmap-edge--deploying .tmap-edge-base {
-  stroke: color-mix(in srgb, var(--tmap-busy) 25%, transparent);
+.tmap-edge--version.tmap-edge--failed .tmap-edge-base,
+.tmap-edge--draft .tmap-edge-base {
+  stroke-dasharray: 4 5;
 }
 
 .tmap-edge-flow {
   fill: none;
   stroke: var(--tmap-busy);
-  stroke-width: 1.5;
+  stroke-width: 2;
   stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 5 7;
+  stroke-dasharray: 4 8;
   animation: tmap-flow 0.8s linear infinite;
 }
 
-.tmap-edge--dim {
-  opacity: 0.2;
+/* Where a line meets a node. */
+.tmap-port {
+  fill: var(--bg-elev);
+  stroke: var(--tmap-line);
+  stroke-width: 1.5;
+  transition: stroke 0.15s ease;
 }
 
-.tmap-edge--hot.tmap-edge--tree .tmap-edge-base {
+.tmap-edge--hot .tmap-port {
   stroke: var(--text-dim);
+}
+
+/* A version's own end shows how its deployment is doing. */
+.tmap-edge--version.tmap-edge--live .tmap-port--from {
+  stroke: var(--tmap-live);
+}
+
+.tmap-edge--version.tmap-edge--deploying .tmap-port--from {
+  stroke: var(--tmap-busy);
+}
+
+.tmap-edge--version.tmap-edge--failed .tmap-port--from {
+  stroke: var(--tmap-failed);
+}
+
+.tmap-edge--dim {
+  opacity: 0.15;
 }
 
 /* ── Nodes ──────────────────────────────────────────────────────────────── */
@@ -252,12 +287,17 @@
   border: 1px solid var(--border);
   border-radius: 10px;
   cursor: pointer;
-  user-select: text;
+  /* Dragging pans the map, so don't select text. */
+  user-select: none;
   animation: tmap-fade 0.25s ease both;
   transition:
     background 0.12s ease,
     border-color 0.12s ease,
     opacity 0.15s ease;
+}
+
+.tmap-viewport[data-panning='true'] .tmap-node {
+  cursor: grabbing;
 }
 
 .tmap-node:hover {
@@ -535,27 +575,51 @@
   opacity: 0.6;
 }
 
-/* Workspace */
+/* Workspace figures and members, in the header */
 
 .tmap-figures {
   display: flex;
-  gap: 14px;
+  align-items: baseline;
+  gap: 12px;
+  flex: none;
+  margin-left: 4px;
+  padding-left: 14px;
   font-size: 12px;
   color: var(--text-dim);
+  white-space: nowrap;
+  border-left: 1px solid var(--border);
 }
 
 .tmap-figures strong {
   margin-right: 2px;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 650;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
 .tmap-people {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  flex: none;
+  padding: 3px;
+  font: inherit;
+  font-size: 11.5px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.tmap-people:hover,
+.tmap-people--on {
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+}
+
+.tmap-people .tmap-dim {
+  padding-right: 4px;
 }
 
 .tmap-avatars {
@@ -567,7 +631,20 @@
 }
 
 .tmap-avatars > * + * {
-  margin-left: -5px;
+  margin-left: -6px;
+}
+
+@media (max-width: 1180px) {
+  .tmap-figures {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .tmap-repo,
+  .tmap-people {
+    display: none;
+  }
 }
 
 /* Working copies */
@@ -1118,34 +1195,10 @@
 
 /* ── Data & connections ─────────────────────────────────────────────────── */
 
-/* The view switch: everyone's changes, or each app's data and connections. */
-.tmap-lens.seg {
-  flex: none;
-  margin: 0;
-  padding: 2px;
-}
-
-.tmap-lens .seg-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 12px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
 /* Only in working copies so far: dashed, not filled. */
 .tmap-node--draft:not(.tmap-node--selected) {
   border-style: dashed;
   background: color-mix(in srgb, var(--bg-elev) 50%, transparent);
-}
-
-.tmap-edge--draft .tmap-edge-base {
-  stroke-dasharray: 3 4;
-}
-
-.tmap-edge--hot.tmap-edge--link .tmap-edge-base {
-  stroke: var(--text-dim);
 }
 
 .tmap-node--resource-empty {

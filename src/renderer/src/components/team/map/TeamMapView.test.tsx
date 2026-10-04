@@ -79,57 +79,70 @@ function installApi(): Record<
   return { diff, openProject, members, health, setRequireReview, leave, removeProject, map, resources }
 }
 
-function renderMap(
+async function renderMap(
   onOpened = vi.fn(),
   extra: { manage?: boolean; onClose?: () => void; onChanged?: () => void } = {}
-): void {
+): Promise<void> {
   const map = sampleMap()
   map.runs = [sampleRun()]
-  render(
-    <OverlayProvider>
-      <Probe />
-      <TeamMapView
-        workspace={sampleWorkspace}
-        initialMap={map}
-        onClose={extra.onClose ?? vi.fn()}
-        onOpened={onOpened}
-        manage={extra.manage}
-        onChanged={extra.onChanged}
-      />
-    </OverlayProvider>
-  )
+  // Rendering reads every app's data too: let that settle.
+  await act(async () => {
+    render(
+      <OverlayProvider>
+        <Probe />
+        <TeamMapView
+          workspace={sampleWorkspace}
+          initialMap={map}
+          onClose={extra.onClose ?? vi.fn()}
+          onOpened={onOpened}
+          manage={extra.manage}
+          onChanged={extra.onChanged}
+        />
+      </OverlayProvider>
+    )
+  })
 }
 
+const nodeWith = (text: string): HTMLElement => screen.getByText(text).closest('.tmap-node') as HTMLElement
+
 describe('TeamMapView', () => {
-  it('draws the workspace: apps, working copies, published apps and Fabric', () => {
-    installApi()
-    renderMap()
+  it('maps each app: its published app and working copies, its data, and what that connects to', async () => {
+    const api = installApi()
+    await renderMap()
     expect(screen.getByTestId('suppressed').textContent).toBe('true')
     const region = screen.getByRole('region', { name: 'Sales team overview' })
-    expect(within(region).getByText('Workspace')).toBeTruthy()
-    expect(within(region).getByText('Deployed to Fabric')).toBeTruthy()
-    expect(within(region).getAllByText('Trip Logger').length).toBeGreaterThan(0)
-    expect(within(region).getByText('Notes')).toBeTruthy()
-    expect(within(region).getByText('Not published yet')).toBeTruthy()
-    expect(within(region).getByText('Published apps')).toBeTruthy()
-    expect(within(region).getByText('Previews')).toBeTruthy()
+    for (const lane of ['Published & in progress', 'Apps', 'Data & connections', 'Connected to']) {
+      expect(within(region).getByText(lane)).toBeTruthy()
+    }
     expect(within(region).getByLabelText('Summary').textContent).toContain('2 apps')
-    // Amy's preview is deploying: her copy shows the step in progress, the
-    // header counts it, and the sidebar lists the run.
-    expect(within(region).getAllByText('Deploy with Rayfin').length).toBeGreaterThan(0)
+    // Each app, with who's changing it.
+    expect(within(nodeWith('Trip Logger')).getByText('You and amy are changing it')).toBeTruthy()
+    expect(within(nodeWith('Notes')).getByText('Not published yet')).toBeTruthy()
+    // Its published app and working copies, on its left.
+    expect(document.querySelector('.tmap-node--published')?.textContent).toContain('trips.app')
+    expect(within(region).getByText('add a map of every trip')).toBeTruthy()
+    // Its data, on its right; the published app and your copy here (it has unsaved edits) are read.
+    expect(api.resources).toHaveBeenCalledWith('w1', [{ folder: 'trips' }, { folder: 'trips', local: true }])
+    expect(within(region).getByText('Database')).toBeTruthy()
+    expect(within(region).getByText('No database or connections')).toBeTruthy()
+    // Amy's preview is deploying: her copy shows the step in progress and its
+    // line to the app flows; the header counts it, and the sidebar lists the run.
+    expect(within(nodeWith('export trips to CSV')).getByText('Deploy with Rayfin')).toBeTruthy()
+    expect(document.querySelectorAll('.tmap-edge--version.tmap-edge--deploying .tmap-edge-flow')).toHaveLength(1)
     expect(within(region).getByText('1 deploying')).toBeTruthy()
     const activity = within(region).getByRole('complementary', { name: 'Pipeline activity' })
     expect(within(activity).getByText('Preview of Trip Logger')).toBeTruthy()
-    // Its connector to Fabric shows the deploy flowing.
-    expect(document.querySelectorAll('.tmap-edge--deploying .tmap-edge-flow').length).toBe(1)
+    // Where the apps deploy is in the sidebar, not on the map.
+    expect(within(activity).getByText('Published apps')).toBeTruthy()
+    expect(within(activity).getByText('Sales team previews')).toBeTruthy()
+    expect(within(region).queryByText('Deployed to Fabric')).toBeNull()
   })
 
   it('shows a working copy’s changes in the inspector', async () => {
     const { diff } = installApi()
-    renderMap()
-    const amy = screen.getByText('export trips to CSV').closest('.tmap-node') as HTMLElement
+    await renderMap()
     await act(async () => {
-      fireEvent.click(amy)
+      fireEvent.click(nodeWith('export trips to CSV'))
     })
     const details = screen.getByRole('complementary', { name: 'Details' })
     expect(within(details).getByText('amy’s working copy')).toBeTruthy()
@@ -142,10 +155,9 @@ describe('TeamMapView', () => {
 
   it('reads your own copy from this computer, unsaved edits included', async () => {
     const { diff } = installApi()
-    renderMap()
-    const mine = screen.getByText('add a map of every trip').closest('.tmap-node') as HTMLElement
+    await renderMap()
     await act(async () => {
-      fireEvent.click(mine)
+      fireEvent.click(nodeWith('add a map of every trip'))
     })
     expect(diff).toHaveBeenCalledWith('w1', 'trips', undefined)
     expect(await screen.findByText('Includes unsaved edits')).toBeTruthy()
@@ -154,7 +166,7 @@ describe('TeamMapView', () => {
   it('opens an app from its node', async () => {
     const { openProject } = installApi()
     const onOpened = vi.fn()
-    renderMap(onOpened)
+    await renderMap(onOpened)
     const appNode = document.querySelector('.tmap-node--app') as HTMLElement
     await act(async () => {
       fireEvent.click(within(appNode).getByRole('button', { name: 'Open' }))
@@ -166,9 +178,7 @@ describe('TeamMapView', () => {
   it('manages the workspace in its sidebar: members, then settings', async () => {
     const api = installApi()
     const onChanged = vi.fn()
-    await act(async () => {
-      renderMap(vi.fn(), { manage: true, onChanged })
-    })
+    await renderMap(vi.fn(), { manage: true, onChanged })
     const panel = screen.getByRole('complementary', { name: 'Workspace' })
     expect(api.members).toHaveBeenCalledWith('w1')
     expect(within(panel).getByText('amy')).toBeTruthy()
@@ -193,9 +203,7 @@ describe('TeamMapView', () => {
     const api = installApi()
     const onClose = vi.fn()
     const onChanged = vi.fn()
-    await act(async () => {
-      renderMap(vi.fn(), { manage: true, onClose, onChanged })
-    })
+    await renderMap(vi.fn(), { manage: true, onClose, onChanged })
     const panel = screen.getByRole('complementary', { name: 'Workspace' })
     await act(async () => {
       fireEvent.click(within(panel).getByRole('tab', { name: 'Settings' }))
@@ -222,14 +230,11 @@ describe('TeamMapView', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('opens the workspace sidebar from the workspace node', async () => {
+  it('opens the workspace sidebar from its members in the header', async () => {
     installApi()
+    await renderMap()
     await act(async () => {
-      renderMap()
-    })
-    const hub = document.querySelector('.tmap-node--hub') as HTMLElement
-    await act(async () => {
-      fireEvent.click(hub)
+      fireEvent.click(screen.getByRole('button', { name: '2 members' }))
     })
     expect(screen.getByRole('complementary', { name: 'Workspace' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Manage' }).getAttribute('aria-pressed')).toBe('true')
@@ -238,9 +243,7 @@ describe('TeamMapView', () => {
   it('lets an owner remove an app from its details', async () => {
     const api = installApi()
     const onChanged = vi.fn()
-    await act(async () => {
-      renderMap(vi.fn(), { onChanged })
-    })
+    await renderMap(vi.fn(), { onChanged })
     const appNode = document.querySelector('.tmap-node--app') as HTMLElement
     await act(async () => {
       fireEvent.click(appNode)
@@ -258,31 +261,26 @@ describe('TeamMapView', () => {
     expect(onChanged).toHaveBeenCalled()
   })
 
-  it('shows each app’s data and connections, and what your copy adds', async () => {
-    const api = installApi()
-    await act(async () => {
-      renderMap()
-    })
-    await act(async () => {
-      fireEvent.click(screen.getByRole('tab', { name: /Data & connections/ }))
-    })
-    // The published app, and your copy here (it has unsaved edits).
-    expect(api.resources).toHaveBeenCalledWith('w1', [{ folder: 'trips' }, { folder: 'trips', local: true }])
+  it('shows what each app’s data connects to, and what your copy changes', async () => {
+    installApi()
+    await renderMap()
     const region = screen.getByRole('region', { name: 'Sales team overview' })
-    expect(within(region).getByText('Inside each app')).toBeTruthy()
-    expect(within(region).queryByText('Published & in progress')).toBeNull()
-    expect(within(region).getByLabelText('Summary').textContent).toContain('1 database')
-    expect(within(region).getByText('Database')).toBeTruthy()
-    expect(within(region).getByText('No database or connections')).toBeTruthy()
-    // Your copy's additions show on the nodes and in the sidebar.
-    expect(within(region).getAllByText('Your copy adds Receipt')).toHaveLength(2)
-    expect(within(region).getAllByText('Your copy connects to inventory')).toHaveLength(2)
-    const inventory = within(region).getByText('inventory').closest('.tmap-node') as HTMLElement
-    expect(inventory.className).toContain('tmap-node--draft')
+    // Your copy's additions show where they happen; what only it has is dashed.
+    expect(within(region).getByText('Your copy adds Receipt')).toBeTruthy()
+    expect(within(region).getByText('Your copy connects to inventory')).toBeTruthy()
+    expect(nodeWith('inventory').className).toContain('tmap-node--draft')
+
+    // Hovering the semantic model lights up what reads it, and nothing else.
+    fireEvent.mouseEnter(nodeWith('Sales'))
+    expect(nodeWith('sales').className).not.toContain('tmap-node--dim')
+    expect(nodeWith('Trip Logger').className).not.toContain('tmap-node--dim')
+    expect(nodeWith('inventory').className).toContain('tmap-node--dim')
+    expect(nodeWith('Notes').className).toContain('tmap-node--dim')
+    fireEvent.mouseLeave(nodeWith('Sales'))
 
     // A connector's details, then the semantic model it reads.
     await act(async () => {
-      fireEvent.click(within(region).getByText('sales').closest('.tmap-node') as HTMLElement)
+      fireEvent.click(nodeWith('sales'))
     })
     const details = screen.getByRole('complementary', { name: 'Details' })
     expect(within(details).getByText('Semantic model connector')).toBeTruthy()
@@ -293,13 +291,19 @@ describe('TeamMapView', () => {
     const source = screen.getByRole('complementary', { name: 'Details' })
     expect(within(source).getByText('In Microsoft Fabric')).toBeTruthy()
     expect(within(source).getByRole('button', { name: /Trip Logger/ })).toBeTruthy()
+  })
 
-    // Back to everyone's changes.
-    await act(async () => {
-      fireEvent.click(screen.getByRole('tab', { name: /Changes/ }))
-    })
-    expect(within(region).getByText('Published & in progress')).toBeTruthy()
-    expect(within(region).queryByText('Inside each app')).toBeNull()
+  it('shows where the apps deploy, and what is deployed there', async () => {
+    installApi()
+    await renderMap()
+    const activity = screen.getByRole('complementary', { name: 'Pipeline activity' })
+    fireEvent.click(within(activity).getByText('Previews').closest('button') as HTMLElement)
+    const details = screen.getByRole('complementary', { name: 'Details' })
+    expect(within(details).getByText('Microsoft Fabric workspace')).toBeTruthy()
+    expect(within(details).getByText('Sales team previews')).toBeTruthy()
+    // The previews stand out on the map.
+    expect(nodeWith('export trips to CSV').className).not.toContain('tmap-node--dim')
+    expect(document.querySelector('.tmap-node--published')?.className).toContain('tmap-node--dim')
   })
 })
 

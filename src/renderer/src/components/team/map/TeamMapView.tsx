@@ -14,15 +14,14 @@ import { Codicon } from '../../icons'
 import { teamError } from '../common'
 import { timeAgo, useNow } from '../runProgress'
 import ActivityPanel from './ActivityPanel'
-import { DataPanel, ResourceDetails } from './DataPanels'
+import { ResourceDetails } from './DataPanels'
 import { EmptyNodeBody, ResourceNodeBody, SourceNodeBody, sourceApps } from './DataNodes'
 import Inspector from './Inspector'
 import WorkspacePanel from './WorkspacePanel'
 import {
-  appHealth,
+  changingLabel,
   copyHealth,
   isActive,
-  layoutData,
   layoutMap,
   lineage,
   mapStats,
@@ -31,16 +30,12 @@ import {
   previewing,
   publishedHealth,
   publishing,
-  type Health,
   type MapLayout,
   type MapNode
 } from './model'
-import { Avatar, DiffBar, FabricGlyph, HealthPill, RunLine, changeTitle, host, hueOf } from './parts'
-import { buildResourceView, dataStats, parseSources, resourceRequests, type ResourceView } from './resources'
+import { Avatar, DiffBar, HealthPill, RunLine, changeTitle, host, hueOf } from './parts'
+import { buildResourceView, parseSources, resourceRequests, type ResourceView } from './resources'
 import './teamMap.css'
-
-/** What the overview shows beside the apps: everyone's changes, or each app's data and connections. */
-export type Lens = 'changes' | 'data'
 
 interface Props {
   workspace: TeamWorkspace
@@ -48,8 +43,6 @@ interface Props {
   focusFolder?: string
   /** Open with the workspace's members and settings showing. */
   manage?: boolean
-  /** Start on this view (default: changes). */
-  initialLens?: Lens
   onClose: () => void
   /** A team app was opened from the overview. */
   onOpened: (project: StudioProject) => void
@@ -69,14 +62,24 @@ interface View {
 const PAD = 56
 const MIN_SCALE = 0.25
 const MAX_SCALE = 1.8
+/** Below this, fitting everything makes the nodes too small to read. */
+const READABLE = 0.72
 const clamp = (v: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, v))
 
-/** The workspace overview: apps, working copies, previews, published apps and the pipeline, as a tree. */
+/** No app's data could be read: say so beside each app. */
+function unreadable(map: TeamMap, error: string): ResourceView {
+  return { apps: Object.fromEntries(map.apps.map((a) => [a.folder, { items: [], error }])), sources: [] }
+}
+
+/**
+ * The workspace overview, as a map around its apps: each app's published
+ * version and everyone's working copies on its left, its data and connections
+ * on its right, and the Fabric items and services those connect to.
+ */
 export default function TeamMapView({
   workspace,
   focusFolder,
   manage,
-  initialLens = 'changes',
   onClose,
   onOpened,
   onNewApp,
@@ -88,9 +91,7 @@ export default function TeamMapView({
   const [runs, setRuns] = useState<TeamMapRun[]>(initialMap?.runs ?? [])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(initialMap?.error ?? null)
-  const [lens, setLens] = useState<Lens>(initialLens)
   const [dataView, setDataView] = useState<ResourceView | null>(null)
-  const [dataLoading, setDataLoading] = useState(false)
   const [dataError, setDataError] = useState<string | null>(null)
   const [selection, setSelection] = useState<string | null>(manage ? nodeIds.hub : null)
   const [hovered, setHovered] = useState<string | null>(null)
@@ -106,7 +107,17 @@ export default function TeamMapView({
   runsRef.current = runs
   const aliveRef = useRef(true)
   const fitPending = useRef(true)
-  const gesture = useRef<{ startX: number; startY: number; tx0: number; ty0: number } | null>(null)
+  /** Someone zoomed or panned: don't fit the map to the window again by itself. */
+  const moved = useRef(false)
+  const gesture = useRef<{
+    startX: number
+    startY: number
+    tx0: number
+    ty0: number
+    /** Started on a node: a click there selects it rather than clearing the selection. */
+    onNode: boolean
+    dragging: boolean
+  } | null>(null)
   const now = useNow(true)
 
   useEffect(() => {
@@ -175,15 +186,19 @@ export default function TeamMapView({
     }
   }, [ready, initialMap, workspace.id, load])
 
-  // The data view reads each app's config (published, and the working copies
-  // that change it) whenever the workspace is read again.
+  // Each app's data and connections: its config (published, and the working
+  // copies that change it), read again whenever the workspace is.
   const dataSeq = useRef(0)
   const dataViewRef = useRef(dataView)
   dataViewRef.current = dataView
   useEffect(() => {
-    if (lens !== 'data' || !map) return
+    if (!map) return
     const seq = ++dataSeq.current
-    setDataLoading(true)
+    const settle = (next: ResourceView): void => {
+      // The first answer changes the layout's size: fit it to the window again.
+      if (!dataViewRef.current && !moved.current) fitPending.current = true
+      setDataView(next)
+    }
     void (async () => {
       try {
         const requests = resourceRequests(map)
@@ -192,45 +207,40 @@ export default function TeamMapView({
           : { ok: true, error: undefined, sources: [] }
         const parsed = await parseSources(result.sources)
         if (!aliveRef.current || seq !== dataSeq.current) return
-        // The first answer changes the layout's size: fit it to the window again.
-        if (!dataViewRef.current) fitPending.current = true
-        setDataView(buildResourceView(map, parsed))
-        setDataError(result.ok ? null : (result.error ?? 'Could not read the apps.'))
+        const problem = result.ok ? null : (result.error ?? 'Could not read the apps.')
+        settle(problem && !parsed.length ? unreadable(map, problem) : buildResourceView(map, parsed))
+        setDataError(problem)
       } catch (reason) {
-        if (aliveRef.current && seq === dataSeq.current) setDataError(teamError(reason, 'Could not read the apps.'))
-      } finally {
-        if (aliveRef.current && seq === dataSeq.current) setDataLoading(false)
+        if (!aliveRef.current || seq !== dataSeq.current) return
+        const problem = teamError(reason, 'Could not read the apps.')
+        if (!dataViewRef.current) settle(unreadable(map, problem))
+        setDataError(problem)
       }
     })()
-  }, [lens, map, workspace.id])
+  }, [map, workspace.id])
 
   const layout: MapLayout | null = useMemo(
-    () => (map ? (lens === 'data' ? layoutData(map, dataView, heights) : layoutMap(map, runs, heights)) : null),
-    [map, runs, heights, lens, dataView]
+    () => (map ? layoutMap(map, runs, dataView, heights) : null),
+    [map, runs, dataView, heights]
   )
   const stats = useMemo(() => (map ? mapStats(map, runs) : null), [map, runs])
-  const data = useMemo(() => dataStats(dataView), [dataView])
   const itemById = useMemo(
     () => new Map(Object.values(dataView?.apps ?? {}).flatMap((a) => a.items).map((i) => [i.id, i])),
     [dataView]
   )
   const sourceById = useMemo(() => new Map((dataView?.sources ?? []).map((s) => [s.id, s])), [dataView])
 
-  /** Switch views, keeping what's selected when it's in both. */
-  const switchLens = (next: Lens): void => {
-    if (next === lens) return
-    setLens(next)
-    setHovered(null)
-    setSelection((s) => (s === nodeIds.hub || s?.startsWith('app:') ? s : null))
-    fitPending.current = true
-  }
   const focusSet = useMemo(() => {
     const id = hovered ?? selection
-    return layout && id ? lineage(layout, id) : null
+    return layout && id && id !== nodeIds.hub ? lineage(layout, id) : null
   }, [layout, hovered, selection])
 
+  /**
+   * Fit the map (or just `ids`) to the window. `readable`: when everything
+   * fits only too small to read, fill the window's width and start at the top.
+   */
   const fitTo = useCallback(
-    (ids?: Set<string>): void => {
+    (ids?: Set<string>, readable = false): void => {
       const vp = viewportRef.current
       if (!vp || !layout) return
       const nodes = layout.nodes.filter((n) => !ids || ids.has(n.id))
@@ -240,15 +250,15 @@ export default function TeamMapView({
       const maxX = Math.max(...nodes.map((n) => n.x + n.w)) + PAD
       const maxY = Math.max(...nodes.map((n) => n.y + n.h)) + PAD
       const margin = 40
-      const scale = clamp(
-        Math.min((vp.clientWidth - margin * 2) / (maxX - minX), (vp.clientHeight - margin * 2) / (maxY - minY), 1),
-        MIN_SCALE,
-        MAX_SCALE
-      )
+      const across = (vp.clientWidth - margin * 2) / (maxX - minX)
+      const down = (vp.clientHeight - margin * 2) / (maxY - minY)
+      const fit = Math.min(across, down, 1)
+      const fromTop = readable && fit < READABLE && down < across
+      const scale = clamp(fromTop ? Math.min(across, 1) : fit, MIN_SCALE, MAX_SCALE)
       setView({
         scale,
         tx: vp.clientWidth / 2 - ((minX + maxX) / 2) * scale,
-        ty: vp.clientHeight / 2 - ((minY + maxY) / 2) * scale
+        ty: fromTop ? margin - minY * scale : vp.clientHeight / 2 - ((minY + maxY) / 2) * scale
       })
     },
     [layout]
@@ -271,7 +281,7 @@ export default function TeamMapView({
     if (fitPending.current) {
       fitPending.current = false
       const app = focusFolder ? map?.apps.find((a) => a.folder.toLowerCase() === focusFolder.toLowerCase()) : undefined
-      fitTo(app ? lineage(layout, nodeIds.app(app.folder)) : undefined)
+      fitTo(app ? lineage(layout, nodeIds.app(app.folder)) : undefined, true)
     }
   }, [layout, heights, fitTo, focusFolder, map])
 
@@ -281,6 +291,7 @@ export default function TeamMapView({
     if (!vp) return
     const onWheel = (e: WheelEvent): void => {
       e.preventDefault()
+      moved.current = true
       const rect = vp.getBoundingClientRect()
       const cx = e.clientX - rect.left
       const cy = e.clientY - rect.top
@@ -296,6 +307,7 @@ export default function TeamMapView({
   const zoomBy = useCallback((k: number): void => {
     const vp = viewportRef.current
     if (!vp) return
+    moved.current = true
     const cx = vp.clientWidth / 2
     const cy = vp.clientHeight / 2
     const v = viewRef.current
@@ -317,29 +329,40 @@ export default function TeamMapView({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [selection, onClose])
 
-  const onBackgroundDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+  // Dragging anywhere pans; the pointer is captured only once it's a drag, so
+  // a click still reaches the node (or button) under it.
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (e.button !== 0) return
     const v = viewRef.current
-    gesture.current = { startX: e.clientX, startY: e.clientY, tx0: v.tx, ty0: v.ty }
-    viewportRef.current?.setPointerCapture?.(e.pointerId)
-    setPanning(true)
+    const onNode = Boolean((e.target as HTMLElement).closest('.tmap-node'))
+    gesture.current = { startX: e.clientX, startY: e.clientY, tx0: v.tx, ty0: v.ty, onNode, dragging: false }
   }
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>): void => {
     const g = gesture.current
     if (!g) return
+    if (!g.dragging) {
+      if (Math.hypot(e.clientX - g.startX, e.clientY - g.startY) < 4) return
+      g.dragging = true
+      viewportRef.current?.setPointerCapture?.(e.pointerId)
+      setPanning(true)
+    }
+    moved.current = true
     setView((v) => ({ ...v, tx: g.tx0 + (e.clientX - g.startX), ty: g.ty0 + (e.clientY - g.startY) }))
   }
   const endPan = (e: ReactPointerEvent<HTMLDivElement>): void => {
     const g = gesture.current
     gesture.current = null
-    setPanning(false)
-    try {
-      viewportRef.current?.releasePointerCapture?.(e.pointerId)
-    } catch {
-      /* already released */
+    if (g?.dragging) {
+      setPanning(false)
+      try {
+        viewportRef.current?.releasePointerCapture?.(e.pointerId)
+      } catch {
+        /* already released */
+      }
+      return
     }
-    // A click on empty space (not a drag) clears the selection.
-    if (g && Math.hypot(e.clientX - g.startX, e.clientY - g.startY) < 4) setSelection(null)
+    // A click on empty space clears the selection.
+    if (g && !g.onNode) setSelection(null)
   }
 
   const openApp = useCallback(
@@ -394,6 +417,7 @@ export default function TeamMapView({
   const appOf = (folder?: string): TeamMapApp | undefined => map?.apps.find((a) => a.folder === folder)
   const copyOf = (node: MapNode): TeamMapCopy | undefined =>
     appOf(node.folder)?.copies.find((c) => c.branch === node.branch)
+  const toggleManage = (): void => setSelection(selection === nodeIds.hub ? null : nodeIds.hub)
 
   /** The node a pipeline run belongs to. */
   const runTarget = (run: TeamMapRun): string | undefined => {
@@ -411,56 +435,8 @@ export default function TeamMapView({
   }
 
   const renderNode = (node: MapNode): JSX.Element | null => {
-    if (!map || !stats) return null
+    if (!map) return null
     switch (node.kind) {
-      case 'hub':
-        return (
-          <>
-            <div className="tmap-node-head">
-              <span className="tmap-mark tmap-mark--hub">{(ws.name.trim()[0] ?? 'T').toUpperCase()}</span>
-              <div className="tmap-titles">
-                <strong>{ws.name}</strong>
-                <span className="tmap-mono tmap-dim">{ws.repo}</span>
-              </div>
-            </div>
-            <div className="tmap-figures" aria-label="Summary">
-              <span>
-                <strong>{stats.apps}</strong> {stats.apps === 1 ? 'app' : 'apps'}
-              </span>
-              {lens === 'data' ? (
-                <>
-                  <span>
-                    <strong>{data.databases}</strong> {data.databases === 1 ? 'database' : 'databases'}
-                  </span>
-                  <span>
-                    <strong>{data.connected}</strong> connected
-                  </span>
-                </>
-              ) : (
-                <>
-                  <span>
-                    <strong>{stats.copies}</strong> in progress
-                  </span>
-                  <span>
-                    <strong>{stats.live}</strong> live
-                  </span>
-                </>
-              )}
-            </div>
-            {map.members.length > 0 && (
-              <div className="tmap-people">
-                <span className="tmap-avatars">
-                  {map.members.slice(0, 6).map((m) => (
-                    <Avatar key={m.login} login={m.login} url={m.avatarUrl} size={20} />
-                  ))}
-                </span>
-                <span className="tmap-dim">
-                  {map.members.length} {map.members.length === 1 ? 'member' : 'members'}
-                </span>
-              </div>
-            )}
-          </>
-        )
       case 'app': {
         const app = appOf(node.folder)
         if (!app) return null
@@ -473,13 +449,7 @@ export default function TeamMapView({
               </span>
               <div className="tmap-titles">
                 <strong>{app.name}</strong>
-                <span className="tmap-dim">
-                  {app.copies.length
-                    ? `${app.copies.length} in progress`
-                    : app.projectId
-                      ? 'On this computer'
-                      : 'No one is changing it'}
-                </span>
+                <span className="tmap-dim tmap-ellipsis">{changingLabel(app)}</span>
               </div>
             </div>
             <div className="tmap-node-foot">
@@ -565,34 +535,6 @@ export default function TeamMapView({
           </>
         )
       }
-      case 'fabric-prod':
-      case 'fabric-preview': {
-        const prod = node.kind === 'fabric-prod'
-        const fabric = ws.manifest?.fabric
-        const target = prod ? fabric?.production : fabric?.previews
-        const healths: Health[] = map.apps.flatMap((app) =>
-          prod ? (app.published ? [publishedHealth(app, runs)] : []) : app.copies.map((c) => copyHealth(app, c, runs))
-        )
-        const count = (h: Health): number => healths.filter((x) => x === h).length
-        return (
-          <>
-            <div className="tmap-node-head">
-              <FabricGlyph />
-              <div className="tmap-titles">
-                <strong>{prod ? 'Published apps' : 'Previews'}</strong>
-                <span className="tmap-dim tmap-ellipsis">{target?.name ?? 'Fabric workspace'}</span>
-              </div>
-            </div>
-            <div className="tmap-node-foot">
-              <span className="tmap-dim">
-                {count('live')} live
-                {count('deploying') ? ` · ${count('deploying')} deploying` : ''}
-                {count('failed') ? ` · ${count('failed')} failed` : ''}
-              </span>
-            </div>
-          </>
-        )
-      }
       case 'resource': {
         const item = itemById.get(node.id)
         return item ? <ResourceNodeBody item={item} /> : null
@@ -604,18 +546,6 @@ export default function TeamMapView({
         return source && dataView ? <SourceNodeBody source={source} apps={sourceApps(map, dataView, source)} /> : null
       }
     }
-  }
-
-  const nodeHealth = (node: MapNode): Health | undefined => {
-    const app = appOf(node.folder)
-    if (!app) return undefined
-    if (node.kind === 'app') return appHealth(app, runs)
-    if (node.kind === 'published') return publishedHealth(app, runs)
-    if (node.kind === 'copy') {
-      const copy = copyOf(node)
-      return copy ? copyHealth(app, copy, runs) : undefined
-    }
-    return undefined
   }
 
   return (
@@ -634,28 +564,35 @@ export default function TeamMapView({
           >
             <Codicon name="github" /> {ws.repo}
           </button>
-        </div>
-        <div className="seg tmap-lens" role="tablist" aria-label="Show">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={lens === 'changes'}
-            className={`seg-btn${lens === 'changes' ? ' seg-btn--active' : ''}`}
-            onClick={() => switchLens('changes')}
-            title="Everyone's changes, previews and what's deploying"
-          >
-            <Codicon name="git-pull-request" /> Changes
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={lens === 'data'}
-            className={`seg-btn${lens === 'data' ? ' seg-btn--active' : ''}`}
-            onClick={() => switchLens('data')}
-            title="Each app's database, functions and connectors, and what they connect to"
-          >
-            <Codicon name="database" /> Data &amp; connections
-          </button>
+          {stats && (
+            <div className="tmap-figures" aria-label="Summary">
+              <span>
+                <strong>{stats.apps}</strong> {stats.apps === 1 ? 'app' : 'apps'}
+              </span>
+              <span>
+                <strong>{stats.copies}</strong> in progress
+              </span>
+              <span>
+                <strong>{stats.live}</strong> live
+              </span>
+            </div>
+          )}
+          {map && map.members.length > 0 && (
+            <button
+              type="button"
+              className={`tmap-people${selection === nodeIds.hub ? ' tmap-people--on' : ''}`}
+              onClick={toggleManage}
+              title="Members, app access and settings"
+              aria-label={`${map.members.length} ${map.members.length === 1 ? 'member' : 'members'}`}
+            >
+              <span className="tmap-avatars">
+                {map.members.slice(0, 5).map((m) => (
+                  <Avatar key={m.login} login={m.login} url={m.avatarUrl} size={22} />
+                ))}
+              </span>
+              {map.members.length > 5 && <span className="tmap-dim">+{map.members.length - 5}</span>}
+            </button>
+          )}
         </div>
         <div className="tmap-tools">
           {stats && stats.deploying > 0 && (
@@ -672,7 +609,7 @@ export default function TeamMapView({
           <button
             type="button"
             className={`model-tool-btn${selection === nodeIds.hub ? ' tmap-tool--on' : ''}`}
-            onClick={() => setSelection(selection === nodeIds.hub ? null : nodeIds.hub)}
+            onClick={toggleManage}
             aria-pressed={selection === nodeIds.hub}
             title="Members, app access and settings"
           >
@@ -708,7 +645,7 @@ export default function TeamMapView({
           className="tmap-viewport"
           ref={viewportRef}
           data-panning={panning ? 'true' : undefined}
-          onPointerDown={onBackgroundDown}
+          onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={endPan}
           onPointerCancel={endPan}
@@ -732,33 +669,8 @@ export default function TeamMapView({
                   {lane.label}
                 </div>
               ))}
-              <svg className="tmap-edges" width={layout.width + PAD * 2} height={layout.height + PAD * 2} aria-hidden="true">
-                <g transform={`translate(${PAD} ${PAD})`}>
-                  {layout.edges.map((edge) => {
-                    const mood = focusSet
-                      ? focusSet.has(edge.from) && focusSet.has(edge.to)
-                        ? ' tmap-edge--hot'
-                        : ' tmap-edge--dim'
-                      : ''
-                    return (
-                      <g
-                        key={edge.id}
-                        className={`tmap-edge tmap-edge--${edge.kind} tmap-edge--${edge.health}${
-                          edge.production ? ' tmap-edge--prod' : ''
-                        }${edge.draft ? ' tmap-edge--draft' : ''}${mood}`}
-                      >
-                        <path d={edge.d} className="tmap-edge-base" />
-                        {edge.health === 'deploying' && edge.kind === 'deploy' && (
-                          <path d={edge.d} className="tmap-edge-flow" />
-                        )}
-                      </g>
-                    )
-                  })}
-                </g>
-              </svg>
 
               {layout.nodes.map((node) => {
-                const health = nodeHealth(node)
                 const dim = focusSet ? !focusSet.has(node.id) : false
                 // The "nothing here" placeholder stands for its app.
                 const target = node.kind === 'resource-empty' && node.folder ? nodeIds.app(node.folder) : node.id
@@ -767,14 +679,13 @@ export default function TeamMapView({
                   <div
                     key={node.id}
                     ref={setNodeRef(node.id)}
-                    className={`tmap-node tmap-node--${node.kind}${health ? ` tmap-node--${health}` : ''}${
-                      node.draft ? ' tmap-node--draft' : ''
-                    }${dim ? ' tmap-node--dim' : ''}${selected ? ' tmap-node--selected' : ''}`}
+                    className={`tmap-node tmap-node--${node.kind}${node.draft ? ' tmap-node--draft' : ''}${
+                      dim ? ' tmap-node--dim' : ''
+                    }${selected ? ' tmap-node--selected' : ''}`}
                     style={{ left: node.x + PAD, top: node.y + PAD, width: node.w }}
                     role="button"
                     tabIndex={0}
                     aria-pressed={selected}
-                    onPointerDown={(e) => e.stopPropagation()}
                     onClick={(e) => {
                       if ((e.target as HTMLElement).closest('button, a')) return
                       setSelection(selected ? null : target)
@@ -793,6 +704,34 @@ export default function TeamMapView({
                   </div>
                 )
               })}
+
+              {/* Above the nodes (lines only run between columns), so their ends sit on the nodes' sides. */}
+              <svg className="tmap-edges" width={layout.width + PAD * 2} height={layout.height + PAD * 2} aria-hidden="true">
+                <g transform={`translate(${PAD} ${PAD})`}>
+                  {layout.edges.map((edge) => {
+                    const mood = focusSet
+                      ? focusSet.has(edge.from) && focusSet.has(edge.to)
+                        ? ' tmap-edge--hot'
+                        : ' tmap-edge--dim'
+                      : ''
+                    return (
+                      <g
+                        key={edge.id}
+                        className={`tmap-edge tmap-edge--${edge.kind} tmap-edge--${edge.health}${
+                          edge.production ? ' tmap-edge--prod' : ''
+                        }${edge.draft ? ' tmap-edge--draft' : ''}${mood}`}
+                      >
+                        <path d={edge.d} className="tmap-edge-base" />
+                        {edge.health === 'deploying' && edge.kind === 'version' && (
+                          <path d={edge.d} className="tmap-edge-flow" />
+                        )}
+                        <circle cx={edge.x1} cy={edge.y1} r={3.5} className="tmap-port tmap-port--from" />
+                        <circle cx={edge.x2} cy={edge.y2} r={3.5} className="tmap-port tmap-port--to" />
+                      </g>
+                    )
+                  })}
+                </g>
+              </svg>
             </div>
           )}
 
@@ -848,10 +787,17 @@ export default function TeamMapView({
               onChanged?.()
             }}
           />
-        ) : map && lens === 'data' ? (
-          <DataPanel map={map} view={dataView} loading={dataLoading} error={dataError} onReveal={reveal} />
         ) : map ? (
-          <ActivityPanel map={map} runs={runs} now={now} targetOf={runTarget} onReveal={reveal} />
+          <ActivityPanel
+            map={map}
+            runs={runs}
+            now={now}
+            fabric={ws.manifest?.fabric}
+            notice={dataError}
+            targetOf={runTarget}
+            onReveal={reveal}
+            onSelect={setSelection}
+          />
         ) : null}
       </div>
     </div>

@@ -1,20 +1,33 @@
-import type { TeamMap, TeamMapRun } from '@shared/ipc'
+import type { TeamManifest, TeamMap, TeamMapRun } from '@shared/ipc'
 import { Codicon } from '../../icons'
 import { elapsed, friendlyStep, runProgress, timeAgo } from '../runProgress'
-import { isActive, runLabel } from './model'
-import { Avatar } from './parts'
+import { fabricHealth, isActive, nodeIds, runLabel, type Health } from './model'
+import { Avatar, FabricGlyph } from './parts'
 
 interface Props {
   map: TeamMap
   runs: TeamMapRun[]
   now: number
-  /** The node a run belongs to, to reveal it in the overview. */
+  /** The Fabric workspaces the apps deploy to. */
+  fabric?: TeamManifest['fabric']
+  /** Something couldn't be read, e.g. the apps' data. */
+  notice?: string | null
+  /** The row or card a run belongs to, to reveal it in the overview. */
   targetOf: (run: TeamMapRun) => string | undefined
   onReveal: (id: string) => void
+  /** Select one of the Fabric workspaces. */
+  onSelect: (id: string) => void
 }
 
-/** The sidebar while nothing is selected: what the pipeline is doing. */
-export default function ActivityPanel({ map, runs, now, targetOf, onReveal }: Props): JSX.Element {
+function deployed(counts: Record<Health, number>): string {
+  const parts = [`${counts.live} live`]
+  if (counts.deploying) parts.push(`${counts.deploying} deploying`)
+  if (counts.failed) parts.push(`${counts.failed} failed`)
+  return parts.join(' · ')
+}
+
+/** The sidebar while nothing is selected: what the pipeline is doing, and where it deploys. */
+export default function ActivityPanel({ map, runs, now, fabric, notice, targetOf, onReveal, onSelect }: Props): JSX.Element {
   const shown = runs
     .filter(
       (r) =>
@@ -34,6 +47,8 @@ export default function ActivityPanel({ map, runs, now, targetOf, onReveal }: Pr
           {running ? `${running} running` : 'All quiet'}
         </span>
       </header>
+
+      {notice && <p className="tmap-insp-warn">{notice}</p>}
 
       {shown.length === 0 ? (
         <p className="tmap-side-empty">
@@ -105,11 +120,42 @@ export default function ActivityPanel({ map, runs, now, targetOf, onReveal }: Pr
         </ul>
       )}
 
+      {fabric && (
+        <section className="tmap-side-section">
+          <h4>Deploys to</h4>
+          <ul className="tmap-insp-list">
+            {[
+              { id: nodeIds.fabricProd, label: 'Published apps', name: fabric.production.name, production: true },
+              { id: nodeIds.fabricPreview, label: 'Previews', name: fabric.previews.name, production: false }
+            ].map((target) => (
+              <li key={target.id}>
+                <button
+                  type="button"
+                  className="tmap-insp-row tmap-insp-row--button"
+                  onClick={() => onSelect(target.id)}
+                  title="Show what's deployed there"
+                >
+                  <FabricGlyph />
+                  <span className="tmap-insp-grow">
+                    {target.label}
+                    <span className="tmap-dim tmap-block tmap-ellipsis">{target.name}</span>
+                  </span>
+                  <span className="tmap-dim">{deployed(fabricHealth(map, runs, target.production))}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section className="tmap-side-section">
         <h4>How it works</h4>
         <ol className="tmap-how">
           <li>Everyone changes an app in their own working copy.</li>
-          <li>Each saved change deploys that person&apos;s preview.</li>
+          <li>
+            Each saved change deploys that person&apos;s preview. Previews have their own data, so trying a change never
+            touches the published app&apos;s data.
+          </li>
           <li>Publishing merges it, and the published app is deployed for everyone.</li>
         </ol>
       </section>

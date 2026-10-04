@@ -1,8 +1,8 @@
 /**
- * Each app's data and connections, for the overview's "Data & connections"
- * view: its own database, file storage, functions and connectors (read from
- * rayfin.yml, the data model and the functions' source), the Fabric items and
- * services they reach, and what working copies are changing about them.
+ * Each app's data and connections, for the workspace overview: its own
+ * database, file storage, functions and connectors (read from rayfin.yml, the
+ * data model and the functions' source), the Fabric items and services they
+ * reach, and what working copies are changing about them.
  */
 import { parse as parseYaml } from 'yaml'
 import type { TeamMap, TeamMapApp, TeamMapCopy, TeamResourceRequest, TeamResourceSource } from '@shared/ipc'
@@ -549,16 +549,6 @@ export function buildResourceView(map: TeamMap, parsed: ParsedSource[]): Resourc
     }
   }
   return { apps, sources: [...sources.values()] }
-}
-
-/** Figures for the workspace node. */
-export function dataStats(view: ResourceView | null): { databases: number; connected: number; changing: number } {
-  const items = Object.values(view?.apps ?? {}).flatMap((a) => a.items)
-  return {
-    databases: items.filter((i) => i.kind === 'database').length,
-    connected: view?.sources.length ?? 0,
-    changing: items.filter((i) => i.changes.length > 0).length
-  }
 }
 
 /** "Your copy" or "amy's copy", for change sentences. */

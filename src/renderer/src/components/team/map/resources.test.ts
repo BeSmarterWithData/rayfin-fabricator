@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { AMYS, INVENTORY_ITEM, SALES_ITEM, myTripsFiles, publishedTripsFiles, sampleMap, sampleResources } from './fixtures'
-import { layoutData, lineage, nodeIds } from './model'
+import { layoutMap, lineage, nodeIds } from './model'
 import {
   buildResourceView,
   connectorAbility,
   dataIds,
-  dataStats,
   humanize,
   parseAppConfig,
   parseSources,
@@ -109,7 +108,6 @@ describe('buildResourceView', () => {
       ['Sales', 'Semantic model', true]
     ])
     expect(apps.notes.items).toEqual([])
-    expect(dataStats({ apps, sources })).toEqual({ databases: 1, connected: 3, changing: 3 })
   })
 
   it('notices what a copy removes, and dedupes a source two apps use', async () => {
@@ -142,8 +140,8 @@ describe('buildResourceView', () => {
   })
 })
 
-describe('layoutData', () => {
-  it('draws each app’s resources beside it and a shared source once, without overlaps', async () => {
+describe('layoutMap: data and connections', () => {
+  it('draws a source several apps use once, level with what connects to it', async () => {
     const map = sampleMap()
     map.apps[1].published = true
     const view = buildResourceView(
@@ -153,38 +151,49 @@ describe('layoutData', () => {
         { folder: 'notes', local: false, ok: true, files: publishedTripsFiles, truncated: false }
       ])
     )
-    const layout = layoutData(map, view)
+    const layout = layoutMap(map, [], view)
     const sources = layout.nodes.filter((n) => n.kind === 'source')
-    expect(sources.map((n) => n.id).sort()).toEqual([
-      dataIds.source(`item:${SALES_ITEM}`),
-      dataIds.source('service:AzureAI')
+    const sales = dataIds.source(`item:${SALES_ITEM}`)
+    const azure = dataIds.source('service:AzureAI')
+    expect(sources.map((n) => n.id).sort()).toEqual([sales, azure])
+    // Both apps' connectors lead to the one shared semantic model.
+    const intoSales = layout.edges.filter((e) => e.to === sales)
+    expect(intoSales.map((e) => [e.kind, e.from])).toEqual([
+      ['link', dataIds.item('trips', 'connector:sales')],
+      ['link', dataIds.item('notes', 'connector:sales')]
     ])
-    // Two apps link to the one shared semantic model.
-    const intoSales = layout.edges.filter((e) => e.to === dataIds.source(`item:${SALES_ITEM}`))
-    expect(intoSales.map((e) => e.from)).toEqual([
-      dataIds.item('trips', 'connector:sales'),
-      dataIds.item('notes', 'connector:sales')
-    ])
+    const row = layout.nodes.find((n) => n.id === dataIds.item('trips', 'connector:sales'))!
+    expect(intoSales[0].d.startsWith(`M ${row.x + row.w} `)).toBe(true)
+    // Lines into one source meet at one point on its side.
+    const source = layout.nodes.find((n) => n.id === sales)!
+    expect(new Set(intoSales.map((e) => `${e.x2},${e.y2}`)).size).toBe(1)
+    expect(intoSales[0].x2).toBe(source.x)
     const sorted = [...sources].sort((a, b) => a.y - b.y)
     for (let i = 1; i < sorted.length; i++) expect(sorted[i].y).toBeGreaterThanOrEqual(sorted[i - 1].y + sorted[i - 1].h)
-    expect(layout.lanes.map((l) => l.label)).toEqual(['Workspace', 'Apps', 'Inside each app', 'Connected to'])
+    expect(layout.lanes.map((l) => l.label)).toEqual(['Published & in progress', 'Apps', 'Data & connections', 'Connected to'])
     // Hovering the source lights up both apps that use it.
-    const lit = lineage(layout, dataIds.source(`item:${SALES_ITEM}`))
+    const lit = lineage(layout, sales)
     expect(lit.has(nodeIds.app('trips')) && lit.has(nodeIds.app('notes'))).toBe(true)
   })
 
   it('stands in a placeholder for an app with nothing to show, and dashes what isn’t published', async () => {
     const map = sampleMap()
-    const loading = layoutData(map, null)
+    const loading = layoutMap(map, [], null)
     expect(loading.nodes.filter((n) => n.kind === 'resource-empty').map((n) => n.id)).toEqual([
       dataIds.empty('trips'),
       dataIds.empty('notes')
     ])
     expect(loading.lanes.map((l) => l.label)).not.toContain('Connected to')
     const view = buildResourceView(map, await parseSources(sampleResources(resourceRequests(map))))
-    const layout = layoutData(map, view)
+    const layout = layoutMap(map, [], view)
     expect(layout.nodes.find((n) => n.id === dataIds.item('trips', 'connector:inventory'))?.draft).toBe(true)
     expect(layout.nodes.find((n) => n.id === dataIds.item('trips', 'connector:sales'))?.draft).toBeUndefined()
+    expect(layout.nodes.find((n) => n.id === dataIds.source(`item:${INVENTORY_ITEM}`))?.draft).toBe(true)
+    expect(layout.edges.find((e) => e.to === dataIds.item('trips', 'connector:inventory'))).toMatchObject({
+      kind: 'tree',
+      draft: true
+    })
     expect(layout.edges.find((e) => e.to === dataIds.source(`item:${INVENTORY_ITEM}`))?.draft).toBe(true)
+    expect(layout.nodes.some((n) => n.id === dataIds.empty('notes'))).toBe(true)
   })
 })

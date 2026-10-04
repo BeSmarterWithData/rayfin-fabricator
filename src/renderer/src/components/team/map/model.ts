@@ -141,20 +141,47 @@ export function runLabel(run: TeamMapRun, apps: TeamMapApp[]): string {
   }
 }
 
+/** Who's changing an app, in plain words. */
+export function changingLabel(app: TeamMapApp): string {
+  let you = false
+  const others: string[] = []
+  for (const copy of app.copies) {
+    if (copy.mine) you = true
+    else if (copy.author && !others.some((n) => same(n, copy.author))) others.push(copy.author)
+  }
+  const people = [...(you ? ['You'] : []), ...others]
+  if (!people.length) return app.copies.length ? `${app.copies.length} in progress` : 'No one is changing it'
+  if (people.length === 1) return you ? 'You’re changing it' : `${people[0]} is changing it`
+  if (people.length === 2) return `${people[0]} and ${people[1]} are changing it`
+  return `${people.length} people are changing it`
+}
+
+/** How the deployments in one of the workspace's Fabric workspaces are doing. */
+export function fabricHealth(map: TeamMap, runs: TeamMapRun[], production: boolean): Record<Health, number> {
+  const counts: Record<Health, number> = { live: 0, deploying: 0, failed: 0, idle: 0 }
+  for (const app of map.apps) {
+    if (production) {
+      if (app.published) counts[publishedHealth(app, runs)] += 1
+    } else {
+      for (const copy of app.copies) counts[copyHealth(app, copy, runs)] += 1
+    }
+  }
+  return counts
+}
+
 /* --------------------------------- layout --------------------------------- */
 
 export type NodeKind =
-  | 'hub'
   | 'app'
+  /** An app's published version. */
   | 'published'
+  /** Someone's working copy of an app, and its preview. */
   | 'copy'
-  | 'fabric-prod'
-  | 'fabric-preview'
-  /** Data view: something an app has (database, files, functions, a connector). */
+  /** Something an app has: its database, file storage, functions or a connector. */
   | 'resource'
-  /** Data view: an app with nothing to show there. */
+  /** Stands in for an app's data while it's read, or when it has none. */
   | 'resource-empty'
-  /** Data view: a Fabric item or service apps connect to. */
+  /** A Fabric item or service apps connect to. */
   | 'source'
 
 export interface MapNode {
@@ -166,7 +193,7 @@ export interface MapNode {
   h: number
   folder?: string
   branch?: string
-  /** Only in working copies so far (data view). */
+  /** Only in working copies so far. */
   draft?: boolean
 }
 
@@ -174,13 +201,22 @@ export interface MapEdge {
   id: string
   from: string
   to: string
-  kind: 'tree' | 'deploy' | 'link'
+  /**
+   * `version`: a published version or working copy, to its app. `tree`: an app
+   * to what it has. `link`: what it has, to a source.
+   */
+  kind: 'version' | 'tree' | 'link'
   health: Health
-  /** The deploy target is the published app (vs. a preview). */
+  /** The published app (vs. a preview). */
   production?: boolean
-  /** Only in working copies so far (data view). */
+  /** Only in working copies so far. */
   draft?: boolean
   d: string
+  /** Where it leaves `from` (its right side) and meets `to` (its left side). */
+  x1: number
+  y1: number
+  x2: number
+  y2: number
 }
 
 export interface MapLayout {
@@ -199,48 +235,41 @@ export interface MapLane {
 }
 
 export const NODE_WIDTH: Record<NodeKind, number> = {
-  hub: 248,
-  app: 240,
   published: 292,
   copy: 292,
-  'fabric-prod': 232,
-  'fabric-preview': 232,
-  resource: 292,
-  'resource-empty': 292,
+  app: 240,
+  resource: 272,
+  'resource-empty': 272,
   source: 232
 }
 
 /** First-render guesses; real heights are measured and fed back in. */
 const ESTIMATE: Record<NodeKind, number> = {
-  hub: 150,
-  app: 96,
   published: 64,
   copy: 124,
-  'fabric-prod': 88,
-  'fabric-preview': 88,
+  app: 96,
   resource: 64,
   'resource-empty': 44,
   source: 76
 }
 
+/** Each app in the middle: its published version and working copies on its left, what it has on its right. */
 const COLUMN: Record<NodeKind, number> = {
-  hub: 0,
-  app: 312,
-  published: 616,
-  copy: 616,
-  'fabric-prod': 984,
-  'fabric-preview': 984,
-  resource: 616,
-  'resource-empty': 616,
-  source: 984
+  published: 0,
+  copy: 0,
+  app: 388,
+  resource: 724,
+  'resource-empty': 724,
+  source: 1108
 }
 
 const ROW_GAP = 14
-const APP_GAP = 40
-const FABRIC_GAP = 48
+const APP_GAP = 48
 const SOURCE_GAP = 18
 /** Room above the nodes for the column headings. */
 const LANE_SPACE = 44
+/** Ends closer to level than this get a straight line. */
+const SNAP = 4
 
 export const nodeIds = {
   hub: 'hub',
@@ -251,22 +280,31 @@ export const nodeIds = {
   fabricPreview: 'fabric:preview'
 }
 
+export interface Wire {
+  d: string
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+}
+
 /**
- * A tree connector between two nodes: across, then down (or up) with rounded
- * corners halfway, then across again. Siblings share the vertical run, so a
- * parent's links read as one bracket.
+ * A smooth line from the middle of `a`'s right side to the middle of `b`'s
+ * left side. Ends within a few pixels of level get a straight line instead of
+ * a kink; `keep` is the end other lines share, which stays put.
  */
-export function curve(a: MapNode, b: MapNode): string {
+export function wire(a: MapNode, b: MapNode, keep: 'from' | 'to' = 'from'): Wire {
   const x1 = a.x + a.w
-  const y1 = Math.round(a.y + a.h / 2) + 0.5
   const x2 = b.x
-  const y2 = Math.round(b.y + b.h / 2) + 0.5
-  const mid = Math.round(x1 + (x2 - x1) / 2) + 0.5
-  const dy = y2 - y1
-  if (Math.abs(dy) < 1) return `M ${x1} ${y1} L ${x2} ${y2}`
-  const r = Math.min(10, Math.abs(dy) / 2, (x2 - x1) / 4)
-  const s = dy > 0 ? 1 : -1
-  return `M ${x1} ${y1} L ${mid - r} ${y1} Q ${mid} ${y1} ${mid} ${y1 + s * r} L ${mid} ${y2 - s * r} Q ${mid} ${y2} ${mid + r} ${y2} L ${x2} ${y2}`
+  let y1 = Math.round(a.y + a.h / 2) + 0.5
+  let y2 = Math.round(b.y + b.h / 2) + 0.5
+  if (Math.abs(y2 - y1) < SNAP) {
+    if (keep === 'from') y2 = y1
+    else y1 = y2
+    return { d: `M ${x1} ${y1} L ${x2} ${y2}`, x1, y1, x2, y2 }
+  }
+  const k = Math.max(24, Math.round((x2 - x1) / 2))
+  return { d: `M ${x1} ${y1} C ${x1 + k} ${y1} ${x2 - k} ${y2} ${x2} ${y2}`, x1, y1, x2, y2 }
 }
 
 interface Row {
@@ -276,163 +314,80 @@ interface Row {
   draft?: boolean
 }
 
-/** Places nodes in their columns, at heights measured (or guessed) by id. */
-function nodeBuilder(heights: Record<string, number>): {
-  nodes: MapNode[]
-  height: (id: string, kind: NodeKind) => number
-  place: (id: string, kind: NodeKind, y: number, extra?: Partial<MapNode>) => MapNode
-} {
+/**
+ * Lay the workspace out around its apps, one band per app, top to bottom: the
+ * app in the middle, its published version and everyone's working copies on
+ * its left, its data and connections on its right, and beyond them the Fabric
+ * items and services those connect to. A source several apps use is drawn
+ * once, level with what connects to it. `heights` are measured node heights.
+ */
+export function layoutMap(
+  map: TeamMap,
+  runs: TeamMapRun[],
+  view: ResourceView | null,
+  heights: Record<string, number> = {}
+): MapLayout {
   const nodes: MapNode[] = []
+  const edges: MapEdge[] = []
   const height = (id: string, kind: NodeKind): number => heights[id] ?? ESTIMATE[kind]
   const place = (id: string, kind: NodeKind, y: number, extra: Partial<MapNode> = {}): MapNode => {
     const node: MapNode = { id, kind, x: COLUMN[kind], y, w: NODE_WIDTH[kind], h: height(id, kind), ...extra }
     nodes.push(node)
     return node
   }
-  return { nodes, height, place }
-}
-
-/**
- * Stack the apps top to bottom, each beside its rows (centred on each other),
- * and the workspace beside them all. Returns the bottom of the stack.
- */
-function stackApps(
-  map: TeamMap,
-  rowsOf: (app: TeamMapApp) => Row[],
-  { height, place }: Pick<ReturnType<typeof nodeBuilder>, 'height' | 'place'>
-): number {
-  let cursor = 0
-  for (const app of map.apps) {
-    const rows = rowsOf(app)
-    const rowsHeight =
-      rows.reduce((sum, r) => sum + height(r.id, r.kind), 0) + Math.max(0, rows.length - 1) * ROW_GAP
-    const appId = nodeIds.app(app.folder)
-    const appHeight = height(appId, 'app')
-    const block = Math.max(rowsHeight, appHeight)
-    let y = cursor + (block - rowsHeight) / 2
+  const extent = (rows: Row[]): number =>
+    rows.reduce((sum, r) => sum + height(r.id, r.kind), 0) + Math.max(0, rows.length - 1) * ROW_GAP
+  /** Stack rows top to bottom, centred on `middle`. */
+  const stack = (rows: Row[], middle: number, folder: string): void => {
+    let y = middle - extent(rows) / 2
     for (const row of rows) {
-      const extra: Partial<MapNode> = { folder: app.folder }
+      const extra: Partial<MapNode> = { folder }
       if (row.branch) extra.branch = row.branch
       if (row.draft) extra.draft = true
       y += place(row.id, row.kind, y, extra).h + ROW_GAP
     }
-    place(appId, 'app', cursor + (block - appHeight) / 2, { folder: app.folder })
-    cursor += block + APP_GAP
   }
-  const bottom = Math.max(0, cursor - APP_GAP)
-  place(nodeIds.hub, 'hub', bottom / 2 - height(nodeIds.hub, 'hub') / 2)
-  return bottom
-}
+  const link = (from: string, to: string, kind: MapEdge['kind'], health: Health, extra: Partial<MapEdge> = {}): void => {
+    edges.push({ id: `${from}->${to}`, from, to, kind, health, d: '', x1: 0, y1: 0, x2: 0, y2: 0, ...extra })
+  }
 
-/** Move everything below the column headings, and size the canvas. */
-function finish(nodes: MapNode[], edges: MapEdge[], lanes: MapLane[]): MapLayout {
-  const top = Math.min(...nodes.map((n) => n.y))
-  for (const node of nodes) node.y = Math.round(node.y - top) + LANE_SPACE
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  for (const edge of edges) {
-    const a = byId.get(edge.from)
-    const b = byId.get(edge.to)
-    if (a && b) edge.d = curve(a, b)
-  }
-  return {
-    nodes,
-    edges: edges.filter((e) => e.d),
-    lanes,
-    width: Math.max(...nodes.map((n) => n.x + n.w)),
-    height: Math.max(...nodes.map((n) => n.y + n.h))
-  }
-}
-
-/**
- * Lay the workspace out as a tree, left to right: the workspace, its apps,
- * each app's published version and working copies, and the two Fabric
- * workspaces they deploy to. `heights` are measured node heights by id.
- */
-export function layoutMap(map: TeamMap, runs: TeamMapRun[], heights: Record<string, number> = {}): MapLayout {
-  const { nodes, height, place } = nodeBuilder(heights)
-  const bottom = stackApps(
-    map,
-    (app) => [
-      ...(app.published ? [{ id: nodeIds.published(app.folder), kind: 'published' as const }] : []),
-      ...app.copies.map((c) => ({ id: nodeIds.copy(app.folder, c.branch), kind: 'copy' as const, branch: c.branch }))
-    ],
-    { height, place }
-  )
-  const published = nodes.filter((n) => n.kind === 'published')
-  const copies = nodes.filter((n) => n.kind === 'copy')
-
-  // The Fabric workspaces sit level with what deploys to them, published above previews.
-  const centre = (list: MapNode[], fallback: number): number =>
-    list.length ? list.reduce((sum, n) => sum + n.y + n.h / 2, 0) / list.length : fallback
-  const prodHeight = height(nodeIds.fabricProd, 'fabric-prod')
-  const previewHeight = height(nodeIds.fabricPreview, 'fabric-preview')
-  let prodCentre = centre(published, bottom / 2 - prodHeight / 2)
-  let previewCentre = centre(copies, bottom / 2 + previewHeight / 2)
-  const apart = (prodHeight + previewHeight) / 2 + FABRIC_GAP
-  if (previewCentre - prodCentre < apart) {
-    const mid = (prodCentre + previewCentre) / 2
-    prodCentre = mid - apart / 2
-    previewCentre = mid + apart / 2
-  }
-  place(nodeIds.fabricProd, 'fabric-prod', prodCentre - prodHeight / 2)
-  place(nodeIds.fabricPreview, 'fabric-preview', previewCentre - previewHeight / 2)
-
-  const edges: MapEdge[] = []
-  const link = (from: string, to: string, kind: MapEdge['kind'], health: Health, production?: boolean): void => {
-    edges.push({ id: `${from}->${to}`, from, to, kind, health, production, d: '' })
-  }
+  let cursor = 0
   for (const app of map.apps) {
     const appId = nodeIds.app(app.folder)
-    link(nodeIds.hub, appId, 'tree', appHealth(app, runs))
-    if (app.published) {
-      const pub = nodeIds.published(app.folder)
-      const health = publishedHealth(app, runs)
-      link(appId, pub, 'tree', health)
-      link(pub, nodeIds.fabricProd, 'deploy', health, true)
-    }
-    for (const copy of app.copies) {
-      const id = nodeIds.copy(app.folder, copy.branch)
-      const health = copyHealth(app, copy, runs)
-      link(appId, id, 'tree', health)
-      link(id, nodeIds.fabricPreview, 'deploy', health, false)
+    const versions: Row[] = [
+      ...(app.published ? [{ id: nodeIds.published(app.folder), kind: 'published' as const }] : []),
+      ...app.copies.map((c) => ({ id: nodeIds.copy(app.folder, c.branch), kind: 'copy' as const, branch: c.branch }))
+    ]
+    const items = view?.apps[app.folder]?.items ?? []
+    const data: Row[] = items.length
+      ? items.map((item) => ({ id: item.id, kind: 'resource' as const, draft: !item.published }))
+      : [{ id: dataIds.empty(app.folder), kind: 'resource-empty' as const }]
+    const band = Math.max(extent(versions), extent(data), height(appId, 'app'))
+    const middle = cursor + band / 2
+    stack(versions, middle, app.folder)
+    place(appId, 'app', middle - height(appId, 'app') / 2, { folder: app.folder })
+    stack(data, middle, app.folder)
+    cursor += band + APP_GAP
+
+    if (app.published) link(nodeIds.published(app.folder), appId, 'version', publishedHealth(app, runs), { production: true })
+    for (const copy of app.copies) link(nodeIds.copy(app.folder, copy.branch), appId, 'version', copyHealth(app, copy, runs))
+    if (!items.length) link(appId, dataIds.empty(app.folder), 'tree', 'idle')
+    for (const item of items) {
+      link(appId, item.id, 'tree', 'idle', item.published ? {} : { draft: true })
+      for (const target of item.links) {
+        link(item.id, target.id, 'link', 'idle', target.draft || !item.published ? { draft: true } : {})
+      }
     }
   }
+  if (!nodes.length) return { nodes, edges: [], lanes: [], width: 0, height: 0 }
 
-  return finish(nodes, edges, [
-    { label: 'Workspace', x: COLUMN.hub, w: NODE_WIDTH.hub },
-    { label: 'Apps', x: COLUMN.app, w: NODE_WIDTH.app },
-    { label: 'Published & in progress', x: COLUMN.copy, w: NODE_WIDTH.copy },
-    { label: 'Deployed to Fabric', x: COLUMN['fabric-prod'], w: NODE_WIDTH['fabric-prod'] }
-  ])
-}
-
-/**
- * The data view, left to right: the workspace, its apps, what each app has
- * (its database, file storage, functions and connectors), and the Fabric items
- * and services those connect to. A source several apps use is drawn once,
- * level with what connects to it.
- */
-export function layoutData(map: TeamMap, view: ResourceView | null, heights: Record<string, number> = {}): MapLayout {
-  const { nodes, height, place } = nodeBuilder(heights)
-  stackApps(
-    map,
-    (app) => {
-      const items = view?.apps[app.folder]?.items ?? []
-      return items.length
-        ? items.map((item) => ({ id: item.id, kind: 'resource' as const, draft: !item.published }))
-        : [{ id: dataIds.empty(app.folder), kind: 'resource-empty' as const }]
-    },
-    { height, place }
-  )
-
-  const byId = new Map(nodes.map((n) => [n.id, n]))
-  const centreOf = (ids: string[]): number => {
-    const placed = ids.map((id) => byId.get(id)).filter((n): n is MapNode => Boolean(n))
-    return placed.length ? placed.reduce((sum, n) => sum + n.y + n.h / 2, 0) / placed.length : 0
-  }
   // Each source sits level with what connects to it, pushed down to not overlap.
+  const byId = new Map(nodes.map((n) => [n.id, n]))
   const wanted = (view?.sources ?? [])
-    .map((source) => ({ source, centre: centreOf(source.users) }))
+    .map((source) => {
+      const users = source.users.map((id) => byId.get(id)).filter((n): n is MapNode => Boolean(n))
+      return { source, centre: users.length ? users.reduce((sum, n) => sum + n.y + n.h / 2, 0) / users.length : 0 }
+    })
     .sort((a, b) => a.centre - b.centre)
   let floor = -Infinity
   for (const { source, centre } of wanted) {
@@ -442,54 +397,80 @@ export function layoutData(map: TeamMap, view: ResourceView | null, heights: Rec
     floor = y + h + SOURCE_GAP
   }
 
-  const edges: MapEdge[] = []
-  const link = (from: string, to: string, kind: MapEdge['kind'], draft?: boolean): void => {
-    edges.push({ id: `${from}->${to}`, from, to, kind, health: 'idle', draft: draft || undefined, d: '' })
-  }
-  for (const app of map.apps) {
-    const appId = nodeIds.app(app.folder)
-    link(nodeIds.hub, appId, 'tree')
-    const items = view?.apps[app.folder]?.items ?? []
-    if (!items.length) link(appId, dataIds.empty(app.folder), 'tree')
-    for (const item of items) {
-      link(appId, item.id, 'tree', !item.published)
-      for (const target of item.links) link(item.id, target.id, 'link', target.draft || !item.published)
-    }
+  // Below the column headings, on whole pixels; then connect. An app's lines
+  // share its side, and a source's lines share its side: those ends stay put.
+  const top = Math.min(...nodes.map((n) => n.y))
+  for (const node of nodes) node.y = Math.round(node.y - top) + LANE_SPACE
+  const placed = new Map(nodes.map((n) => [n.id, n]))
+  for (const edge of edges) {
+    const a = placed.get(edge.from)
+    const b = placed.get(edge.to)
+    if (a && b) Object.assign(edge, wire(a, b, edge.kind === 'tree' ? 'from' : 'to'))
   }
 
-  return finish(nodes, edges, [
-    { label: 'Workspace', x: COLUMN.hub, w: NODE_WIDTH.hub },
-    { label: 'Apps', x: COLUMN.app, w: NODE_WIDTH.app },
-    { label: 'Inside each app', x: COLUMN.resource, w: NODE_WIDTH.resource },
-    ...(view?.sources.length ? [{ label: 'Connected to', x: COLUMN.source, w: NODE_WIDTH.source }] : [])
-  ])
+  return {
+    nodes,
+    edges: edges.filter((e) => e.d),
+    lanes: [
+      { label: 'Published & in progress', x: COLUMN.copy, w: NODE_WIDTH.copy },
+      { label: 'Apps', x: COLUMN.app, w: NODE_WIDTH.app },
+      { label: 'Data & connections', x: COLUMN.resource, w: NODE_WIDTH.resource },
+      ...(wanted.length ? [{ label: 'Connected to', x: COLUMN.source, w: NODE_WIDTH.source }] : [])
+    ],
+    width: Math.max(...nodes.map((n) => n.x + n.w)),
+    height: Math.max(...nodes.map((n) => n.y + n.h))
+  }
 }
 
 /**
- * The nodes related to `id`, to highlight together: what leads to it and what
- * it leads to. Everything belongs to the workspace, so the workspace relates to
- * every node; a Fabric workspace relates to what deploys to it.
+ * The nodes related to `id`, to highlight together. An app: its published
+ * version, working copies, what it has and what that connects to. A version:
+ * itself and its app. Something an app has: its app and what it connects to.
+ * A source: what connects to it and their apps. A Fabric workspace: what's
+ * deployed there (published versions, or previews) and their apps. The
+ * workspace relates to everything.
  */
 export function lineage(layout: MapLayout, id: string): Set<string> {
   if (id === nodeIds.hub) return new Set(layout.nodes.map((n) => n.id))
   const out = new Set<string>([id])
-  const up = (target: string): void => {
-    for (const e of layout.edges) {
-      if (e.to === target && !out.has(e.from)) {
-        out.add(e.from)
-        up(e.from)
-      }
-    }
+  const byId = new Map(layout.nodes.map((n) => [n.id, n]))
+  const withApp = (node?: MapNode): void => {
+    if (!node) return
+    out.add(node.id)
+    if (node.folder) out.add(nodeIds.app(node.folder))
   }
-  const down = (source: string): void => {
-    for (const e of layout.edges) {
-      if (e.from === source && !out.has(e.to)) {
-        out.add(e.to)
-        down(e.to)
-      }
-    }
+  const sourcesOf = (from: string): void => {
+    for (const e of layout.edges) if (e.kind === 'link' && e.from === from) out.add(e.to)
   }
-  up(id)
-  if (!id.startsWith('fabric:')) down(id)
+
+  if (id === nodeIds.fabricProd || id === nodeIds.fabricPreview) {
+    const kind = id === nodeIds.fabricProd ? 'published' : 'copy'
+    for (const node of layout.nodes) if (node.kind === kind) withApp(node)
+    return out
+  }
+  const node = byId.get(id)
+  switch (node?.kind) {
+    case 'app':
+      for (const e of layout.edges) {
+        if (e.kind === 'version' && e.to === id) out.add(e.from)
+        if (e.kind === 'tree' && e.from === id) {
+          out.add(e.to)
+          sourcesOf(e.to)
+        }
+      }
+      break
+    case 'published':
+    case 'copy':
+      withApp(node)
+      break
+    case 'resource':
+    case 'resource-empty':
+      withApp(node)
+      sourcesOf(id)
+      break
+    case 'source':
+      for (const e of layout.edges) if (e.kind === 'link' && e.to === id) withApp(byId.get(e.from))
+      break
+  }
   return out
 }
