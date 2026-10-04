@@ -6,17 +6,21 @@ Repository: https://github.com/spatney/rayfin-fabricator
 
 ## What this project is
 
-Fabricator is a Windows desktop app for building "Rayfin apps" via chat. It uses Tauri v2 with a Rust backend and a React 18 + TypeScript renderer built with Vite. It wraps the GitHub Copilot CLI for authoring and the Rayfin CLI (`rayfin up`) for deployment to Microsoft Fabric.
+Fabricator is a desktop app for Windows and macOS (Apple Silicon) for building "Rayfin apps" via chat. It uses Tauri v2 with a Rust backend and a React 18 + TypeScript renderer built with Vite. It wraps the GitHub Copilot CLI for authoring and the Rayfin CLI (`rayfin up`) for deployment to Microsoft Fabric.
 
 You author locally. Fabricator automatically manages a local Vite frontend preview during chat turns when the project has Vite installed, using the existing Fabric backend. Deployment and backend validation still target Microsoft Fabric; projects without local Vite keep the deployed preview.
 
 ## Prerequisites
 
-- Windows 10/11 with the WebView2 runtime
-- Node.js 20+ and npm
-- Rust stable with MSVC and the Tauri prerequisites
-- Git
-- Rayfin CLI and GitHub Copilot CLI available locally, for example through `npx rayfin` and the Copilot CLI
+| Requirement | Notes |
+| --- | --- |
+| Windows 10/11 or macOS | Windows uses the WebView2 runtime; macOS uses the system WebKit. macOS builds target Apple Silicon (arm64). |
+| Node.js 20+ and npm | For the renderer and build scripts. |
+| Rust stable | Windows: the MSVC toolchain. macOS: the default toolchain plus the Xcode command-line tools. |
+| Tauri prerequisites | For local desktop development and packaging. |
+| Git | Used for local project history. |
+
+You don't need to install the Rayfin CLI or the GitHub Copilot CLI. Each Rayfin project pins its own Rayfin CLI, which Fabricator runs through `npx rayfin`, and the Copilot engine is bundled with the app; you sign in to both from inside Fabricator.
 
 ## Development setup
 
@@ -29,7 +33,7 @@ You author locally. Fabricator automatically manages a local Vite frontend previ
 | Script | What it does |
 | --- | --- |
 | `npm run dev` | Runs the Tauri app with the Vite renderer. |
-| `npm run build` | Builds the NSIS installer. |
+| `npm run build` | Builds the desktop app and its installer (NSIS `.exe` on Windows, `.dmg` and updater bundle on macOS). |
 | `npm run dev:renderer` | Runs the renderer development server. |
 | `npm run build:renderer` | Builds the renderer. |
 | `npm run typecheck` | Runs TypeScript type checking. |
