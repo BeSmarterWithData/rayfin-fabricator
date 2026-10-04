@@ -96,6 +96,11 @@ describe('PreviewPane visibility', () => {
     expect(e.api.showUrl).toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Fabric authentication' }))
     expect(onRefreshAuth).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Troubleshoot deploys' }))
+    const { openExternal } = (window as unknown as { api: { openExternal: ReturnType<typeof vi.fn> } }).api
+    expect(openExternal).toHaveBeenCalledWith(
+      'https://spatney.github.io/rayfin-fabricator/docs/troubleshooting/deploy#a-deploy-failed'
+    )
   })
 
   it('shows a first-deploy IPC error even before project state has refreshed', async () => {

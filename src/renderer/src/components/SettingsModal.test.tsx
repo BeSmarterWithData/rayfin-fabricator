@@ -16,9 +16,11 @@ import SettingsModal from './SettingsModal'
 function installApi(exportImpl?: () => Promise<string>): {
   export: ReturnType<typeof vi.fn>
   openLogs: ReturnType<typeof vi.fn>
+  openExternal: ReturnType<typeof vi.fn>
 } {
   const exportFn = vi.fn(exportImpl ?? (() => Promise.resolve('C:/logs/bundle.md')))
   const openLogs = vi.fn(() => Promise.resolve('C:/logs'))
+  const openExternal = vi.fn(() => Promise.resolve())
   ;(window as unknown as { api: unknown }).api = {
     projects: {
       state: vi.fn(() =>
@@ -26,9 +28,10 @@ function installApi(exportImpl?: () => Promise<string>): {
       )
     },
     diagnostics: { export: exportFn },
-    openLogs
+    openLogs,
+    openExternal
   }
-  return { export: exportFn, openLogs }
+  return { export: exportFn, openLogs, openExternal }
 }
 
 const settings: AppSettings = { theme: 'system' }
@@ -113,6 +116,19 @@ describe('SettingsModal diagnostics', () => {
     expect(
       (screen.getByRole('button', { name: 'Export diagnostics' }) as HTMLButtonElement).disabled
     ).toBe(false)
+  })
+})
+
+describe('SettingsModal help links', () => {
+  it('opens the docs and the troubleshooting guide in the browser', async () => {
+    const api = installApi()
+    await renderModal()
+    fireEvent.click(screen.getByRole('button', { name: 'Documentation' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Troubleshooting' }))
+    expect(api.openExternal.mock.calls).toEqual([
+      ['https://spatney.github.io/rayfin-fabricator/docs'],
+      ['https://spatney.github.io/rayfin-fabricator/docs/troubleshooting']
+    ])
   })
 })
 

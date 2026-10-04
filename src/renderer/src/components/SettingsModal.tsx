@@ -5,6 +5,7 @@ import { useSuppressPreview } from '../overlay'
 import { useModalFocus } from '../modalFocus'
 import { useUpdates } from '../update'
 import { formatCopilotCli } from '../copilotVersion'
+import { openDocs } from '../docsLinks'
 
 interface Props {
   settings: AppSettings
@@ -209,6 +210,26 @@ export default function SettingsModal({
                 >
                   {updateBusy ? 'Checking…' : 'Check for updates'}
                 </button>
+              </div>
+            </div>
+
+            <div className="field">
+              <span className="field-label">Help</span>
+              <div className="settings-row">
+                <span className="field-hint">
+                  Guides for every part of Fabricator, and fixes for common problems.
+                </span>
+                <span className="diagnostics-actions">
+                  <button className="btn btn--sm btn--ghost" onClick={() => openDocs('home')}>
+                    Documentation
+                  </button>
+                  <button
+                    className="btn btn--sm btn--ghost"
+                    onClick={() => openDocs('troubleshooting')}
+                  >
+                    Troubleshooting
+                  </button>
+                </span>
               </div>
             </div>
 

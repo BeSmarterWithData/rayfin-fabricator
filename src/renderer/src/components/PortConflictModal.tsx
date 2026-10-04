@@ -1,5 +1,6 @@
 import type { PortConflict } from '@shared/ipc'
 import ConfirmModal from './ConfirmModal'
+import { openDocs } from '../docsLinks'
 
 /** `plan`: a turn is already running, so nothing can be pushed to Fabric yet. */
 export type PortPromptContext = 'turn' | 'plan'
@@ -115,6 +116,15 @@ export default function PortConflictModal({
               {log.join('')}
             </pre>
           )}
+          <p>
+            <button
+              type="button"
+              className="btn btn--sm btn--link"
+              onClick={() => openDocs('previewPorts')}
+            >
+              Learn more about preview ports
+            </button>
+          </p>
         </>
       }
     />

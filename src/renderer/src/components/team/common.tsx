@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { TeamEnvStatus, TeamProblem, TeamProgressEvent } from '@shared/ipc'
+import { openDocs } from '../../docsLinks'
 import './team.css'
 
 /** One row of a progress checklist. */
@@ -83,6 +84,9 @@ export function ProblemView({ problem }: { problem: TeamProblem }): JSX.Element 
           <div>
             <button type="button" className="btn btn--sm" onClick={() => void copy()}>
               {copied ? 'Copied' : 'Copy instructions for your admin'}
+            </button>{' '}
+            <button type="button" className="btn btn--sm btn--link" onClick={() => openDocs('teamAdmins')}>
+              What administrators need to know
             </button>
           </div>
         </>

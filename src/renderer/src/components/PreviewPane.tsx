@@ -8,6 +8,7 @@ import type {
   TeamRunStatus
 } from '@shared/ipc'
 import { usePreviewSuppressed } from '../overlay'
+import { openDocs } from '../docsLinks'
 import { measurePreviewBounds, watchPreviewPixelRatio } from '../previewBounds'
 import { DEVICES, deviceHostWidth, type DeviceId } from '../design/devices'
 import { readFabricatorTheme } from '../design/hostTheme'
@@ -977,6 +978,9 @@ export default function PreviewPane({
               <pre className="deploy-log deploy-log--static">{deploy.log.join('')}</pre>
             </details>
           ) : null}
+          <button className="btn btn--sm btn--link" onClick={() => openDocs('deployFailed')}>
+            Troubleshoot deploys
+          </button>
         </div>
       )}
 

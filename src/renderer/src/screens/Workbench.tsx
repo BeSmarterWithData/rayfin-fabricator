@@ -62,7 +62,8 @@ import ModelTab from '../components/ModelTab'
 import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
 import { reportIssue as runReportIssue } from './reportIssue'
-import { InfoIcon, GearIcon } from '../components/icons'
+import { openDocs } from '../docsLinks'
+import { BookIcon, InfoIcon, GearIcon } from '../components/icons'
 import { FabricatorMark } from '../components/FabricatorMark'
 import AccountMenu from '../components/AccountMenu'
 import {
@@ -1786,6 +1787,15 @@ export default function Workbench({
         <span className="statusbar-item" title="Rayfin Fabricator version">
           v{versions?.app ?? '—'}
         </span>
+        <span className="statusbar-sep">·</span>
+        <button
+          className="statusbar-report"
+          onClick={() => openDocs('home')}
+          title="Open the Fabricator docs in your browser"
+        >
+          <BookIcon />
+          Docs
+        </button>
         <span className="statusbar-sep">·</span>
         <button
           className="statusbar-report"

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { getCopilotHost, signInToCopilot } from '../copilotAuth'
 import CopilotHostInput from './CopilotHostInput'
+import { openDocs } from '../docsLinks'
 
 interface Props {
   detail?: string
@@ -54,6 +55,9 @@ export default function CopilotSignInNotice({ detail, host, disabled, onSignedIn
       <CopilotHostInput value={copilotHost} disabled={busy || disabled} onChange={setCopilotHost} />
       <button className="btn btn--primary btn--sm" disabled={busy || disabled} onClick={() => void signIn()}>
         {busy ? 'Signing in to Copilot...' : 'Sign in to Copilot'}
+      </button>
+      <button className="btn btn--sm btn--link" onClick={() => openDocs('copilotSignIn')}>
+        Sign-in help
       </button>
       {busy && <div>Complete sign-in in your browser, or follow the device-code instructions below.</div>}
       {log && <pre className="log-console log-console--sm">{log}</pre>}

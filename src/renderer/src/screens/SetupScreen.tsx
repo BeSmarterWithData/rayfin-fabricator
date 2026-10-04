@@ -9,6 +9,7 @@ import { CopilotLogo } from '../components/brand-icons'
 import { CheckIcon, DownloadIcon, ReloadIcon, TerminalIcon } from '../components/icons'
 import { getCopilotHost, signInToCopilot, signOutOfCopilot } from '../copilotAuth'
 import CopilotHostInput from '../components/CopilotHostInput'
+import { openDocs } from '../docsLinks'
 
 /** Official product logo (as an <img> src) for each tool, keyed by the doctor's tool id. */
 const TOOL_LOGOS: Record<string, string> = {
@@ -438,6 +439,9 @@ export default function SetupScreen({ doctor, auth, refreshing, error, onRefresh
         <div className="setup-actionbar-inner">
           <button className="btn btn--ghost btn--sm" onClick={() => setShowLog((s) => !s)}>
             {showLog ? 'Hide log' : 'Show log'}
+          </button>
+          <button className="btn btn--sm btn--link" onClick={() => openDocs('setup')}>
+            Setup help
           </button>
           <div className="setup-actionbar-right">
             <span className="setup-actionbar-status">
