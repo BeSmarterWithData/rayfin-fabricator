@@ -735,6 +735,8 @@ impl CopilotManager {
       user_input,
       guidance: !tools.is_empty(),
       tools,
+      // Team projects may not deploy, push or merge from chat (see team::guard).
+      permission: crate::services::team::guard::chat_policy(project_id),
       ..Default::default()
     };
     let opened = match open_session(&client, cwd, session_id, &model, &effort, &opts, true).await {

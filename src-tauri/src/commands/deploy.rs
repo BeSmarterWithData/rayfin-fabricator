@@ -352,6 +352,11 @@ pub(crate) async fn run_deploy(
   project_id: String,
   workspace: Option<String>,
 ) -> DeployResult {
+  // Team projects are deployed by their workspace's pipeline, never from here
+  // (enforced whether or not the experiment is on).
+  if crate::services::team::is_team_project_id(&project_id) {
+    return deployment_error(crate::services::team::NO_LOCAL_DEPLOY.into());
+  }
   let state = app.state::<crate::state::AppState>();
   let _lease = match state.mutations.deploy(&project_id) {
     Ok(lease) => lease,
@@ -370,6 +375,9 @@ fn deployment_error(error: String) -> DeployResult {
 /// status, deployed commit) is left alone, so the app itself still ships with
 /// the next regular deploy.
 pub(crate) async fn push_runtime_settings(project: &StudioProject, on_data: OnData) -> DeployResult {
+  if crate::services::team::is_team_project(project) {
+    return deployment_error(crate::services::team::NO_LOCAL_DEPLOY.into());
+  }
   let dir = Path::new(&project.path);
   if let Err(error) = exec::ensure_project_dependencies(dir, Some(on_data.clone())).await {
     return deployment_error(error);
@@ -614,6 +622,11 @@ async fn run_deploy_inner(
 #[tauri::command]
 pub async fn deploy_status(project_id: String) -> DeployStatus {
   match store::find_project(&project_id) {
+    // A team project's deployments live in its pipeline's records.
+    Some(project) if crate::services::team::is_team_project(&project) => {
+      let deploy = project.last_deploy.unwrap_or_default();
+      DeployStatus { deployed: deploy.url.is_some(), url: deploy.url, api_url: deploy.api_url, portal_url: deploy.portal_url }
+    }
     Some(project) => status_for(&project.path).await,
     None => DeployStatus { deployed: false, url: None, api_url: None, portal_url: None },
   }
@@ -622,6 +635,9 @@ pub async fn deploy_status(project_id: String) -> DeployStatus {
 #[tauri::command]
 pub async fn deploy_has_changes(project_id: String) -> Result<bool, String> {
   let project = store::find_project(&project_id).ok_or_else(|| "Project not found.".to_string())?;
+  if crate::services::team::is_team_project(&project) {
+    return Ok(false);
+  }
   let commit = project.last_deploy.as_ref().and_then(|d| d.commit.as_deref());
   has_changes_since_deploy(&project.path, commit).await
 }
@@ -633,8 +649,12 @@ pub async fn deploy_list(project_id: String) -> Vec<FabricDeployment> {
 
 /// Destructive callers must distinguish "nothing deployed" from a failed
 /// query; an auth/CLI failure must not silently permit deleting the local app.
+/// Team projects have no deployments of their own on this computer.
 pub(crate) async fn deploy_list_checked(project_id: &str) -> Result<Vec<FabricDeployment>, String> {
   let project = store::find_project(project_id).ok_or_else(|| "Project not found.".to_string())?;
+  if crate::services::team::is_team_project(&project) {
+    return Ok(vec![]);
+  }
   let names = project.deployment_names.clone().unwrap_or_default();
   let res = exec::run_project_rayfin(Path::new(&project.path), &["up", "list", "--json"], RunOptions::timeout(60_000)).await;
   checked_deploy_list(&res, &names)
@@ -665,6 +685,11 @@ pub async fn deploy_reconcile(project_id: String) -> ProjectsState {
   let Some(project) = store::find_project(&project_id) else {
     return annotate_state(store::get_state());
   };
+  // Team projects follow their pipeline's records (see team_status), not local
+  // Rayfin deployment files.
+  if crate::services::team::is_team_project(&project) {
+    return annotate_state(store::get_state());
+  }
 
   // Never disturb an in-flight deploy.
   if project.last_deploy.as_ref().and_then(|d| d.status.as_deref()) == Some("deploying") {
@@ -739,6 +764,9 @@ pub async fn deploy_reconcile(project_id: String) -> ProjectsState {
 
 #[tauri::command]
 pub async fn deploy_switch(app: AppHandle, project_id: String, workspace: String, by_id: Option<bool>) -> DeployResult {
+  if crate::services::team::is_team_project_id(&project_id) {
+    return deployment_error(crate::services::team::NO_LOCAL_DEPLOY.into());
+  }
   let state = app.state::<crate::state::AppState>();
   let _lease = match state.mutations.deploy(&project_id) {
     Ok(lease) => lease,

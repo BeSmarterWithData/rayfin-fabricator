@@ -12,13 +12,13 @@ export const GOOD_PROJECT: Record<string, string> = {
   'package.json': JSON.stringify(
     {
       dependencies: {
-        '@microsoft/rayfin-auth-provider-fabric': '1.35.1',
-        '@microsoft/rayfin-client': '1.35.1',
-        '@microsoft/rayfin-core': '1.35.1',
+        '@microsoft/rayfin-auth-provider-fabric': '1.36.2',
+        '@microsoft/rayfin-client': '1.36.2',
+        '@microsoft/rayfin-core': '1.36.2',
         react: '^19.0.0'
       },
       devDependencies: {
-        '@microsoft/rayfin-cli': '1.35.1',
+        '@microsoft/rayfin-cli': '1.36.2',
         '@vitejs/plugin-react-swc': '^4.2.2',
         vite: '^7.3.2'
       }
@@ -40,6 +40,7 @@ export const GOOD_PROJECT: Record<string, string> = {
     '  staticHosting:',
     '    enabled: true',
     '    folder: dist',
+    '    assetAccess: protected',
     ''
   ].join('\n'),
   'tsconfig.json': JSON.stringify(
@@ -118,15 +119,15 @@ export const GOOD_PROJECT: Record<string, string> = {
 }
 
 const INSTALLED: AdvisorPackage[] = [
-  { name: '@microsoft/rayfin-auth-provider-fabric', installed: '1.35.1', declared: '1.35.1', dev: false },
-  { name: '@microsoft/rayfin-cli', installed: '1.35.1', declared: '1.35.1', dev: true },
-  { name: '@microsoft/rayfin-client', installed: '1.35.1', declared: '1.35.1', dev: false },
-  { name: '@microsoft/rayfin-core', installed: '1.35.1', declared: '1.35.1', dev: false },
-  { name: '@microsoft/rayfin-data', installed: '1.35.1' },
-  { name: '@microsoft/rayfin-lib', installed: '1.35.1' }
+  { name: '@microsoft/rayfin-auth-provider-fabric', installed: '1.36.2', declared: '1.36.2', dev: false },
+  { name: '@microsoft/rayfin-cli', installed: '1.36.2', declared: '1.36.2', dev: true },
+  { name: '@microsoft/rayfin-client', installed: '1.36.2', declared: '1.36.2', dev: false },
+  { name: '@microsoft/rayfin-core', installed: '1.36.2', declared: '1.36.2', dev: false },
+  { name: '@microsoft/rayfin-data', installed: '1.36.2' },
+  { name: '@microsoft/rayfin-lib', installed: '1.36.2' }
 ]
 
-export function versionInfo(installed = '1.35.1', latest = '1.35.1'): RayfinVersionInfo {
+export function versionInfo(installed = '1.36.2', latest = '1.36.2'): RayfinVersionInfo {
   const pkg = (name: string, kind: 'cli' | 'sdk'): RayfinPackageVersion => ({
     name,
     kind,

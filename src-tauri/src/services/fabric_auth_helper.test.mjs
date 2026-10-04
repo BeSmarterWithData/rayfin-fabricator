@@ -353,6 +353,40 @@ test('schema polling cannot redirect credentials outside Fabric', async () => {
   assert.equal(calls, 1)
 })
 
+test('schema polling follows Fabric to the tenant’s regional cluster', async () => {
+  const cluster = 'https://wabi-west-us3-a-primary-redirect.analysis.windows.net/v1/operations/op'
+  const seen = []
+  globalThis.fetch = async (url) => {
+    seen.push(url)
+    if (seen.length === 1) return response(202, {}, { location: cluster })
+    if (url === cluster) return response(200, { status: 'Succeeded' })
+    const bim = Buffer.from(JSON.stringify({ model: { tables: [] } })).toString('base64')
+    return response(200, { definition: { parts: [{ path: 'model.bim', payload: bim }] } })
+  }
+  assert.deepEqual(await fetchModelBim(TOKEN, 'ws', 'model'), { tables: [] })
+  assert.deepEqual(seen.slice(1), [cluster, `${cluster}/result`])
+})
+
+test('only Fabric and Power BI hosts count as the same service', () => {
+  for (const ok of [
+    'https://wabi-west-us3-a-primary-redirect.analysis.windows.net/v1/operations/x',
+    'https://df-msit-scus-redirect.analysis.windows.net/v1/operations/x',
+    'https://api.powerbi.com/v1.0/myorg/groups',
+  ]) {
+    assert.equal(apiUrl(ok, FABRIC), ok)
+  }
+  for (const bad of [
+    'http://wabi-west-us3-a-primary-redirect.analysis.windows.net/v1/operations/x',
+    'https://analysis.windows.net.attacker.example/v1',
+    'https://user:pass@api.fabric.microsoft.com/v1',
+    'https://fabric.microsoft.com.evil.example/v1',
+  ]) {
+    assert.throws(() => apiUrl(bad, FABRIC), /outside the authenticated service/)
+  }
+  // Another service's base never extends trust to Microsoft hosts.
+  assert.throws(() => apiUrl('https://api.fabric.microsoft.com/v1', 'https://example.test/api'), /outside/)
+})
+
 test('auth errors redact bearer values before crossing the result boundary', () => {
   assert.equal(errorResult(new NeedsLogin(`Rejected Bearer ${TOKEN}`)).error, 'Rejected Bearer [redacted]')
 })

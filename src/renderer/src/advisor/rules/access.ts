@@ -87,5 +87,18 @@ export const accessRules: QuickRuleImpl[] = [
       }
       return hits
     }
+  },
+  {
+    id: 'access/entra-exchange-not-enabled',
+    run: (ctx) => {
+      const fabric = ctx.service('auth')?.fabric as { externalEntraExchange?: unknown } | undefined
+      if (fabric?.externalEntraExchange === true) return []
+      return regexHits(
+        ctx.sources((p) => (p.startsWith('src/') || p.startsWith('scripts/')) && CODE_FILE.test(p)),
+        /\bsignInWithEntraToken\s*\(/,
+        (src) =>
+          `${code(src.path)} calls ${code('signInWithEntraToken()')}, but rayfin.yml doesn't set ${code('services.auth.fabric.externalEntraExchange: true')}.`
+      )
+    }
   }
 ]

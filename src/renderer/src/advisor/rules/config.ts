@@ -6,6 +6,7 @@ import {
   importsValues,
   jsonKeyLine,
   lineOf,
+  matchAll,
   parseJsonc,
   resolveRelative,
   yamlKeyLine,
@@ -17,6 +18,8 @@ type Obj = Record<string, unknown>
 
 const TSCONFIG = /^(rayfin\/)?tsconfig[^/]*\.json$/
 const VITE_CONFIG = /^vite\.config\.(ts|mts|js|mjs|cjs)$/
+/** Local env files the CLI and frameworks read (root and `rayfin/`). */
+const ENV_FILE = /^(rayfin\/)?\.env(\.[^/]+)?$/
 
 function viteConfig(ctx: QuickContext): SourceFile | undefined {
   return ctx.sources((p) => VITE_CONFIG.test(p))[0]
@@ -202,14 +205,122 @@ export const configRules: QuickRuleImpl[] = [
     id: 'config/deprecated-yml-keys',
     run: (ctx) => {
       if (!ctx.yml) return 'na'
-      return ['frontend', 'publishable_key']
-        .filter((k) => k in ctx.yml!.data)
+      const yml = ctx.yml
+      const hits: QuickHit[] = ['frontend', 'publishable_key']
+        .filter((k) => k in yml.data)
         .map((k) => ({
-          file: ctx.yml!.path,
-          line: yamlKeyLine(ctx.yml!.text, [k]),
+          file: yml.path,
+          line: yamlKeyLine(yml.text, [k]),
           label: k,
           message: `rayfin.yml still has the deprecated top-level ${code(`${k}:`)} key.`
         }))
+      if (ctx.service('connectors') && 'enabled' in (ctx.service('connectors') as Obj)) {
+        hits.push({
+          file: yml.path,
+          line: yamlKeyLine(yml.text, ['services', 'connectors', 'enabled']),
+          label: 'services.connectors.enabled',
+          message: `${code('services.connectors.enabled')} does nothing since Rayfin 1.36; connectors are always on.`
+        })
+      }
+      if (ctx.service('staticHosting') && 'anonymousAccess' in (ctx.service('staticHosting') as Obj)) {
+        hits.push({
+          file: yml.path,
+          line: yamlKeyLine(yml.text, ['services', 'staticHosting', 'anonymousAccess']),
+          label: 'services.staticHosting.anonymousAccess',
+          message: `${code('services.staticHosting.anonymousAccess')} was replaced by ${code('assetAccess')} in Rayfin 1.35.1.`
+        })
+      }
+      return hits
+    }
+  },
+  {
+    id: 'config/functions-auth',
+    run: (ctx) => {
+      if (!ctx.yml || !ctx.enabled('functions')) return []
+      const auth = ctx.service('functions')?.auth
+      const type = auth && typeof auth === 'object' ? (auth as Obj).type : undefined
+      if (type === 'application') return []
+      return [
+        {
+          file: ctx.yml.path,
+          line:
+            yamlKeyLine(ctx.yml.text, ['services', 'functions', 'auth']) ??
+            yamlKeyLine(ctx.yml.text, ['services', 'functions']),
+          label: 'services.functions.auth',
+          message:
+            type === undefined
+              ? `${code('services.functions')} is enabled but doesn't set ${code('auth.type: application')}.`
+              : `${code('services.functions.auth.type')} is ${code(String(type))}; enabled Functions need ${code('application')}.`
+        }
+      ]
+    }
+  },
+  {
+    id: 'config/static-hosting-posture',
+    run: (ctx) => {
+      const hosting = ctx.service('staticHosting')
+      if (!ctx.yml || hosting?.enabled !== true) return []
+      const access = hosting.assetAccess
+      if (access === 'protected' || access === 'public') return []
+      return [
+        {
+          file: ctx.yml.path,
+          line:
+            yamlKeyLine(ctx.yml.text, ['services', 'staticHosting', 'assetAccess']) ??
+            yamlKeyLine(ctx.yml.text, ['services', 'staticHosting']),
+          label: 'services.staticHosting.assetAccess',
+          message:
+            access === undefined
+              ? `${code('services.staticHosting')} doesn't set ${code('assetAccess')}.`
+              : `${code('services.staticHosting.assetAccess')} is ${code(String(access))}; use ${code('protected')} or ${code('public')}.`
+        }
+      ]
+    }
+  },
+  {
+    id: 'config/embedded-public-conflict',
+    run: (ctx) => {
+      const hosting = ctx.service('staticHosting')
+      const embedded = hosting?.embedded
+      const only = Boolean(embedded) && typeof embedded === 'object' && (embedded as Obj).only === true
+      if (!ctx.yml || hosting?.assetAccess !== 'public' || !only) return []
+      return [
+        {
+          file: ctx.yml.path,
+          line: yamlKeyLine(ctx.yml.text, ['services', 'staticHosting', 'assetAccess']),
+          label: 'services.staticHosting',
+          message: `${code('services.staticHosting')} sets ${code('assetAccess: public')} together with ${code('embedded.only: true')}.`
+        }
+      ]
+    }
+  },
+  {
+    id: 'config/stale-feature-flags',
+    run: (ctx) => {
+      const hits: QuickHit[] = []
+      const files = ctx.sources(
+        (p) =>
+          ENV_FILE.test(p) || p === 'package.json' || p.startsWith('.github/workflows/') || p.startsWith('scripts/')
+      )
+      for (const src of files) {
+        for (const m of matchAll(/RAYFIN_FEATURE_FLAGS\s*[=:]\s*["']?([A-Za-z0-9_,\- ]+)/, src.masked)) {
+          const stale = m[1]
+            .split(/[,\s]+/)
+            .map((f) => f.trim().toLowerCase())
+            .filter((f) => f === 'functions' || f === 'connectors')
+          if (stale.length === 0) continue
+          const line = lineOf(src, m.index)
+          hits.push({
+            file: src.path,
+            line,
+            label: src.path,
+            // Only the flag's own line: env files can hold secrets on neighboring lines.
+            excerpt: { text: src.text.split(/\r?\n/)[line - 1] ?? '', start: line },
+            message: `${code(src.path)} lists ${[...new Set(stale)].map(code).join(' and ')} in ${code('RAYFIN_FEATURE_FLAGS')}, which no longer need a flag.`
+          })
+        }
+      }
+      return hits
     }
   },
   {

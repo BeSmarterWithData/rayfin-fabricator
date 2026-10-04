@@ -22,6 +22,7 @@ pub mod project_mutation;
 pub mod redirect_uris;
 pub mod semantic_model;
 pub mod store;
+pub mod team;
 pub mod telemetry;
 pub mod updater;
 pub mod watchdog;

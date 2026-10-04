@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Codicon } from './icons'
 import { authErrorMessage } from '../authErrors'
 import type {
+  DeployTargetCheck,
   FabricCapacity,
   FabricWorkspace,
   FabricWorkspacesResult
@@ -10,6 +11,14 @@ import type {
 /** Where to send users who have no Fabric/Premium capacity yet. */
 const TRIAL_URL = 'https://learn.microsoft.com/fabric/fundamentals/fabric-trial'
 const BUY_URL = 'https://learn.microsoft.com/fabric/enterprise/buy-subscription'
+
+/**
+ * `checkTarget` for deploying the active project. A module-level function, so
+ * it's stable across renders and the picker checks once per selection.
+ */
+export function checkActiveDeployTarget(workspaceId: string): Promise<DeployTargetCheck> {
+  return window.api.fabric.checkDeployTarget(workspaceId)
+}
 
 /**
  * Once the list grows past this, surface a search box to narrow it. Search spans
@@ -66,6 +75,11 @@ interface Props {
   onSubmit: (name: string, workspaceId: string) => void
   /** Pre-fill the (editable) deployment name — e.g. "Development" for a first deploy. */
   defaultName?: string
+  /**
+   * Check a selected workspace for an app this deploy would replace. While it
+   * runs, Deploy waits; a conflict needs an explicit "Replace it anyway".
+   */
+  checkTarget?: (workspaceId: string) => Promise<DeployTargetCheck>
 }
 
 /**
@@ -88,11 +102,15 @@ export default function DeploymentCreateForm({
   cancelLabel = 'Cancel',
   onCancel,
   onSubmit,
-  defaultName = ''
+  defaultName = '',
+  checkTarget
 }: Props): JSX.Element {
   const [name, setName] = useState(defaultName)
   const [wsQuery, setWsQuery] = useState('')
   const [selectedWs, setSelectedWs] = useState<string | null>(null)
+  const [targetCheck, setTargetCheck] = useState<{ workspaceId: string; result?: DeployTargetCheck } | null>(null)
+  /** The workspace whose same-named app the user agreed to replace. */
+  const [replaceIn, setReplaceIn] = useState<string | null>(null)
   const [showIneligible, setShowIneligible] = useState(false)
   // Inline "create a new workspace" sub-flow: pick a capacity + name.
   const [creatingWs, setCreatingWs] = useState(false)
@@ -114,6 +132,27 @@ export default function DeploymentCreateForm({
   useEffect(() => {
     if (wsResult?.ok) setAuthExpired(false)
   }, [wsResult])
+
+  useEffect(() => {
+    if (!checkTarget || !selectedWs) {
+      setTargetCheck(null)
+      return
+    }
+    let stale = false
+    setTargetCheck({ workspaceId: selectedWs })
+    void (async () => {
+      let result: DeployTargetCheck = {}
+      try {
+        result = await checkTarget(selectedWs)
+      } catch {
+        // A failed check never blocks the deploy.
+      }
+      if (!stale) setTargetCheck({ workspaceId: selectedWs, result })
+    })()
+    return () => {
+      stale = true
+    }
+  }, [selectedWs, checkTarget])
 
   async function loadCaps(): Promise<void> {
     setLoadingCaps(true)
@@ -218,7 +257,18 @@ export default function DeploymentCreateForm({
   // (matches must be visible since search spans every workspace).
   const ineligibleExpanded = eligible.length === 0 || Boolean(q) || showIneligible
   const selectedWorkspace = eligible.find((w) => w.id === selectedWs)
-  const canSubmit = Boolean(selectedWorkspace) && !running && !loadingWs && !reauthing && !signingIn
+  const targetState = selectedWorkspace && targetCheck?.workspaceId === selectedWorkspace.id ? targetCheck : null
+  const checkingTarget = Boolean(targetState && !targetState.result)
+  const replaces = targetState?.result?.conflict
+  const blockedByConflict = Boolean(replaces) && replaceIn !== selectedWs
+  const canSubmit =
+    Boolean(selectedWorkspace) &&
+    !running &&
+    !loadingWs &&
+    !reauthing &&
+    !signingIn &&
+    !checkingTarget &&
+    !blockedByConflict
 
   function submit(): void {
     if (!canSubmit || !selectedWorkspace) return
@@ -400,6 +450,27 @@ export default function DeploymentCreateForm({
                     </span>
                   </button>
                 ))}
+              </div>
+            )}
+            {selectedWorkspace && checkingTarget && (
+              <p className="ws-target-note" role="status">
+                <span className="ws-spinner" aria-hidden="true" />
+                Checking {selectedWorkspace.displayName} for an app with the same name…
+              </p>
+            )}
+            {selectedWorkspace && replaces && (
+              <div className="ws-target-conflict" role="alert">
+                <span className="codicon codicon-warning" aria-hidden="true" />
+                <span className="ws-target-conflict-text">
+                  {replaceIn === selectedWorkspace.id
+                    ? `Deploying will replace the app “${replaces}” in ${selectedWorkspace.displayName}.`
+                    : `${selectedWorkspace.displayName} already has an app named “${replaces}”. Deploying here would replace it, so pick another workspace.`}
+                </span>
+                {replaceIn !== selectedWorkspace.id && (
+                  <button type="button" className="link-btn" onClick={() => setReplaceIn(selectedWorkspace.id)}>
+                    Replace it anyway
+                  </button>
+                )}
               </div>
             )}
             {shownIneligible.length > 0 && (

@@ -10,7 +10,7 @@ use crate::state::AppState;
 use crate::types::{
   CommunityGalleryResult, CreateProjectInput, FileContent, FileNode, GitChange, GitCommitResult,
   GitCommitSummary, GitFileDiff, GitHistory, GitRemoteStatus, GitStatus, GitSyncResult,
-  ProjectActionResult, ProjectsState, RevertResult, TemplateInfo,
+  ProjectActionResult, ProjectNameCheck, ProjectsState, RevertResult,
 };
 
 /// Show a native folder picker, returning the chosen absolute path (or None).
@@ -31,9 +31,21 @@ pub fn projects_state() -> ProjectsState {
   annotate_state(store::get_state())
 }
 
+/// Whether a new project's name is free where it will be saved: the projects
+/// folder on this computer, or the chosen team workspace (its apps and the
+/// Fabric workspace its pipeline publishes to).
 #[tauri::command]
-pub async fn projects_templates() -> Vec<TemplateInfo> {
-  crate::commands::projects_impl::list_templates().await
+pub async fn projects_check_name(name: String, team_workspace_id: Option<String>) -> ProjectNameCheck {
+  let Some(id) = team_workspace_id.filter(|id| !id.trim().is_empty()) else {
+    return crate::commands::projects_impl::check_local_name(&name);
+  };
+  let Some(ws) = store::find_team_workspace(&id) else {
+    return ProjectNameCheck { ok: false, message: Some("That team workspace is no longer on this computer.".into()) };
+  };
+  match crate::commands::team::new_app_name_problem(&ws, &name).await {
+    Some(message) => ProjectNameCheck { ok: false, message: Some(message) },
+    None => ProjectNameCheck { ok: true, message: None },
+  }
 }
 
 #[tauri::command]

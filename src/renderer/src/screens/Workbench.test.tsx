@@ -156,6 +156,7 @@ function installApi(active = false) {
     },
     rayfin: { versions: vi.fn().mockResolvedValue(null) },
     preview: { onAgentPreview: vi.fn(() => () => {}) },
+    dev: { onState: vi.fn(() => () => {}) },
     getVersions: vi.fn().mockResolvedValue(null),
     onProcLog: vi.fn<(callback: (event: ProcLogEvent) => void) => () => void>(() => () => {})
   }
@@ -704,7 +705,8 @@ describe('Workbench live preview ports', () => {
       start: vi.fn().mockResolvedValue({ ok: true, outcome: 'running', url: 'http://localhost:5174' }),
       stop: vi.fn().mockResolvedValue(undefined),
       freePort: vi.fn().mockResolvedValue(undefined),
-      registerPort: vi.fn().mockResolvedValue({ ok: true, outcome: 'success' })
+      registerPort: vi.fn().mockResolvedValue({ ok: true, outcome: 'success' }),
+      onState: vi.fn(() => () => {})
     }
     Object.assign(api, { dev })
     return dev
@@ -924,5 +926,113 @@ describe('Workbench Advisor fixes', () => {
     act(() => advisorMock.links!.show(finding.id))
     expect(screen.getByRole('tab', { name: 'Advisor' }).getAttribute('aria-selected')).toBe('true')
     expect(advisorProps.mock.lastCall?.[0].openRequest).toMatchObject({ id: finding.id })
+  })
+})
+
+describe('Workbench team workspaces', () => {
+  const teamProject: StudioProject = {
+    ...project,
+    id: 't1',
+    name: 'Team App',
+    lastDeploy: undefined,
+    team: {
+      workspaceId: 'w1',
+      folder: 'team-app',
+      worktree: 'C:\\team\\team-app',
+      branch: 'fabricator/octocat/team-app-20261003-120000'
+    }
+  }
+  const teamSettings: AppSettings = { theme: 'system', experiments: { teamWorkspaces: true } }
+
+  function installTeamApi() {
+    const api = installApi(true)
+    const state = {
+      workspaceRoot: 'C:\\projects',
+      activeProjectId: teamProject.id,
+      projects: [teamProject],
+      teamWorkspaces: [
+        {
+          id: 'w1',
+          name: 'Sales team',
+          repo: 'octo/sales-team',
+          defaultBranch: 'main',
+          dir: 'C:\\team',
+          role: 'owner',
+          addedAt: '2026-10-01T00:00:00Z'
+        }
+      ]
+    }
+    api.projects.state.mockResolvedValue(state)
+    api.deploy.reconcile.mockResolvedValue(state)
+    const team = {
+      status: vi.fn().mockResolvedValue({
+        ok: true,
+        branch: teamProject.team?.branch,
+        unpublished: 2,
+        dirty: false,
+        behind: 0,
+        conflicted: false,
+        requireReview: false,
+        view: 'preview'
+      }),
+      sync: vi.fn().mockResolvedValue({ ok: true }),
+      publish: vi.fn().mockResolvedValue({ ok: true }),
+      onProgress: vi.fn(() => () => {})
+    }
+    ;(api as unknown as { team: typeof team }).team = team
+    return { api, team }
+  }
+
+  it('saves a finished turn to the working branch instead of deploying locally', async () => {
+    const { api, team } = installTeamApi()
+    render(<Workbench {...makeProps({ settings: teamSettings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    await act(async () => completeTurn())
+
+    expect(team.sync).toHaveBeenCalledWith('t1', '')
+    expect(api.deploy.hasChanges).not.toHaveBeenCalled()
+    expect(api.deploy.run).not.toHaveBeenCalled()
+  })
+
+  it('does not save an unsuccessful turn', async () => {
+    const { team } = installTeamApi()
+    render(<Workbench {...makeProps({ settings: teamSettings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    await act(async () => completeTurn({ ok: false, error: 'Stopped', filesModified: [], ranDeploy: false }))
+
+    expect(team.sync).not.toHaveBeenCalled()
+  })
+
+  it('replaces the deployments control with Publish and never locks chat behind a deploy', async () => {
+    installTeamApi()
+    const { container } = render(<Workbench {...makeProps({ settings: teamSettings })} />, {
+      wrapper: Wrapper
+    })
+    await screen.findByLabelText('Chat draft')
+    const bar = within(container.querySelector('header.app-bar') as HTMLElement)
+
+    expect(bar.queryByRole('button', { name: 'Test deploy' })).toBeNull()
+    expect(await bar.findByText('2 unpublished')).toBeTruthy()
+    expect(bar.getByRole('button', { name: /^Workspace overview/ })).toBeTruthy()
+    expect(chatProps.mock.lastCall?.[0].deployLock).toBe(false)
+  })
+
+  it('publishes through the team pipeline', async () => {
+    const { api, team } = installTeamApi()
+    const { container } = render(<Workbench {...makeProps({ settings: teamSettings })} />, {
+      wrapper: Wrapper
+    })
+    const bar = within(container.querySelector('header.app-bar') as HTMLElement)
+    await bar.findByText('2 unpublished')
+
+    await act(async () => {
+      fireEvent.click(bar.getByRole('button', { name: 'Publish' }))
+    })
+
+    expect(team.publish).toHaveBeenCalledWith('t1', false)
+    expect(api.deploy.run).not.toHaveBeenCalled()
+    expect(await screen.findByRole('dialog', { name: 'Publish' })).toBeTruthy()
   })
 })

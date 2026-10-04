@@ -398,14 +398,6 @@ pub struct DeleteProgressEvent {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct TemplateInfo {
-  pub name: String,
-  pub display_name: String,
-  pub description: String,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct CommunityTemplate {
   pub repo_url: String,
   pub path: String,
@@ -488,6 +480,23 @@ pub struct DevServerResult {
   pub error: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflict: Option<PortConflict>,
+  /// For team apps, which deployment the local preview uses: `preview` (your
+  /// preview), `production` (the published app) or `none`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub backend: Option<String>,
+}
+
+/// A local preview's server changed on its own, on `dev:state`: `running` (back
+/// after it stopped answering and was started again) or `stopped` (with why).
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DevStateEvent {
+  pub project_id: String,
+  pub state: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub url: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
 }
 
 /// A process listening on a local port the live preview needs.
@@ -608,6 +617,10 @@ pub struct StudioProject {
   /// view (persisted as `None`) is never re-overridden on subsequent deploys.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub fabric_preview_defaulted: Option<bool>,
+  /// Set when the project lives in a GitHub-backed team workspace (experimental).
+  /// Team projects never deploy from this machine: the workspace's pipeline does.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub team: Option<TeamBinding>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub missing: Option<bool>,
 }
@@ -618,6 +631,9 @@ pub struct ProjectsState {
   pub workspace_root: String,
   pub active_project_id: Option<String>,
   pub projects: Vec<StudioProject>,
+  /// GitHub-backed team workspaces this machine has created or joined.
+  #[serde(default)]
+  pub team_workspaces: Vec<TeamWorkspace>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -640,6 +656,12 @@ pub struct ExperimentFlags {
   /// Opt-in (off by default) and only for projects with installed Vite.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub local_dev_preview: Option<bool>,
+  /// Team workspaces: share projects through a GitHub repository, work on
+  /// branches, and publish through a pipeline that deploys with a service
+  /// principal. Team projects never deploy from this machine. Opt-in (off by
+  /// default); turning it off hides team workspaces without deleting anything.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub team_workspaces: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -681,6 +703,33 @@ pub struct ProjectActionResult {
   pub error: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub project: Option<StudioProject>,
+}
+
+/// Whether a new project's name is free where it will be saved.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectNameCheck {
+  pub ok: bool,
+  /// Why the name can't be used, in plain language (when `ok` is false).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub message: Option<String>,
+}
+
+/// Whether deploying the active project into a Fabric workspace would replace
+/// someone else's app: `rayfin up -y` reuses a same-named app item there when
+/// this project hasn't deployed to that workspace before.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeployTargetCheck {
+  /// The Fabric item name the project deploys as (`rayfin.yml` `id`).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub item_name: Option<String>,
+  /// The existing app's name, when one would be replaced.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conflict: Option<String>,
+  /// The check couldn't run (the deploy itself isn't blocked).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
 }
 
 /* ----------------------------- github ----------------------------- */
@@ -726,6 +775,769 @@ pub struct GithubReposResult {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
   pub repos: Vec<GithubRepo>,
+}
+
+/* ----------------------------- team workspaces ----------------------------- */
+// GitHub-backed team workspaces (experimental). A team workspace is one private
+// GitHub repository holding several Rayfin projects (one per top-level folder),
+// deployed by a pipeline that signs in as a service principal through GitHub
+// OIDC. Nothing here is secret: only IDs and URLs are stored.
+
+fn team_manifest_schema() -> u32 {
+  1
+}
+
+fn team_default_branch() -> String {
+  "main".to_string()
+}
+
+/// Workspace-wide configuration committed to the team repo as
+/// `fabricator.workspace.json`. Projects are discovered by folder, not listed
+/// here, so two people adding projects never conflict.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamManifest {
+  #[serde(default = "team_manifest_schema")]
+  pub schema: u32,
+  #[serde(default)]
+  pub name: String,
+  #[serde(default)]
+  pub tenant_id: String,
+  /// Signs in for pushes to `main` (published apps).
+  #[serde(default)]
+  pub deploy_identity: TeamDeployIdentity,
+  /// Signs in for pull requests (previews only). Empty in workspaces that use a
+  /// single identity (an administrator's app registration).
+  #[serde(default)]
+  pub preview_identity: TeamDeployIdentity,
+  #[serde(default)]
+  pub fabric: TeamFabricTargets,
+  #[serde(default)]
+  pub settings: TeamSettings,
+  /// Version of the Fabricator-managed workflow template last written.
+  #[serde(default)]
+  pub template_version: u32,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDeployIdentity {
+  /// Application (client) ID of the Entra app registration the pipeline uses.
+  #[serde(default)]
+  pub client_id: String,
+  #[serde(default)]
+  pub display_name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFabricTargets {
+  /// Where merged (published) apps are deployed.
+  #[serde(default)]
+  pub production: TeamFabricWorkspace,
+  /// Where each teammate's personal previews are deployed.
+  #[serde(default)]
+  pub previews: TeamFabricWorkspace,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFabricWorkspace {
+  #[serde(default)]
+  pub id: String,
+  #[serde(default)]
+  pub name: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSettings {
+  /// Publishing waits for a teammate's approval.
+  #[serde(default)]
+  pub require_review: bool,
+}
+
+/// What the owner asked for when creating a team workspace. Persisted with the
+/// setup state so an interrupted setup can resume.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamCreateRequest {
+  pub name: String,
+  /// GitHub account (the signed-in user or an organization) that owns the repo.
+  pub owner: String,
+  #[serde(default)]
+  pub owner_is_org: bool,
+  /// Fabric capacity for the production and previews workspaces.
+  pub capacity_id: String,
+  #[serde(default)]
+  pub capacity_name: Option<String>,
+  /// Use an existing app registration (client ID) instead of creating one.
+  #[serde(default)]
+  pub existing_client_id: Option<String>,
+}
+
+/// A setup problem, explained in plain language.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamProblem {
+  pub step: String,
+  pub message: String,
+  /// What the user can do about it.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub guidance: Option<String>,
+  /// Ready-to-send instructions for an administrator, when only one can fix it.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub admin_note: Option<String>,
+}
+
+/// Progress of the automatic setup, so it can resume after a failure.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSetupState {
+  pub request: TeamCreateRequest,
+  #[serde(default)]
+  pub completed: Vec<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub tenant_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub app_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub app_object_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sp_object_id: Option<String>,
+  /// The previews identity (absent when one identity serves both).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preview_app_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preview_app_object_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preview_sp_object_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub production_workspace_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub previews_workspace_id: Option<String>,
+  /// "enforced" when GitHub protects `main`, "app" when only Fabricator does.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub protection: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub problem: Option<TeamProblem>,
+  #[serde(default)]
+  pub done: bool,
+}
+
+/// A team workspace known to this machine (persisted in `studio.json`).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamWorkspace {
+  /// Local id (uuid).
+  pub id: String,
+  pub name: String,
+  /// GitHub repository, `owner/name` in its canonical case.
+  pub repo: String,
+  #[serde(default = "team_default_branch")]
+  pub default_branch: String,
+  /// Local folder holding the team clone (`.repo`) and one worktree per project.
+  pub dir: String,
+  /// "owner" (repo admin) or "member".
+  #[serde(default)]
+  pub role: String,
+  pub added_at: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub manifest: Option<TeamManifest>,
+  /// Present while (or after) this machine set the workspace up.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub setup: Option<TeamSetupState>,
+  /// Fabric access granted from this machine: GitHub login (lowercase) → Entra
+  /// object ID, so removing the member also removes their access.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub fabric_members: std::collections::BTreeMap<String, String>,
+}
+
+/// Someone with access to a team workspace's Fabric apps.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFabricPerson {
+  pub principal_id: String,
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub email: Option<String>,
+  /// `User` or `Group`.
+  pub kind: String,
+  /// The workspaces they can reach: "published apps" and/or "previews".
+  pub access: Vec<String>,
+  /// The GitHub member they were given access for, when known.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub member: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamFabricAccess {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub people: Vec<TeamFabricPerson>,
+}
+
+/// One pipeline deployment of a team project, read from GitHub deployments.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDeployRecord {
+  /// `production/<folder>` or `preview/<folder>/<login>`.
+  pub environment: String,
+  /// GitHub deployment state: success, failure, error, in_progress, queued, …
+  #[serde(default)]
+  pub state: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub sha: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub url: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub api_url: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub portal_url: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub item_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub workspace_id: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub log_url: Option<String>,
+  /// Short machine-readable reason on failure (e.g. `data-loss`).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reason: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub updated_at: Option<String>,
+  /// The deployment's `RAYFIN_PUBLIC_*` settings (public: they're built into
+  /// the app's web page), used to run a local preview against it.
+  #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+  pub public_env: std::collections::BTreeMap<String, String>,
+}
+
+/// Where a Publish stopped, so it can resume or report.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamPublishState {
+  /// checks | review | merged | deploying | done | failed
+  pub stage: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pr_number: Option<u64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub merge_sha: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  /// The production deploy refused a destructive schema change.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub data_loss: Option<bool>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub run_url: Option<String>,
+  /// The production run being followed, so a status refresh can settle it.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub run_id: Option<u64>,
+  pub at: String,
+}
+
+/// Ties a [`StudioProject`] to its folder in a team workspace.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamBinding {
+  /// Local [`TeamWorkspace::id`].
+  pub workspace_id: String,
+  /// Project folder in the repo (also the production Fabric item name).
+  pub folder: String,
+  /// Root of this project's git worktree.
+  pub worktree: String,
+  /// The current working branch (`fabricator/<login>/<folder>-<stamp>`).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pr_number: Option<u64>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub pr_url: Option<String>,
+  /// Which deployment the preview shows: "preview" (yours) or "production".
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub view: Option<String>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub preview: Option<TeamDeployRecord>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub production: Option<TeamDeployRecord>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub publish: Option<TeamPublishState>,
+}
+
+/// One project folder found in a team repository.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRepoProject {
+  pub folder: String,
+  pub name: String,
+  /// The local project, once opened on this machine.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub project_id: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamWorkspaceDetail {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub workspace: Option<TeamWorkspace>,
+  pub projects: Vec<TeamRepoProject>,
+}
+
+/// Prerequisites for team workspaces on this machine.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamEnvStatus {
+  pub enabled: bool,
+  pub gh_installed: bool,
+  pub gh_signed_in: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub gh_user: Option<String>,
+  /// OAuth scopes the GitHub CLI token lacks (`repo`, `read:org`, `workflow`).
+  pub gh_missing_scopes: Vec<String>,
+  pub az_signed_in: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub az_user: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub az_tenant: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+}
+
+/// A GitHub account that can own a team repository.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamOwner {
+  pub login: String,
+  pub is_org: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub avatar_url: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamOwnersResult {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub owners: Vec<TeamOwner>,
+}
+
+/// A pending invitation to a GitHub repository (possibly a team workspace).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamInvitation {
+  pub id: u64,
+  pub repo: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub inviter: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub created_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<String>,
+}
+
+/// A repository tagged as a team workspace that this machine hasn't joined.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDiscovered {
+  pub repo: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamJoinOptions {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub invitations: Vec<TeamInvitation>,
+  pub discovered: Vec<TeamDiscovered>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMember {
+  pub login: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub avatar_url: Option<String>,
+  /// "owner" or "member".
+  pub role: String,
+  /// Invited but not yet accepted.
+  pub pending: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub invitation_id: Option<u64>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMembersResult {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub members: Vec<TeamMember>,
+  /// The signed-in user can invite and remove people.
+  pub can_manage: bool,
+}
+
+/// Result of a team action; `problem` explains failures in plain language.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamActionResult {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub problem: Option<TeamProblem>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub workspace: Option<TeamWorkspace>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub project: Option<StudioProject>,
+  /// Set when the action stopped on merge conflicts with teammates' changes.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conflicts: Option<Vec<String>>,
+}
+
+/// One step of a GitHub Actions job.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRunStep {
+  pub name: String,
+  pub status: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conclusion: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub started_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub completed_at: Option<String>,
+}
+
+/// The pipeline run deploying a team project.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRunStatus {
+  pub id: u64,
+  /// "preview" or "production".
+  pub kind: String,
+  pub status: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conclusion: Option<String>,
+  pub url: String,
+  pub sha: String,
+  pub steps: Vec<TeamRunStep>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub started_at: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamPullRequest {
+  pub number: u64,
+  pub url: String,
+  pub draft: bool,
+  pub state: String,
+  pub title: String,
+  pub author: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub head_sha: Option<String>,
+  pub approvals: u32,
+}
+
+/// Everything the app bar needs to show a team project's working state.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamSessionStatus {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pr: Option<TeamPullRequest>,
+  /// Commits on the working branch that aren't published yet.
+  pub unpublished: u32,
+  /// Uncommitted edits in the project folder.
+  pub dirty: bool,
+  /// Teammates' published commits to this project not yet in the branch.
+  pub behind: u32,
+  /// A merge with teammates' changes is waiting to be resolved.
+  pub conflicted: bool,
+  pub require_review: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub run: Option<TeamRunStatus>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preview: Option<TeamDeployRecord>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub production: Option<TeamDeployRecord>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub publish: Option<TeamPublishState>,
+  /// "preview" or "production".
+  pub view: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub viewer: Option<String>,
+}
+
+/// A pull request waiting for the signed-in user's review.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamReviewRequest {
+  pub workspace_id: String,
+  pub repo: String,
+  pub pr: TeamPullRequest,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamHealthItem {
+  pub id: String,
+  pub label: String,
+  /// ok | warn | error | unknown
+  pub state: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub detail: Option<String>,
+  pub repairable: bool,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamHealth {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub items: Vec<TeamHealthItem>,
+}
+
+/// A file a working copy changes, compared with the published version.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMapFile {
+  /// Repository-relative path.
+  pub path: String,
+  /// added | modified | deleted | renamed
+  pub change: String,
+  pub additions: u32,
+  pub deletions: u32,
+}
+
+/// Someone's working copy of a team app: their branch and pull request, what
+/// it changes, and their personal preview.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMapCopy {
+  pub branch: String,
+  /// GitHub login.
+  pub author: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub avatar_url: Option<String>,
+  /// The signed-in user's own copy.
+  pub mine: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pr: Option<TeamPullRequest>,
+  pub additions: u32,
+  pub deletions: u32,
+  pub changed_files: u32,
+  pub commits: u32,
+  /// Edits on this computer that aren't saved to GitHub yet.
+  pub local_edits: bool,
+  /// Teammates' published changes not in this copy yet (known on this computer only).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub behind: Option<u32>,
+  /// APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub review: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub updated_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub preview: Option<TeamDeployRecord>,
+  /// The changed files (without their content).
+  pub files: Vec<TeamMapFile>,
+}
+
+/// One app in the workspace map.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMapApp {
+  pub folder: String,
+  pub name: String,
+  /// The app is on `main` (otherwise it exists only on someone's branch so far).
+  pub published: bool,
+  /// Set when the app is open on this computer.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub project_id: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub production: Option<TeamDeployRecord>,
+  pub copies: Vec<TeamMapCopy>,
+}
+
+/// One job of a pipeline run (one app's preview or deploy, or the plan).
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMapJob {
+  pub name: String,
+  /// The app the job deploys, for `Preview <folder>` / `Deploy <folder>` jobs.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub folder: Option<String>,
+  pub status: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conclusion: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub started_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub completed_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub url: Option<String>,
+  pub steps: Vec<TeamRunStep>,
+}
+
+/// A run of the workspace's pipeline.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMapRun {
+  pub id: u64,
+  /// preview | production | verify | manual
+  pub kind: String,
+  /// queued | in_progress | completed | waiting …
+  pub status: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conclusion: Option<String>,
+  pub url: String,
+  pub sha: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub title: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub actor: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub actor_avatar: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub pr_number: Option<u64>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub started_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub updated_at: Option<String>,
+  /// Jobs, for runs that haven't finished.
+  pub jobs: Vec<TeamMapJob>,
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMapMember {
+  pub login: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub avatar_url: Option<String>,
+  /// owner | member
+  pub role: String,
+}
+
+/// Everything in a team workspace, for the workspace map.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamMap {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub workspace: Option<TeamWorkspace>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub viewer: Option<String>,
+  pub apps: Vec<TeamMapApp>,
+  pub runs: Vec<TeamMapRun>,
+  pub members: Vec<TeamMapMember>,
+  pub fetched_at: String,
+}
+
+/// The pipeline's recent runs (what's deploying right now).
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamActivity {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub runs: Vec<TeamMapRun>,
+  pub fetched_at: String,
+}
+
+/// One file of a working copy's changes, with its (possibly shortened) patch.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDiffFile {
+  pub path: String,
+  pub change: String,
+  pub additions: u32,
+  pub deletions: u32,
+  /// Unified-diff hunks; absent for binary or very large files.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub patch: Option<String>,
+  /// The patch was shortened (or left out to keep the view fast).
+  pub truncated: bool,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDiff {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub files: Vec<TeamDiffFile>,
+  /// Some files were left out.
+  pub truncated: bool,
+}
+
+/// Which copy of an app to read for the overview's data view.
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamResourceRequest {
+  pub folder: String,
+  /// A working copy's branch on GitHub; none for the published app.
+  #[serde(default)]
+  pub branch: Option<String>,
+  /// Your copy on this computer, unsaved edits included.
+  #[serde(default)]
+  pub local: bool,
+}
+
+/// One copy of an app's config: `rayfin.yml`, its data model and its
+/// functions' source, by project-relative path.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamResourceSource {
+  pub folder: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub branch: Option<String>,
+  pub local: bool,
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub files: std::collections::BTreeMap<String, String>,
+  /// Some files were left out for size.
+  pub truncated: bool,
+}
+
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamResources {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub sources: Vec<TeamResourceSource>,
+}
+
+/// Streamed progress for long team operations (setup, publish), on `team:progress`.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamProgressEvent {
+  /// The workspace id (setup) or project id (publish) the step belongs to.
+  pub scope: String,
+  pub step: String,
+  /// running | done | error | skipped
+  pub state: String,
+  pub label: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub detail: Option<String>,
 }
 
 /* ----------------------------- git ----------------------------- */

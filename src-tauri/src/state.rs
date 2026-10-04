@@ -26,6 +26,8 @@ pub struct AppState {
   explain_cancels: Mutex<HashMap<String, CancelToken>>,
   /// Active Advisor verify cancel tokens, keyed by `projectId` (one verify per project).
   verify_cancels: Mutex<HashMap<String, CancelToken>>,
+  /// Long team operations (publish, setup verification), keyed by project or workspace id.
+  team_cancels: Mutex<HashMap<String, CancelToken>>,
   /// Shared Copilot SDK client + per-thread session cache.
   pub copilot: CopilotManager,
   /// Bridges Plan-mode `exit_plan_mode` requests to the renderer's approval UI.
@@ -407,6 +409,32 @@ impl AppState {
   /// token was found and signalled.
   pub fn cancel_verify(&self, project_id: &str) -> bool {
     if let Some(token) = self.verify_cancels.lock().unwrap().remove(project_id) {
+      token.cancel();
+      true
+    } else {
+      false
+    }
+  }
+
+  /// Register a cancel token for a long team operation (publish, setup wait),
+  /// keyed by project or workspace id, replacing any stale one.
+  pub fn begin_team_op(&self, key: &str) -> CancelToken {
+    let token = CancelToken::new();
+    self.team_cancels.lock().unwrap().insert(key.to_string(), token.clone());
+    token
+  }
+
+  /// Remove a team operation's token, only when the slot still holds `token`.
+  pub fn end_team_op(&self, key: &str, token: &CancelToken) {
+    let mut map = self.team_cancels.lock().unwrap();
+    if map.get(key).is_some_and(|t| t.same(token)) {
+      map.remove(key);
+    }
+  }
+
+  /// Stop waiting on a team operation. Returns true when one was running.
+  pub fn cancel_team_op(&self, key: &str) -> bool {
+    if let Some(token) = self.team_cancels.lock().unwrap().remove(key) {
       token.cancel();
       true
     } else {

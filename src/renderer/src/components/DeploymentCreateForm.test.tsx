@@ -226,3 +226,71 @@ describe('DeploymentCreateForm Fabric reauth', () => {
     expect((screen.getByRole('button', { name: 'Create workspace' }) as HTMLButtonElement).disabled).toBe(false)
   })
 })
+
+describe('DeploymentCreateForm replace check', () => {
+  const workspaces: FabricWorkspacesResult = {
+    ok: true,
+    workspaces: [
+      { id: 'w1', displayName: 'Sales apps', capacityKind: 'fabric', sku: 'F2', eligible: true },
+      { id: 'w2', displayName: 'Development', capacityKind: 'fabric', sku: 'F4', eligible: true }
+    ]
+  }
+
+  it('holds Deploy while checking, and asks before replacing a same-named app', async () => {
+    const check = deferred<{ itemName: string; conflict?: string }>()
+    const checkTarget = vi.fn((ws: string) =>
+      ws === 'w1' ? check.promise : Promise.resolve({ itemName: 'notes' })
+    )
+    const onSubmit = vi.fn()
+    render(
+      <DeploymentCreateForm
+        wsResult={workspaces}
+        loadingWs={false}
+        onReload={vi.fn()}
+        onSubmit={onSubmit}
+        submitLabel="Deploy app"
+        checkTarget={checkTarget}
+      />
+    )
+    const deploy = screen.getByRole('button', { name: 'Deploy app' }) as HTMLButtonElement
+
+    fireEvent.click(screen.getByText('Sales apps'))
+    expect(checkTarget).toHaveBeenCalledWith('w1')
+    expect(screen.getByRole('status').textContent).toContain('Checking Sales apps')
+    expect(deploy.disabled).toBe(true)
+
+    await act(async () => check.resolve({ itemName: 'notes', conflict: 'Notes' }))
+    expect(screen.getByRole('alert').textContent).toContain('Sales apps already has an app named “Notes”')
+    expect(deploy.disabled).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace it anyway' }))
+    expect(screen.getByRole('alert').textContent).toContain('Deploying will replace the app “Notes”')
+    expect(deploy.disabled).toBe(false)
+
+    // Another workspace without that app deploys normally.
+    fireEvent.click(screen.getByText('Development'))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    expect(deploy.disabled).toBe(false)
+    fireEvent.click(deploy)
+    expect(onSubmit).toHaveBeenCalledWith('Development', 'w2')
+  })
+
+  it('never blocks the deploy when the check fails', async () => {
+    const checkTarget = vi.fn(() => Promise.reject(new Error('offline')))
+    render(
+      <DeploymentCreateForm
+        wsResult={workspaces}
+        loadingWs={false}
+        onReload={vi.fn()}
+        onSubmit={vi.fn()}
+        submitLabel="Deploy app"
+        checkTarget={checkTarget}
+      />
+    )
+    fireEvent.click(screen.getByText('Development'))
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Deploy app' }) as HTMLButtonElement).disabled).toBe(false)
+    )
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+})

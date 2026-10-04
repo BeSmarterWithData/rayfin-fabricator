@@ -24,12 +24,16 @@ import {
   type ChatOptions,
   type CreateProjectInput,
   type CustomSkillSaveInput,
+  type DevStateEvent,
   type PreviewBounds,
   type PreviewNavState,
   type PreviewAgentEvent,
   type ProcLogEvent,
   type DeleteProgressEvent,
   type RayfinStudioApi,
+  type TeamCreateRequest,
+  type TeamProgressEvent,
+  type TeamResourceRequest,
   type ToolId,
   type UpdateProgress
 } from '@shared/ipc'
@@ -116,13 +120,15 @@ export const api: RayfinStudioApi = {
       invoke('fabric_share_app', { projectId, workspaceId, recipients }),
     directorySearch: (query: string) => invoke('fabric_directory_search', { query }),
     listWorkspaceModels: (workspaceId: string) =>
-      invoke('fabric_list_workspace_models', { workspaceId })
+      invoke('fabric_list_workspace_models', { workspaceId }),
+    checkDeployTarget: (workspaceId: string) => invoke('fabric_check_deploy_target', { workspaceId })
   },
 
   projects: {
     state: () => invoke('projects_state'),
-    templates: () => invoke('projects_templates'),
     communityTemplates: (repoUrl?: string) => invoke('projects_community_templates', { repoUrl }),
+    checkName: (name: string, teamWorkspaceId?: string) =>
+      invoke('projects_check_name', { name, teamWorkspaceId: teamWorkspaceId ?? null }),
     pickFolder: () => invoke('projects_pick_folder'),
     pickWorkspaceRoot: () => invoke('projects_pick_workspace_root'),
     setWorkspaceRoot: (path: string) => invoke('projects_set_workspace_root', { path }),
@@ -268,7 +274,8 @@ export const api: RayfinStudioApi = {
     stop: (projectId: string) => invoke('dev_stop', { projectId }),
     supported: (projectId: string) => invoke('dev_supported_cmd', { projectId }),
     freePort: (port: number, pid: number) => invoke('dev_free_port', { port, pid }),
-    registerPort: (projectId: string, port: number) => invoke('dev_register_port', { projectId, port })
+    registerPort: (projectId: string, port: number) => invoke('dev_register_port', { projectId, port }),
+    onState: (cb: (event: DevStateEvent) => void) => subscribe<DevStateEvent>(IpcChannels.devState, cb)
   },
 
   design: {
@@ -336,7 +343,69 @@ export const api: RayfinStudioApi = {
     subscribe<ChatEventEnvelope>(IpcChannels.chatEvent, cb),
 
   onAdvisorEvent: (cb: (envelope: AdvisorEventEnvelope) => void) =>
-    subscribe<AdvisorEventEnvelope>(IpcChannels.advisorEvent, cb)
+    subscribe<AdvisorEventEnvelope>(IpcChannels.advisorEvent, cb),
+
+  team: {
+    envStatus: () => invoke('team_env_status'),
+    githubSignIn: (signedIn: boolean) => invoke('team_github_signin', { signedIn }),
+    owners: () => invoke('team_owners'),
+    capacities: () => invoke('team_capacities'),
+    create: (request: TeamCreateRequest, scope: string) => invoke('team_create', { request, scope }),
+    resumeSetup: (workspaceId: string, scope: string, existingClientId?: string) =>
+      invoke('team_resume_setup', { workspaceId, scope, existingClientId }),
+    cancel: (key: string) => invoke('team_cancel', { key }),
+    joinOptions: () => invoke('team_join_options'),
+    acceptInvitation: (invitationId: number, repo: string) =>
+      invoke('team_accept_invitation', { invitationId, repo }),
+    join: (repo: string) => invoke('team_join', { repo }),
+    detail: (workspaceId: string) => invoke('team_detail', { workspaceId }),
+    leave: (workspaceId: string) => invoke('team_leave', { workspaceId }),
+    delete: (workspaceId: string, deleteFabric: boolean) =>
+      invoke('team_delete', { workspaceId, deleteFabric }),
+    openProject: (workspaceId: string, folder: string) =>
+      invoke('team_open_project', { workspaceId, folder }),
+    createProject: (workspaceId: string, input: CreateProjectInput) =>
+      invoke('team_create_project', { workspaceId, input }),
+    moveProject: (workspaceId: string, projectId: string) =>
+      invoke('team_move_project', { workspaceId, projectId }),
+    removeProject: (workspaceId: string, folder: string, deleteApps: boolean) =>
+      invoke('team_remove_project', { workspaceId, folder, deleteApps }),
+    sync: (projectId: string, message: string) => invoke('team_sync', { projectId, message }),
+    status: (projectId: string, refresh: boolean) => invoke('team_status', { projectId, refresh }),
+    update: (projectId: string, keepConflicts: boolean) =>
+      invoke('team_update', { projectId, keepConflicts }),
+    discard: (projectId: string) => invoke('team_discard', { projectId }),
+    setView: (projectId: string, view: 'preview' | 'production') =>
+      invoke('team_set_view', { projectId, view }),
+    runLog: (projectId: string, runId: number) => invoke('team_run_log', { projectId, runId }),
+    publish: (projectId: string, confirmDataLoss: boolean) =>
+      invoke('team_publish', { projectId, confirmDataLoss }),
+    reviewRequests: () => invoke('team_review_requests'),
+    approve: (workspaceId: string, prNumber: number) =>
+      invoke('team_approve', { workspaceId, prNumber }),
+    members: (workspaceId: string) => invoke('team_members', { workspaceId }),
+    invite: (workspaceId: string, login: string, owner: boolean, email?: string) =>
+      invoke('team_invite', { workspaceId, login, owner, email }),
+    grantFabricAccess: (workspaceId: string, email: string, login?: string) =>
+      invoke('team_grant_fabric_access', { workspaceId, email, login }),
+    fabricAccess: (workspaceId: string) => invoke('team_fabric_access', { workspaceId }),
+    revokeFabricAccess: (workspaceId: string, principalId: string) =>
+      invoke('team_revoke_fabric_access', { workspaceId, principalId }),
+    removeMember: (workspaceId: string, login: string, invitationId?: number) =>
+      invoke('team_remove_member', { workspaceId, login, invitationId }),
+    setRequireReview: (workspaceId: string, require: boolean) =>
+      invoke('team_set_require_review', { workspaceId, require }),
+    health: (workspaceId: string) => invoke('team_health', { workspaceId }),
+    repair: (workspaceId: string, scope: string) => invoke('team_repair', { workspaceId, scope }),
+    map: (workspaceId: string) => invoke('team_map', { workspaceId }),
+    activity: (workspaceId: string) => invoke('team_activity', { workspaceId }),
+    diff: (workspaceId: string, folder: string, prNumber?: number) =>
+      invoke('team_diff', { workspaceId, folder, prNumber }),
+    resources: (workspaceId: string, requests: TeamResourceRequest[]) =>
+      invoke('team_resources', { workspaceId, requests }),
+    onProgress: (cb: (event: TeamProgressEvent) => void) =>
+      subscribe<TeamProgressEvent>(IpcChannels.teamProgress, cb)
+  }
 }
 
 // The renderer talks to the Rust backend exclusively through `window.api`

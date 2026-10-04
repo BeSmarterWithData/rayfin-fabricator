@@ -1,6 +1,6 @@
 {
-  "catalogVersion": "2026-09-26",
-  "rayfinBaseline": "1.35.1",
+  "catalogVersion": "2026-10-03",
+  "rayfinBaseline": "1.36.2",
   "categories": [
     {
       "id": "access",
@@ -58,7 +58,7 @@
     {
       "id": "platform",
       "title": "Rayfin versions & platform",
-      "description": "CLI and SDK versions, connectors, functions, experimental services, and agent files.",
+      "description": "CLI and SDK versions, deprecated APIs, connectors, functions, storage, and agent files.",
       "docs": [
         { "title": "SDK version notes", "url": "https://rayfin.ai/docs/reference/sdk#version-notes" },
         { "title": "Known limitations", "url": "https://rayfin.ai/docs/reference/known-limitations" }
@@ -109,8 +109,8 @@
       "fix": "Wrap protected routes in a guard that waits for the auth context's `loading` state and redirects to the sign-in page when `!isAuthenticated`, and make sure the auth provider is set up before any data call.",
       "check": "Read src/main.tsx, src/App.tsx (or the router config) and the pages. Flag routes or pages that call client.data (directly or through services) but render without a guard that checks isAuthenticated/loading from the auth context. Also flag an app whose data calls run while its auth provider/bootstrap is never wired (for example, auth scaffolding left commented out). Don't flag genuinely public pages that use no Rayfin data.",
       "docs": [
-        { "title": "Guarding routes", "url": "https://rayfin.ai/docs/auth/react#guarding-routes" },
-        { "title": "Auth context and provider", "url": "https://rayfin.ai/docs/auth/react#an-auth-context-and-provider" }
+        { "title": "Guard routes", "url": "https://rayfin.ai/docs/auth/react#guard-routes" },
+        { "title": "Add AuthProvider and useAuth", "url": "https://rayfin.ai/docs/auth/react#add-authprovider-and-useauth" }
       ]
     },
     {
@@ -124,7 +124,7 @@
       "fix": "Subscribe with `client.auth.onSessionChange(callback)`, which returns an unsubscribe function.",
       "docs": [
         { "title": "The callback is onSessionChange", "url": "https://rayfin.ai/docs/reference/known-limitations#the-callback-is-onsessionchange-not-onauthstatechange" },
-        { "title": "Subscribing to session changes", "url": "https://rayfin.ai/docs/auth/sessions#subscribing-to-session-changes-onsessionchange" }
+        { "title": "Subscribe with onSessionChange", "url": "https://rayfin.ai/docs/auth/sessions#subscribe-with-onsessionchange" }
       ]
     },
     {
@@ -152,7 +152,7 @@
       "why": "The provider captures the `?fabricEmbedded=true` flag when its module first loads. Loading it only through `import()` can miss the flag, so sign-in inside Fabric falls back to a popup.",
       "fix": "Import `@microsoft/rayfin-auth-provider-fabric` statically from the app's entry module (or a module it imports at startup).",
       "docs": [
-        { "title": "Fabric SSO client-side usage", "url": "https://rayfin.ai/docs/auth/fabric-sso#client-side-usage" }
+        { "title": "Embedded flow: automatic sign-in on startup", "url": "https://rayfin.ai/docs/auth/fabric-sso#embedded-flow-automatic-sign-in-on-startup" }
       ]
     },
     {
@@ -168,7 +168,7 @@
       "check": "Find calls to ensureSignedInWithFabric or initiateFabricLogin (and wrappers that call them, such as a signIn method). Flag calls made from useEffect, on module load, on a timer, or after an await rather than directly in a click handler. initEmbeddedAuth on startup is correct and must not be flagged.",
       "docs": [
         { "title": "Popup blocked", "url": "https://rayfin.ai/docs/reference/errors#popup-blocked" },
-        { "title": "Sign in from a button click", "url": "https://rayfin.ai/docs/auth/fabric-sso#popup-flow-sign-in-from-a-button-click" }
+        { "title": "Popup flow: sign in from a button", "url": "https://rayfin.ai/docs/auth/fabric-sso#popup-flow-sign-in-from-a-button" }
       ]
     },
     {
@@ -181,7 +181,21 @@
       "why": "A leftover `MockAuthService` signs in with a fixed email and password through a local-backend flow that Fabric apps don't support, and it can take over when configuration is missing.",
       "fix": "Delete `MockAuthService` and the local-dev branch that selects it, or replace it with an in-memory test double that only tests import.",
       "docs": [
-        { "title": "What MockAuthService actually does", "url": "https://rayfin.ai/docs/recipes/testing#what-mockauthservice-actually-does" }
+        { "title": "MockAuthService scope caveat", "url": "https://rayfin.ai/docs/recipes/testing#mockauthservice-scope-caveat" }
+      ]
+    },
+    {
+      "id": "access/entra-exchange-not-enabled",
+      "category": "access",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["auth"],
+      "title": "Direct Entra sign-in isn't enabled in rayfin.yml",
+      "summary": "Apps that call `signInWithEntraToken` enable `externalEntraExchange`",
+      "why": "`signInWithEntraToken()` exchanges an Entra token the caller already holds for a Rayfin session. Unless `services.auth.fabric.externalEntraExchange` is `true`, the backend rejects it with \"External Entra exchange is not enabled.\"",
+      "fix": "Set `externalEntraExchange: true` under `services.auth.fabric` in rayfin.yml.",
+      "docs": [
+        { "title": "Direct Entra token sign-in", "url": "https://rayfin.ai/docs/auth/entra-token" }
       ]
     },
     {
@@ -196,6 +210,22 @@
       "check": "Look at code that handles client.auth.getSession() or onSessionChange results. Flag reads of properties other than user, isAuthenticated, isAnonymous, role and expiresAt, or any decoding of tokens taken from the session.",
       "docs": [
         { "title": "Sessions are opaque", "url": "https://rayfin.ai/docs/auth/sessions#sessions-are-opaque" }
+      ]
+    },
+    {
+      "id": "access/embedded-auth-not-awaited",
+      "category": "access",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["fabricSso"],
+      "title": "Signed-in UI renders before embedded sign-in finishes",
+      "summary": "Startup waits for `initEmbeddedAuth()` before showing signed-in UI or loading data",
+      "why": "Inside Fabric, `initEmbeddedAuth()` signs the user in and, since Rayfin 1.36, first checks for an external embed host. Rendering signed-in UI or calling the data API before it resolves can use a stale session from another user, or no session at all.",
+      "fix": "Await `initEmbeddedAuth()` in the auth provider before setting `loading` to false, and gate data calls and protected routes on that state.",
+      "check": "Read the auth provider and startup code (for example src/hooks/AuthContext.tsx, src/main.tsx, src/services/*Auth*). Confirm initEmbeddedAuth() (or a wrapper around it) is awaited before initial loading completes and before any client.data call or authenticated route renders. Flag startup code that shows authenticated UI or calls client.data while it is still pending, or a Fabric SSO app that never calls initEmbeddedAuth on startup.",
+      "docs": [
+        { "title": "Add AuthProvider and useAuth", "url": "https://rayfin.ai/docs/auth/react#add-authprovider-and-useauth" },
+        { "title": "How the embedded flow works", "url": "https://rayfin.ai/docs/auth/fabric-sso#how-the-embedded-flow-works" }
       ]
     },
     {
@@ -347,6 +377,22 @@
       ]
     },
     {
+      "id": "policy/connector-policy-app-auth",
+      "category": "policy",
+      "engine": "ai",
+      "severity": "medium",
+      "appliesWhen": ["connectors"],
+      "title": "Per-user rules on a connector that runs as the app",
+      "summary": "Connectors whose data is scoped per user use delegated auth",
+      "why": "With `auth.type: application`, every connector query runs as the app's identity, so the source can't tell users apart and a policy comparing `claims.sub` or `claims.email` doesn't limit what each person sees there. Since Rayfin 1.36, `rayfin connector add` defaults SQL connectors to `application`.",
+      "fix": "Use `auth.type: delegated` for connectors whose data must be scoped to each user, or drop the per-user rules if everyone may see the data.",
+      "check": "In rayfin.yml, find connectors with auth.type: application. For their entities under rayfin/connectors/<name>/, and the app code that reads them, flag per-user policies (claims.sub / claims.email comparisons) or UI that assumes each signed-in user only sees their own rows. Don't flag shared reference data.",
+      "docs": [
+        { "title": "Connector auth", "url": "https://rayfin.ai/docs/connectors/auth" },
+        { "title": "Delegated and application access", "url": "https://rayfin.ai/docs/auth/delegated-access" }
+      ]
+    },
+    {
       "id": "secrets/secret-in-public-env",
       "category": "secrets",
       "engine": "quick",
@@ -397,7 +443,7 @@
       "why": "Every listed origin can receive the Fabric SSO hand-off. Wildcards and plain-`http` non-local origins widen who can receive it.",
       "fix": "Keep only your local dev origin (such as `http://localhost:5173`) and the app's own deployed origin, and remove wildcards and entries copied from other projects.",
       "docs": [
-        { "title": "Keep the list tightly scoped", "url": "https://rayfin.ai/docs/hosting/redirect-uris#keep-the-list-tightly-scoped" }
+        { "title": "Keep the list tight", "url": "https://rayfin.ai/docs/hosting/redirect-uris#keep-the-list-tight" }
       ]
     },
     {
@@ -423,7 +469,7 @@
       "why": "It holds workspace, tenant, and item IDs for your own deployments and is regenerated by `rayfin up`; it isn't meant to be shared.",
       "fix": "Add `rayfin/.deployments.json` to `.gitignore` and untrack it with `git rm --cached rayfin/.deployments.json`.",
       "docs": [
-        { "title": "rayfin/.deployments.json", "url": "https://rayfin.ai/docs/start/project-structure#rayfindeploymentsjson" }
+        { "title": "Generated and local files", "url": "https://rayfin.ai/docs/start/project-structure#generated-and-local-files" }
       ]
     },
     {
@@ -447,10 +493,11 @@
       "title": "Browser code calls a service with a secret credential",
       "summary": "Credentials for other services stay server-side",
       "why": "Anything the browser sends is visible to users, so calling paid or privileged APIs from frontend code exposes the credential.",
-      "fix": "Move the call into a Rayfin function that reads the key with `ctx.getSecret` (functions are experimental — confirm availability in your tenant) and call that function from the app.",
+      "fix": "Move the call into a Rayfin function that reads the key as `ctx.Secrets.<NAME>` (store it with `rayfin secret set`), and call that function from the app. Functions aren't available in every Fabric region, so confirm they deploy in your workspace.",
       "check": "Look for frontend code that sends API keys, bearer tokens or other credentials to other services (fetch or axios headers, SDK constructors), or that embeds such values. Rayfin publishable keys (pk-…) and keys designed to be public are fine. Mask any value you quote.",
       "docs": [
-        { "title": "Reading a secret from your code", "url": "https://rayfin.ai/docs/deploy/secrets#reading-a-secret-from-your-code" }
+        { "title": "Read secrets from functions", "url": "https://rayfin.ai/docs/deploy/secrets#read-secrets-from-functions" },
+        { "title": "Security rules", "url": "https://rayfin.ai/docs/reference/agent-rules#security" }
       ]
     },
     {
@@ -580,6 +627,35 @@
       "fix": "Add a join entity with two `@one()` fields — one for each side — and query through it.",
       "docs": [
         { "title": "Use an explicit join entity", "url": "https://rayfin.ai/docs/data/relationships#many-to-many-use-an-explicit-join-entity" }
+      ]
+    },
+    {
+      "id": "data-model/reserved-entity-name",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["data"],
+      "title": "Entity name is reserved by GraphQL",
+      "summary": "No entity is named after a built-in GraphQL type",
+      "why": "Entity names become GraphQL type names. Since Rayfin 1.36 the CLI rejects names such as `Date`, `String`, `Query`, or `UUID`, and anything starting with `__`, so the deploy stops.",
+      "fix": "Rename the class (for example `EventDate` instead of `Date`), or keep it and pass a safe name with `@entity('EventDate')`.",
+      "docs": [
+        { "title": "Reserved entity names", "url": "https://rayfin.ai/docs/reference/sdk/rayfin-core#reserved-entity-names" },
+        { "title": "Entity names can't reuse GraphQL built-in type names", "url": "https://rayfin.ai/docs/reference/known-limitations#entity-names-cant-reuse-graphql-built-in-type-names" }
+      ]
+    },
+    {
+      "id": "data-model/relation-options",
+      "category": "data-model",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["data"],
+      "title": "Relationship decorator has an unsupported option",
+      "summary": "`@one()` and `@many()` use only `optional` and `unique`",
+      "why": "Relationship decorators accept only `{ optional, unique }`. Options such as `default`, `max`, `foreignKey`, or `targetKey` aren't supported; the foreign key is always the `<property>_id` column.",
+      "fix": "Remove the other options and use the `<property>_id` foreign key the relationship generates.",
+      "docs": [
+        { "title": "@one / @many only accept { optional?, unique? }", "url": "https://rayfin.ai/docs/reference/known-limitations#one--many-only-accept--optional-unique-" }
       ]
     },
     {
@@ -879,10 +955,11 @@
       "severity": "low",
       "title": "rayfin.yml has deprecated keys",
       "summary": "rayfin.yml uses no deprecated keys",
-      "why": "The top-level `frontend:` key (the framework is auto-detected now) and `publishable_key:` (managed in `rayfin/.env`) are legacy and only kept for backward compatibility.",
-      "fix": "Remove them from rayfin.yml.",
+      "why": "These keys are legacy or ignored: top-level `frontend:` (the framework is auto-detected) and `publishable_key:` (managed in `rayfin/.env`), `services.connectors.enabled` (connectors are always on since Rayfin 1.36), and `services.staticHosting.anonymousAccess` (replaced by `assetAccess` in 1.35.1).",
+      "fix": "Remove them from rayfin.yml. If you remove `anonymousAccess`, set `assetAccess` to `protected` or `public` instead.",
       "docs": [
-        { "title": "Top-level keys", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#top-level-keys" }
+        { "title": "Top-level keys", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#top-level-keys" },
+        { "title": "Deprecated or removed in 1.36", "url": "https://rayfin.ai/docs/reference/deprecations#deprecated-or-removed-in-136" }
       ]
     },
     {
@@ -897,6 +974,63 @@
       "fix": "Rewrite each connector as a list item with `name` and `type` (for example by re-running `rayfin connector add`), keeping its `config`, `auth`, and `operations`.",
       "docs": [
         { "title": "rayfin.yml connectors", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#connectors" }
+      ]
+    },
+    {
+      "id": "config/functions-auth",
+      "category": "config",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["functions"],
+      "title": "Functions are enabled without application auth",
+      "summary": "Enabled Functions declare `auth.type: application`",
+      "why": "Since Rayfin 1.36, `rayfin up` refuses to deploy enabled Functions unless `services.functions.auth.type` is `application`: \"authentication is required when Functions are enabled.\"",
+      "fix": "Add `auth: { type: application }` under `services.functions` in rayfin.yml. Functions then call other services as the app's identity.",
+      "docs": [
+        { "title": "Authentication is required when Functions are enabled", "url": "https://rayfin.ai/docs/reference/errors#authentication-is-required-when-functions-are-enabled" },
+        { "title": "services.functions", "url": "https://rayfin.ai/docs/reference/config/rayfin-yml#servicesfunctions" }
+      ]
+    },
+    {
+      "id": "config/static-hosting-posture",
+      "category": "config",
+      "engine": "quick",
+      "severity": "low",
+      "appliesWhen": ["hosting"],
+      "title": "Static hosting doesn't say who can load the app",
+      "summary": "`services.staticHosting.assetAccess` is set explicitly",
+      "why": "Since Rayfin 1.35.1 a hosted app must choose `protected` (Fabric sign-in required) or `public`. When it's missing, the first non-interactive deploy writes `protected` into rayfin.yml for you, so access isn't a deliberate choice.",
+      "fix": "Add `assetAccess: protected` under `services.staticHosting` (or `public` if anyone with the link should load the app's files; data permissions still apply).",
+      "docs": [
+        { "title": "Static hosting posture is missing", "url": "https://rayfin.ai/docs/reference/errors#static-hosting-posture-is-missing" },
+        { "title": "Choose protected or public assets", "url": "https://rayfin.ai/docs/hosting#choose-protected-or-public-assets" }
+      ]
+    },
+    {
+      "id": "config/embedded-public-conflict",
+      "category": "config",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["hosting"],
+      "title": "Embedded-only app is set to public",
+      "summary": "`assetAccess: public` isn't combined with `embedded.only: true`",
+      "why": "An app that only loads inside the Fabric portal has no standalone page to make public, so `rayfin up` rejects the combination with \"Invalid static hosting posture\".",
+      "fix": "Use `assetAccess: protected` for an embedded-only app, or set `embedded.only: false` if it should also load on its own.",
+      "docs": [
+        { "title": "Choose protected or public assets", "url": "https://rayfin.ai/docs/hosting#choose-protected-or-public-assets" }
+      ]
+    },
+    {
+      "id": "config/stale-feature-flags",
+      "category": "config",
+      "engine": "quick",
+      "severity": "low",
+      "title": "Feature flag turns on a capability that no longer needs one",
+      "summary": "`RAYFIN_FEATURE_FLAGS` lists only capabilities that still need a flag",
+      "why": "Functions and connectors are generally available since Rayfin 1.36, so `functions` and `connectors` in `RAYFIN_FEATURE_FLAGS` do nothing. Only `storage` still uses the flag.",
+      "fix": "Remove `functions` and `connectors` from `RAYFIN_FEATURE_FLAGS`, and the variable itself if nothing is left.",
+      "docs": [
+        { "title": "Upgrade to 1.36", "url": "https://rayfin.ai/docs/reference/changelog#upgrade-to-136" }
       ]
     },
     {
@@ -919,7 +1053,7 @@
       "severity": "medium",
       "title": "Rayfin SDK is out of date",
       "summary": "The Rayfin SDK packages are on the latest release",
-      "why": "The SDK and CLI version independently, and newer SDK releases carry fixes and the APIs the current docs describe.",
+      "why": "The SDK and CLI version independently, and newer SDK releases carry fixes and the APIs the current docs describe. Rayfin 1.36 also changed several imports and Functions APIs.",
       "fix": "Update all Rayfin SDK packages together to the same latest version — Fabricator can hand the upgrade to Copilot.",
       "docs": [
         { "title": "SDK version notes", "url": "https://rayfin.ai/docs/reference/sdk#version-notes" }
@@ -932,7 +1066,7 @@
       "severity": "high",
       "title": "Rayfin SDK packages are on different versions",
       "summary": "The Rayfin SDK family is installed at one version",
-      "why": "`rayfin-core`, `-client`, `-data`, `-auth`, `-auth-provider-fabric`, `-lib`, and `-functions` ship in lockstep; mixing versions is untested and can break at runtime.",
+      "why": "`rayfin-core`, `-client`, `-data`, `-auth`, `-auth-provider-fabric`, `-lib`, `-functions`, `-storage`, `-embed-host`, and `-local-dev` ship in lockstep; mixing versions is untested and can break at runtime.",
       "fix": "Pin every Rayfin SDK package to the same version (normally the latest) and reinstall.",
       "docs": [
         { "title": "SDK version notes", "url": "https://rayfin.ai/docs/reference/sdk#version-notes" }
@@ -946,10 +1080,10 @@
       "appliesWhen": ["connectors"],
       "title": "Connector package isn't pinned to the CLI's version",
       "summary": "Connector packages are pinned to the version the CLI installs",
-      "why": "Connector packages ship in lockstep with the CLI, but their npm `latest` / `preview` tags lag behind. Unpinned installs can pull an older connector that brings its own `rayfin-data`, leaving two Rayfin versions in one app.",
+      "why": "Connector packages ship in lockstep with the CLI, but their npm tags can lag behind. An unpinned install can pull an older connector that brings its own `rayfin-data`, leaving two Rayfin versions in one app.",
       "fix": "Install the exact version `rayfin connector add` prints (normally the CLI's version), without `^` or `~`.",
       "docs": [
-        { "title": "Connectors are in private preview", "url": "https://rayfin.ai/docs/reference/known-limitations#connectors-are-in-private-preview" },
+        { "title": "Install connector packages at the pinned version", "url": "https://rayfin.ai/docs/reference/known-limitations#install-connector-packages-at-the-pinned-version" },
         { "title": "Install the pinned packages", "url": "https://rayfin.ai/docs/connectors/adding#install-the-pinned-packages" }
       ]
     },
@@ -957,28 +1091,15 @@
       "id": "platform/connector-schema-value-import",
       "category": "platform",
       "engine": "quick",
-      "severity": "high",
+      "severity": "medium",
       "appliesWhen": ["connectors"],
-      "title": "Connector schema imports entity classes as values",
-      "summary": "Connector `schema.ts` files use `import type` / `export type` for entities",
-      "why": "A value import ships decorated classes into the browser bundle. The build and deploy succeed, but the deployed page renders blank.",
-      "fix": "Change the entity imports and re-exports in `rayfin/connectors/<name>/schema.ts` to `import type` / `export type`.",
+      "title": "Connector schema bundles decorated entity classes",
+      "summary": "Connector `schema.ts` files list entity fields by name unless relationship paths need the classes",
+      "why": "Importing entity classes as values ships their decorators into the browser bundle. The build and deploy succeed, but the deployed page can render blank.",
+      "fix": "In `rayfin/connectors/<name>/schema.ts`, list each entity's scalar fields as a string array in `connectorConfig.entities` and use `import type` / `export type` for the classes. Keep the class form only when the app selects relationship paths such as `orderItems.quantity`, and check that the deployed page loads.",
       "docs": [
-        { "title": "Keep entity classes out of browser bundles", "url": "https://rayfin.ai/docs/connectors/client-setup#keep-entity-classes-out-of-browser-bundles" }
-      ]
-    },
-    {
-      "id": "platform/connectors-stable-entry",
-      "category": "platform",
-      "engine": "quick",
-      "severity": "high",
-      "appliesWhen": ["connectors"],
-      "title": "`ConnectorsRayfinClient` is imported from the stable entry",
-      "summary": "`ConnectorsRayfinClient` comes from `@microsoft/rayfin-client/experimental`",
-      "why": "The preview connectors client is only exported from the `/experimental` subpath, so importing it from `@microsoft/rayfin-client` fails.",
-      "fix": "Write `import { ConnectorsRayfinClient } from '@microsoft/rayfin-client/experimental'`.",
-      "docs": [
-        { "title": "Import the experimental client", "url": "https://rayfin.ai/docs/connectors/client-setup#import-the-experimental-client" }
+        { "title": "Choose an entities registration form", "url": "https://rayfin.ai/docs/connectors/client-setup#choose-an-entities-registration-form" },
+        { "title": "Decorated entity classes can break a browser bundle", "url": "https://rayfin.ai/docs/reference/known-limitations#decorated-entity-classes-can-break-a-browser-bundle" }
       ]
     },
     {
@@ -1036,7 +1157,7 @@
       "why": "`RayfinContext` and `AudienceType` come from `@microsoft/fabric-user-data-functions`; importing them from `@microsoft/rayfin-functions` (the frontend client) fails.",
       "fix": "Import them from `@microsoft/fabric-user-data-functions`.",
       "docs": [
-        { "title": "Typed data access with RayfinContext", "url": "https://rayfin.ai/docs/functions/writing-functions#typed-data-access-with-rayfincontext" }
+        { "title": "Use RayfinContext for server context", "url": "https://rayfin.ai/docs/functions/writing-functions#use-rayfincontext-for-server-context" }
       ]
     },
     {
@@ -1050,7 +1171,7 @@
       "why": "Older `mssql` versions pull in a `tedious` release with a login bug that causes \"socket hang up\" errors on Fabric SQL endpoints, and `encrypt: 'strict'` doesn't match what Fabric expects.",
       "fix": "Use `mssql@^12.6.0` and `encrypt: true`.",
       "docs": [
-        { "title": "SQL connections", "url": "https://rayfin.ai/docs/functions/connections#sql-connections" }
+        { "title": "Call Fabric SQL", "url": "https://rayfin.ai/docs/functions/connections#call-fabric-sql" }
       ]
     },
     {
@@ -1065,8 +1186,8 @@
       "fix": "Register each handler with `udf.func(name, handler, …)`, and regenerate types instead of editing `types.ts`.",
       "check": "In rayfin/functions, find exported handlers that are never passed to udf.func, and manual edits to the generated types.ts.",
       "docs": [
-        { "title": "Registering a function", "url": "https://rayfin.ai/docs/functions/writing-functions#registering-a-function" },
-        { "title": "Generated types", "url": "https://rayfin.ai/docs/functions/writing-functions#generated-types" }
+        { "title": "Register handlers with udf.func", "url": "https://rayfin.ai/docs/functions/writing-functions#register-handlers-with-udffunc" },
+        { "title": "Generated types.ts", "url": "https://rayfin.ai/docs/functions/writing-functions#generated-typests" }
       ]
     },
     {
@@ -1074,13 +1195,13 @@
       "category": "platform",
       "engine": "quick",
       "severity": "note",
-      "appliesWhen": ["functions", "storage"],
-      "title": "App uses experimental Rayfin services",
-      "summary": "Experimental services (functions, storage) are noted for availability",
-      "why": "Functions and storage are experimental: they aren't available in every Fabric region or tenant, and their packages may change substantially between releases.",
-      "fix": "Confirm the service deploys in your target workspace before depending on it, and keep data access in `client.data` where a function isn't required.",
+      "appliesWhen": ["storage"],
+      "title": "App uses experimental Rayfin Storage",
+      "summary": "Experimental Storage is noted for availability",
+      "why": "Storage is experimental: it isn't available in every Fabric region or tenant, and `@microsoft/rayfin-storage` may change substantially between releases.",
+      "fix": "Confirm a storage-enabled deploy succeeds in your target workspace before depending on it, and pin every Rayfin package to one exact version.",
       "docs": [
-        { "title": "Functions and storage are experimental", "url": "https://rayfin.ai/docs/reference/known-limitations#functions-and-storage-are-experimental" }
+        { "title": "Storage is experimental", "url": "https://rayfin.ai/docs/reference/known-limitations#storage-is-experimental" }
       ]
     },
     {
@@ -1108,6 +1229,76 @@
       "fix": "Run `npx rayfin init ai-files install`.",
       "docs": [
         { "title": "ai-files install", "url": "https://rayfin.ai/docs/reference/cli/ai-files#ai-files-install" }
+      ]
+    },
+    {
+      "id": "platform/removed-experimental-import",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "high",
+      "title": "Import from a removed experimental path",
+      "summary": "Decorators come from `@microsoft/rayfin-core` and connector helpers from `@microsoft/rayfin-connectors`",
+      "why": "Since Rayfin 1.36, `@microsoft/rayfin-core/experimental` keeps only the storage `blob` helpers. Entity and field decorators, `RayfinPrimaryKey`, `Source`, and `AutoGenerated` were removed from it, so these imports break the build.",
+      "fix": "Import decorators and `RayfinPrimaryKey` from `@microsoft/rayfin-core`, and `Source` and `AutoGenerated` from `@microsoft/rayfin-connectors`.",
+      "docs": [
+        { "title": "Deprecated or removed in 1.36", "url": "https://rayfin.ai/docs/reference/deprecations#deprecated-or-removed-in-136" }
+      ]
+    },
+    {
+      "id": "platform/connector-client-experimental-import",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "low",
+      "appliesWhen": ["connectors"],
+      "title": "Connectors client comes from the old experimental entry",
+      "summary": "`ConnectorsRayfinClient` is imported from `@microsoft/rayfin-client`",
+      "why": "Since Rayfin 1.36 the connectors client is exported from the stable `@microsoft/rayfin-client` entry. The `/experimental` path still works for compatibility but is deprecated.",
+      "fix": "Write `import { ConnectorsRayfinClient } from '@microsoft/rayfin-client'`.",
+      "docs": [
+        { "title": "Import the connector client", "url": "https://rayfin.ai/docs/connectors/client-setup#import-the-connector-client" }
+      ]
+    },
+    {
+      "id": "platform/functions-removed-audience",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "high",
+      "appliesWhen": ["functions"],
+      "title": "Function uses a removed token audience",
+      "summary": "Functions use only the `Sql`, `Storage`, `Fabric`, `AzureAI`, and `ADO` audiences",
+      "why": "Rayfin 1.36 removed the `CosmosDB`, `KeyVault`, `EventGrid`, `Kusto`, and `WorkIQ` audiences, so code that references them no longer compiles.",
+      "fix": "Use one of the five remaining audiences, or store a key with `rayfin secret set` and read it as `ctx.Secrets.<NAME>`.",
+      "docs": [
+        { "title": "Five audiences only", "url": "https://rayfin.ai/docs/reference/known-limitations#five-audiences-only" }
+      ]
+    },
+    {
+      "id": "platform/functions-legacy-context-api",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "medium",
+      "appliesWhen": ["functions"],
+      "title": "Function uses deprecated `ctx.getToken()` or `ctx.getSecret()`",
+      "summary": "Functions read tokens as `ctx.Tokens.<Audience>` and secrets as `ctx.Secrets.<NAME>`",
+      "why": "Rayfin 1.36 replaced `ctx.getToken()` and `ctx.getSecret()` with the typed `ctx.Tokens` and `ctx.Secrets`. The old calls are deprecated and skip the checks on audiences and secret names.",
+      "fix": "Declare the audience in `RayfinContext<Schema, AudienceType.Sql>` and read `ctx.Tokens.Sql`; read secrets as `ctx.Secrets.API_KEY`.",
+      "docs": [
+        { "title": "Migrate from udf.connection and ctx.getToken", "url": "https://rayfin.ai/docs/functions/connections#migrate-from-udfconnection-and-ctxgettoken" },
+        { "title": "Function secrets", "url": "https://rayfin.ai/docs/functions/secrets" }
+      ]
+    },
+    {
+      "id": "platform/functions-availability",
+      "category": "platform",
+      "engine": "quick",
+      "severity": "note",
+      "appliesWhen": ["functions"],
+      "title": "App uses Rayfin Functions",
+      "summary": "Functions availability in the target workspace is noted",
+      "why": "Functions are generally available since Rayfin 1.36, but not in every Fabric region or tenant.",
+      "fix": "Confirm a deploy with Functions succeeds in your target workspace before depending on them, and keep data access in `client.data` where a function isn't required.",
+      "docs": [
+        { "title": "Functions are not available in every region or tenant", "url": "https://rayfin.ai/docs/reference/known-limitations#functions-are-not-available-in-every-region-or-tenant" }
       ]
     },
     {

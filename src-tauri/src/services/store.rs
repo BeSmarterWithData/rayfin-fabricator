@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use super::paths;
-use crate::types::{AppSettings, ExperimentFlags, ProjectsState, StudioProject};
+use crate::types::{AppSettings, ExperimentFlags, ProjectsState, StudioProject, TeamWorkspace};
 
 struct Cache {
   state: ProjectsState,
@@ -27,6 +27,16 @@ fn default_state() -> ProjectsState {
       .to_string(),
     active_project_id: None,
     projects: vec![],
+    team_workspaces: vec![],
+  }
+}
+
+fn default_flags() -> ExperimentFlags {
+  ExperimentFlags {
+    compatibility_rendering: Some(false),
+    chat_mode_selector: Some(false),
+    local_dev_preview: Some(false),
+    team_workspaces: Some(false),
   }
 }
 
@@ -34,11 +44,7 @@ fn default_settings() -> AppSettings {
   AppSettings {
     theme: "system".to_string(),
     ui_scale: Some(1.0),
-    experiments: Some(ExperimentFlags {
-      compatibility_rendering: Some(false),
-      chat_mode_selector: Some(false),
-      local_dev_preview: Some(false),
-    }),
+    experiments: Some(default_flags()),
     full_diagnostics: Some(false),
   }
 }
@@ -51,6 +57,8 @@ struct RawStore {
   active_project_id: Option<String>,
   #[serde(default)]
   projects: Vec<StudioProject>,
+  #[serde(default)]
+  team_workspaces: Vec<TeamWorkspace>,
   #[serde(default)]
   settings: Option<AppSettings>,
 }
@@ -65,6 +73,7 @@ fn load() -> Cache {
         }
         state.active_project_id = parsed.active_project_id;
         state.projects = parsed.projects;
+        state.team_workspaces = parsed.team_workspaces;
         let settings = parsed.settings.unwrap_or_else(default_settings);
         Cache { state, settings }
       }
@@ -144,14 +153,76 @@ pub fn set_settings(
 }
 
 fn merge_experiments(experiments: &mut Option<ExperimentFlags>, patch: ExperimentFlags) {
-  let current = experiments.get_or_insert(ExperimentFlags {
-    compatibility_rendering: Some(false),
-    chat_mode_selector: Some(false),
-    local_dev_preview: Some(false),
-  });
+  let current = experiments.get_or_insert_with(default_flags);
   if let Some(v) = patch.compatibility_rendering { current.compatibility_rendering = Some(v); }
   if let Some(v) = patch.chat_mode_selector { current.chat_mode_selector = Some(v); }
   if let Some(v) = patch.local_dev_preview { current.local_dev_preview = Some(v); }
+  if let Some(v) = patch.team_workspaces { current.team_workspaces = Some(v); }
+}
+
+/// True when the Team workspaces experiment is on.
+pub fn team_workspaces_enabled() -> bool {
+  with_cache(|c| {
+    c.settings
+      .experiments
+      .as_ref()
+      .and_then(|e| e.team_workspaces)
+      .unwrap_or(false)
+  })
+}
+
+pub fn team_workspaces() -> Vec<TeamWorkspace> {
+  with_cache(|c| c.state.team_workspaces.clone())
+}
+
+pub fn find_team_workspace(id: &str) -> Option<TeamWorkspace> {
+  with_cache(|c| c.state.team_workspaces.iter().find(|w| w.id == id).cloned())
+}
+
+/// Insert or replace a team workspace (matched by id).
+pub fn upsert_team_workspace(workspace: TeamWorkspace) -> ProjectsState {
+  with_cache(|c| {
+    match c.state.team_workspaces.iter_mut().find(|w| w.id == workspace.id) {
+      Some(existing) => *existing = workspace,
+      None => c.state.team_workspaces.push(workspace),
+    }
+    persist(c);
+    c.state.clone()
+  })
+}
+
+/// Mutate a team workspace in place (id preserved) and persist.
+pub fn mutate_team_workspace(id: &str, f: impl FnOnce(&mut TeamWorkspace)) -> Option<TeamWorkspace> {
+  with_cache(|c| {
+    let updated = c.state.team_workspaces.iter_mut().find(|w| w.id == id).map(|w| {
+      let keep = w.id.clone();
+      f(w);
+      w.id = keep;
+      w.clone()
+    });
+    persist(c);
+    updated
+  })
+}
+
+/// Forget a team workspace and every local project bound to it.
+pub fn remove_team_workspace(id: &str) -> ProjectsState {
+  with_cache(|c| {
+    c.state.team_workspaces.retain(|w| w.id != id);
+    let removed: Vec<String> = c
+      .state
+      .projects
+      .iter()
+      .filter(|p| p.team.as_ref().is_some_and(|t| t.workspace_id == id))
+      .map(|p| p.id.clone())
+      .collect();
+    c.state.projects.retain(|p| !removed.contains(&p.id));
+    if c.state.active_project_id.as_ref().is_some_and(|a| removed.contains(a)) {
+      c.state.active_project_id = None;
+    }
+    persist(c);
+    c.state.clone()
+  })
 }
 
 pub fn set_workspace_root(path: String) -> ProjectsState {
@@ -249,6 +320,30 @@ mod tests {
     assert_eq!(json["chatModeSelector"], false);
     assert_eq!(json["localDevPreview"], false);
     assert_eq!(json["compatibilityRendering"], true);
+  }
+
+  #[test]
+  fn team_workspaces_flag_merges_and_defaults_off() {
+    assert_eq!(default_settings().experiments.unwrap().team_workspaces, Some(false));
+    let mut flags: Option<ExperimentFlags> = Some(serde_json::from_value(serde_json::json!({
+      "chatModeSelector":true
+    })).unwrap());
+    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"teamWorkspaces":true})).unwrap());
+    let merged = flags.as_ref().unwrap();
+    assert_eq!(merged.team_workspaces, Some(true));
+    assert_eq!(merged.chat_mode_selector, Some(true));
+    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"chatModeSelector":false})).unwrap());
+    assert_eq!(flags.unwrap().team_workspaces, Some(true));
+  }
+
+  #[test]
+  fn stores_without_team_workspaces_still_load() {
+    let raw: RawStore = serde_json::from_value(serde_json::json!({
+      "workspaceRoot": "C:/x", "activeProjectId": null,
+      "projects": [{"id":"p","name":"App","path":"C:/x/app","addedAt":"2026-01-01T00:00:00.000Z"}]
+    })).unwrap();
+    assert!(raw.team_workspaces.is_empty());
+    assert!(raw.projects[0].team.is_none());
   }
 
   #[test]

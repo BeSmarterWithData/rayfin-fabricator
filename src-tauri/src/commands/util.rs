@@ -79,10 +79,28 @@ pub fn with_missing(mut project: StudioProject) -> StudioProject {
   project
 }
 
-/// Annotate every project in a state snapshot with its `missing` flag.
+/// Annotate every project in a state snapshot with its `missing` flag. While the
+/// Team workspaces experiment is off, team projects and workspaces stay stored
+/// but are left out of the snapshot.
 pub fn annotate_state(mut state: ProjectsState) -> ProjectsState {
+  if !crate::services::store::team_workspaces_enabled() {
+    hide_team(&mut state);
+  }
   state.projects = state.projects.into_iter().map(with_missing).collect();
   state
+}
+
+/// Drop team workspaces and team projects from a state snapshot (not the store).
+pub fn hide_team(state: &mut ProjectsState) {
+  state.team_workspaces.clear();
+  let active_hidden = state
+    .active_project_id
+    .as_ref()
+    .is_some_and(|id| state.projects.iter().any(|p| &p.id == id && p.team.is_some()));
+  state.projects.retain(|p| p.team.is_none());
+  if active_hidden {
+    state.active_project_id = None;
+  }
 }
 
 /// Current UTC time as an ISO-8601 string with millisecond precision (matches
@@ -116,5 +134,25 @@ mod tests {
   fn looks_binary_detects_nul() {
     assert!(looks_binary(b"abc\0def"));
     assert!(!looks_binary(b"plain text"));
+  }
+
+  #[test]
+  fn hide_team_drops_team_projects_and_clears_their_selection() {
+    let mut state: ProjectsState = serde_json::from_value(serde_json::json!({
+      "workspaceRoot": "C:/w",
+      "activeProjectId": "t",
+      "projects": [
+        {"id":"p","name":"Mine","path":"C:/w/mine","addedAt":"2026-01-01T00:00:00.000Z"},
+        {"id":"t","name":"Team","path":"C:/w/team/app/app","addedAt":"2026-01-01T00:00:00.000Z",
+         "team":{"workspaceId":"w1","folder":"app","worktree":"C:/w/team/app"}}
+      ],
+      "teamWorkspaces": [{"id":"w1","name":"Team","repo":"o/r","dir":"C:/w/team","addedAt":"2026-01-01T00:00:00.000Z"}]
+    }))
+    .unwrap();
+    hide_team(&mut state);
+    assert_eq!(state.projects.len(), 1);
+    assert_eq!(state.projects[0].id, "p");
+    assert!(state.team_workspaces.is_empty());
+    assert_eq!(state.active_project_id, None);
   }
 }

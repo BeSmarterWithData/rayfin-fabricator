@@ -31,7 +31,7 @@ const REPO_LIST_FIELDS: &str =
 const AUTH_PROBE_ARGS: &[&str] =
   &["api", "--hostname", "github.com", "user", "--jq", ".login // empty"];
 
-fn gh_options(timeout_ms: u64) -> RunOptions {
+pub(crate) fn gh_options(timeout_ms: u64) -> RunOptions {
   RunOptions {
     env: vec![
       ("GH_HOST".into(), "github.com".into()),
@@ -116,20 +116,26 @@ pub fn github_login() -> ProcResult {
   }
 }
 
-#[cfg(target_os = "windows")]
 fn launch_login_terminal() -> bool {
+  launch_in_terminal(LOGIN_CMD)
+}
+
+/// Open a visible terminal running `cmd` (a `cmd.exe` command line on Windows,
+/// a shell command elsewhere), for interactive CLI sign-ins.
+#[cfg(target_os = "windows")]
+pub(crate) fn launch_in_terminal(cmd: &str) -> bool {
   // `start "" cmd /K <cmd>` opens a fresh console window that stays open (so the
   // user can read the one-time code and any errors). No CREATE_NO_WINDOW here —
   // we want the window to be visible.
   std::process::Command::new("cmd")
-    .args(["/C", "start", "", "cmd", "/K", LOGIN_CMD])
+    .args(["/C", "start", "", "cmd", "/K", cmd])
     .spawn()
     .is_ok()
 }
 
 #[cfg(target_os = "macos")]
-fn launch_login_terminal() -> bool {
-  let script = format!("tell application \"Terminal\" to do script \"{LOGIN_CMD}\"");
+pub(crate) fn launch_in_terminal(cmd: &str) -> bool {
+  let script = format!("tell application \"Terminal\" to do script \"{cmd}\"");
   std::process::Command::new("osascript")
     .args([
       "-e",
@@ -142,10 +148,10 @@ fn launch_login_terminal() -> bool {
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-fn launch_login_terminal() -> bool {
+pub(crate) fn launch_in_terminal(cmd: &str) -> bool {
   // Best-effort on Linux (not a shipped target): try a common terminal emulator.
   std::process::Command::new("x-terminal-emulator")
-    .args(["-e", "sh", "-c", &format!("{LOGIN_CMD}; exec sh")])
+    .args(["-e", "sh", "-c", &format!("{cmd}; exec sh")])
     .spawn()
     .is_ok()
 }

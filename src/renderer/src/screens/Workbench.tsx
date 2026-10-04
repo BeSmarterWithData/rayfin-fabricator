@@ -43,6 +43,12 @@ import { useChatEventStore } from '../chatEventStore'
 import PreviewPane, { type DeployUiState, type PendingShot } from '../components/PreviewPane'
 import DeploymentsControl from '../components/DeploymentsControl'
 import GitControl from '../components/GitControl'
+import TeamPublishControl from '../components/team/TeamPublishControl'
+import TeamMapButton from '../components/team/TeamMapButton'
+import TeamMapView from '../components/team/map/TeamMapView'
+import { useTeamActivity } from '../components/team/useTeamActivity'
+import { withActivity } from '../components/team/appRun'
+import { useTeamWork } from '../components/team/useTeamWork'
 import ProjectDependencyGuard from '../components/ProjectDependencyGuard'
 import WorkspaceStatus from '../components/WorkspaceStatus'
 import { SuppressPreview } from '../overlay'
@@ -264,10 +270,19 @@ export default function Workbench({
   const [chats, setChats] = useState<Record<string, UIChatMessage[]>>({})
   useChatEventStore(setChats)
   const [deploys, setDeploys] = useState<Record<string, DeployUiState>>({})
-  /** Live local preview (experiment): per-project Vite dev-server state. Present
-   *  only while a turn runs — started at turn start, cleared/stopped at turn end. */
+  /** Live local preview: per-project Vite dev-server state. Present while a turn
+   *  runs — started at turn start, cleared/stopped at turn end. A team app's
+   *  `lingers` after its turn until the pipeline has deployed the saved change. */
   const [devServers, setDevServers] = useState<
-    Record<string, { status: 'starting' | 'running'; url?: string }>
+    Record<
+      string,
+      {
+        status: 'starting' | 'running'
+        url?: string
+        backend?: DevServerResult['backend']
+        lingerSince?: number
+      }
+    >
   >({})
   const devServersRef = useRef(devServers)
   devServersRef.current = devServers
@@ -332,6 +347,20 @@ export default function Workbench({
     })
   }, [toast])
 
+  /** Stop a project's live local preview (if any) and forget it. */
+  const stopDevServer = useCallback(
+    (projectId: string): void => {
+      if (!devServersRef.current[projectId]) return
+      setDevServers((all) => {
+        const next = { ...all }
+        delete next[projectId]
+        return next
+      })
+      void window.api.dev.stop(projectId).catch(onDevServerError)
+    },
+    [onDevServerError]
+  )
+
   const deployQueueRef = useRef(new DeploymentQueue())
   useEffect(() => {
     mountedRef.current = true
@@ -373,6 +402,90 @@ export default function Workbench({
     setProjects(await window.api.projects.state())
   }, [])
 
+  /** Team workspaces (experimental): the backend hides them while this is off. */
+  const teamEnabled = Boolean(settings?.experiments?.teamWorkspaces)
+  /** A team workspace preselected for New project ("New app" in a workspace). */
+  const [newAppTeamId, setNewAppTeamId] = useState<string | null>(null)
+  const sendTeamPrompt = useCallback((projectId: string, display: string, prompt: string): void => {
+    setViewMode('build')
+    setChatOutbound({ id: `team-${Date.now()}`, projectId, display, prompt })
+  }, [])
+  const teamWork = useTeamWork(active, {
+    enabled: teamEnabled,
+    toast,
+    refreshProjects,
+    sendToChat: sendTeamPrompt
+  })
+  const teamWorkRef = useRef(teamWork)
+  teamWorkRef.current = teamWork
+  const isTeamProject = useCallback(
+    (projectId: string): boolean =>
+      Boolean(projectsRef.current?.projects.find((p) => p.id === projectId)?.team),
+    []
+  )
+  const activeTeamWorkspace = active?.team
+    ? projects?.teamWorkspaces?.find((w) => w.id === active.team?.workspaceId)
+    : undefined
+  /** The workspace overview, when open (over Home or the project it was opened from). */
+  const [teamMap, setTeamMap] = useState<{
+    workspaceId: string
+    folder?: string
+    from: 'home' | 'project'
+    /** Open on the workspace's members and settings. */
+    manage?: boolean
+  } | null>(null)
+  const mapWorkspace = teamMap ? projects?.teamWorkspaces?.find((w) => w.id === teamMap.workspaceId) : undefined
+  // What the active team app's pipeline is doing, for the app bar's overview button.
+  const teamRuns = useTeamActivity(
+    teamEnabled && active?.team && !showHome && !teamMap ? active.team.workspaceId : null
+  )
+  const openTeamMap = useCallback(
+    (workspaceId: string, from: 'home' | 'project', folder?: string, manage?: boolean): void => {
+      setTeamMap({ workspaceId, folder, from, manage })
+    },
+    []
+  )
+  // The overview closes when its workspace goes away (left, deleted, or the experiment turned off).
+  useEffect(() => {
+    if (teamMap && projects && !mapWorkspace) setTeamMap(null)
+  }, [teamMap, projects, mapWorkspace])
+
+  // A team app's local preview stays up after its turn while the change is
+  // saved and the pipeline deploys it. It ends once your preview has that
+  // change (or the deploy finished with an error), when there's nothing to
+  // deploy, when you leave the app, or after 20 minutes.
+  useEffect(() => {
+    for (const [projectId, server] of Object.entries(devServers)) {
+      if (!server.lingerSince) continue
+      const status = teamWork.status(projectId)
+      const head = status?.pr?.headSha
+      const running = Boolean(status?.run && status.run.status !== 'completed')
+      const deploying = ['in_progress', 'queued', 'pending'].includes(status?.preview?.state ?? '')
+      const caughtUp = Boolean(head && status?.preview?.sha === head && !deploying)
+      const nothingToDeploy = Boolean(status && !status.pr && status.unpublished === 0)
+      const settled = Boolean(status && !teamWork.syncing(projectId) && !status.dirty && !running) && (caughtUp || nothingToDeploy)
+      const stale = Date.now() - server.lingerSince > 20 * 60_000
+      if (projectId !== active?.id || settled || stale) stopDevServer(projectId)
+    }
+  }, [devServers, teamWork, active?.id, stopDevServer])
+
+  // Showing or hiding team workspaces changes which projects the backend lists.
+  useEffect(() => {
+    void refreshProjects()
+  }, [teamEnabled, refreshProjects])
+
+  /** Leaving a team app with unpublished changes: they're safe, but not live. */
+  const remindUnpublished = useCallback((): void => {
+    if (!active?.team) return
+    const status = teamWorkRef.current.status(active.id)
+    if (status && status.unpublished > 0) {
+      toast.info(
+        `${active.name} has unpublished changes. They're saved on GitHub; publish them when you're ready.`,
+        { title: 'Not published yet' }
+      )
+    }
+  }, [active, toast])
+
   const refreshAuthWithFeedback = useCallback(async (): Promise<void> => {
     if (!mountedRef.current) return
     try {
@@ -411,6 +524,24 @@ export default function Workbench({
     })
     return off
   }, [])
+
+  // A local preview that stopped serving and couldn't be started again: drop it,
+  // so the preview shows the deployed app (or its placeholder), and say why.
+  // (When it's started again, Fabricator reloads the preview itself.)
+  useEffect(
+    () =>
+      window.api.dev.onState((event) => {
+        if (event.state !== 'stopped' || !devServersRef.current[event.projectId]) return
+        setDevServers((all) => {
+          if (!all[event.projectId]) return all
+          const next = { ...all }
+          delete next[event.projectId]
+          return next
+        })
+        toast.error(event.error ?? 'The local preview stopped.', { title: 'Local preview stopped' })
+      }),
+    [toast]
+  )
 
   // Reconcile the active project's recorded deployment with on-disk reality
   // (`rayfin/.deployments.json`) whenever it changes. Opening an already-deployed
@@ -536,6 +667,11 @@ export default function Workbench({
    */
   const requestUserDeploy = useCallback(
     async (projectId: string, workspace?: string): Promise<void> => {
+      // Team apps are deployed by their pipeline: save to the working branch instead.
+      if (isTeamProject(projectId)) {
+        void teamWorkRef.current.afterTurn(projectId, 'Restore an earlier version')
+        return
+      }
       try {
         const div = await window.api.projects.git.divergence(projectId)
         if (div.behind > 0) {
@@ -548,7 +684,7 @@ export default function Workbench({
       }
       void runDeploy(projectId, workspace)
     },
-    [runDeploy]
+    [runDeploy, isTeamProject]
   )
 
   // Switch the active Fabric deployment, then reflect the new URL/status.
@@ -669,12 +805,23 @@ export default function Workbench({
   // duration. No-op unless the experiment is on and the project supports it. A
   // fresh turn waits for this (ChatPanel awaits `onTurnStart`) so a port
   // conflict is settled — and any new port pushed — before Copilot starts;
-  // `plan` runs mid-turn, when nothing can be pushed.
+  // `plan` runs mid-turn, when nothing can be pushed. Team apps always get one:
+  // their pipeline takes minutes to deploy each change.
   const handleTurnStart = useCallback(
     async (projectId: string, context: PortPromptContext = 'turn'): Promise<void> => {
-      if (!settings?.experiments?.localDevPreview) return
+      const team = isTeamProject(projectId)
+      if (!settings?.experiments?.localDevPreview && !team) return
       if (deployingIdRef.current === projectId) return // a deploy owns the surface
-      if (devServersRef.current[projectId]) return // already starting / running
+      const existing = devServersRef.current[projectId]
+      if (existing) {
+        // Already starting / running; a team app's lingering preview carries on.
+        if (existing.lingerSince) {
+          setDevServers((all) =>
+            all[projectId] ? { ...all, [projectId]: { ...all[projectId], lingerSince: undefined } } : all
+          )
+        }
+        return
+      }
       if (previewSkippedRef.current.has(projectId)) return // skipped for this turn
       let port: number | null
       try {
@@ -713,7 +860,7 @@ export default function Workbench({
           // resurrect a preview whose server was just stopped.
           if (!all[projectId]) return all
           if (res.ok && res.url) {
-            return { ...all, [projectId]: { status: 'running', url: res.url } }
+            return { ...all, [projectId]: { status: 'running', url: res.url, backend: res.backend } }
           }
           const next = { ...all }
           delete next[projectId]
@@ -721,7 +868,7 @@ export default function Workbench({
         })
       })()
     },
-    [settings, toast, resolveLocalPort, onDevServerError]
+    [settings, toast, resolveLocalPort, onDevServerError, isTeamProject]
   )
 
   // After a chat turn, persist the transcript and auto-deploy when the agent left
@@ -731,15 +878,11 @@ export default function Workbench({
       previewSkippedRef.current.delete(projectId)
       const prompt = portPromptRef.current
       if (prompt?.projectId === projectId && prompt.context === 'plan' && !prompt.busy) settlePortPrompt(null)
-      // Stop the live local preview (if any) first, so the surface returns to the
-      // deployed app and the after-turn deploy can take the stage (DeployStage).
-      if (devServersRef.current[projectId]) {
-        setDevServers((all) => {
-          const next = { ...all }
-          delete next[projectId]
-          return next
-        })
-        void window.api.dev.stop(projectId).catch(onDevServerError)
+      if (devServersRef.current[projectId] && !(result.ok && isTeamProject(projectId))) {
+        // Stop the live local preview first, so the surface returns to the
+        // deployed app and the after-turn deploy can take the stage (DeployStage).
+        // (A team app keeps its preview while its change is saved and deployed.)
+        stopDevServer(projectId)
       }
       try {
         await refreshProjects()
@@ -763,6 +906,17 @@ export default function Workbench({
         })
       })
       if (!result.ok || !mountedRef.current) return
+      // Team apps: save the turn to the working branch; the pipeline deploys the preview.
+      if (isTeamProject(projectId)) {
+        const lastUser = [...(chatsRef.current[projectId] ?? [])].reverse().find((m) => m.role === 'user')
+        void teamWorkRef.current.afterTurn(projectId, lastUser?.text ?? '').finally(() => {
+          // The local preview stays until the pipeline has deployed this save.
+          setDevServers((all) =>
+            all[projectId] ? { ...all, [projectId]: { ...all[projectId], lingerSince: Date.now() } } : all
+          )
+        })
+        return
+      }
       try {
         const changed = await window.api.deploy.hasChanges(projectId)
         if (changed && mountedRef.current) void runDeploy(projectId)
@@ -774,7 +928,7 @@ export default function Workbench({
         )
       }
     },
-    [refreshProjects, refreshRayfinVer, runDeploy, onDevServerError, toast, settlePortPrompt]
+    [refreshProjects, refreshRayfinVer, runDeploy, stopDevServer, toast, settlePortPrompt, isTeamProject]
   )
 
   // Hydrate persisted chat history for the active project.
@@ -999,6 +1153,7 @@ export default function Workbench({
       setShowHome(false)
       return
     }
+    remindUnpublished()
     setProjects(await window.api.projects.setActive(p.id))
   }
 
@@ -1007,6 +1162,7 @@ export default function Workbench({
   // project is only closed when a different one is opened from the launcher.
   function goHome(): void {
     setNotice(null)
+    remindUnpublished()
     setShowHome(true)
   }
 
@@ -1165,7 +1321,12 @@ export default function Workbench({
   const fabricAuthBusy =
     signingIn || signingOut || refreshingAuth || Object.values(deploys).some((d) => d.running)
   /** The active project's own screen — not the launcher or a fullscreen flow. */
-  const onProjectScreen = Boolean(active) && !showHome && !createMode && !showClone
+  const onProjectScreen = Boolean(active) && !showHome && !createMode && !showClone && !teamMap
+  // The active team app's status, with the run deploying it from the workspace
+  // activity until its own status catches up (that's read right after a save).
+  const activeTeamStatus = active?.team
+    ? withActivity(teamWork.status(active.id), teamRuns, active.team.folder)
+    : undefined
   /** Tabs and deploys unlock with the project's dependencies, like the pane below. */
   const projectToolsReady = onProjectScreen && depsReadyId === active?.id
 
@@ -1174,7 +1335,13 @@ export default function Workbench({
       <header className="app-bar">
         <div className="app-bar-row">
           <div className="app-bar-start">
-            {active && onProjectScreen ? (
+            {teamMap && !createMode && !showClone ? (
+              <BackToProject
+                name={teamMap.from === 'project' && active ? active.name : 'projects'}
+                title={teamMap.from === 'project' && active ? `Return to ${active.name}` : 'Return to your projects'}
+                onClick={() => setTeamMap(null)}
+              />
+            ) : active && onProjectScreen ? (
               <ProjectSwitcher project={active} onClick={goHome} />
             ) : active && showHome && !createMode && !showClone ? (
               <BackToProject name={active.name} onClick={() => setShowHome(false)} />
@@ -1190,7 +1357,30 @@ export default function Workbench({
             )}
           </div>
           <div className="app-bar-end">
-            {active && projectToolsReady && (
+            {active && projectToolsReady && active.team && (
+              <TeamMapButton
+                runs={teamRuns}
+                onClick={() => openTeamMap(active.team?.workspaceId ?? '', 'project', active.team?.folder)}
+              />
+            )}
+            {active && projectToolsReady && active.team && (
+              <TeamPublishControl
+                project={active}
+                workspaceName={activeTeamWorkspace?.name}
+                status={activeTeamStatus}
+                runs={teamRuns}
+                syncing={teamWork.syncing(active.id)}
+                onPublish={() => teamWork.publish(active.id)}
+                onUpdate={() => teamWork.update(active.id)}
+                onCombine={() => teamWork.combineWithCopilot(active.id, [])}
+                onDiscard={() => teamWork.discard(active.id)}
+                onSetView={(view) => teamWork.setView(active.id, view)}
+                onViewLogs={(runId) => teamWork.viewLogs(active.id, runId)}
+                onRefresh={() => void teamWork.refresh(active.id, true)}
+                onOpenMap={() => openTeamMap(active.team?.workspaceId ?? '', 'project', active.team?.folder)}
+              />
+            )}
+            {active && projectToolsReady && !active.team && (
               <DeploymentsControl
                 project={active}
                 running={Boolean(deploys[active.id]?.running)}
@@ -1255,9 +1445,22 @@ export default function Workbench({
           mode={createMode}
           projectName={active?.name}
           deploying={Boolean(active && deploys[active.id]?.running)}
-          onCancel={() => setCreateMode(null)}
+          onCancel={() => {
+            setCreateMode(null)
+            setNewAppTeamId(null)
+          }}
           onCreated={() => void refreshProjects()}
           onSignedIn={onAuthChanged}
+          teamWorkspaces={teamEnabled ? projects?.teamWorkspaces : undefined}
+          initialTeamWorkspaceId={newAppTeamId ?? undefined}
+          onTeamCreated={(result) => {
+            setCreateMode(null)
+            setNewAppTeamId(null)
+            setShowHome(false)
+            setViewMode('build')
+            void refreshProjects()
+            if (result.error) toast.error(result.error, { title: 'Not on GitHub yet' })
+          }}
           onDeploy={(depName, workspaceId) => {
             if (!active) {
               setCreateMode(null)
@@ -1285,10 +1488,10 @@ export default function Workbench({
               <ProjectDependencyGuard
                 project={active}
                 onSwitchProjects={goHome}
-                hidden={showHome}
+                hidden={showHome || Boolean(teamMap)}
                 onReadyChange={onDepsReadyChange}
               >
-                <div className={`project-pane${showHome ? ' project-pane--hidden' : ''}`}>
+                <div className={`project-pane${showHome || teamMap ? ' project-pane--hidden' : ''}`}>
                   {viewMode === 'code' ? (
                     <Suspense fallback={<div className="code-empty">Loading editor…</div>}>
                       <CodeViewer
@@ -1348,11 +1551,17 @@ export default function Workbench({
                             onAdvisorRerun={rerunAdvisorFix}
                             focused={focusPane === 'chat'}
                             onToggleFocus={() => setFocusPane((f) => (f === 'chat' ? null : 'chat'))}
-                            deployLock={active.awaitingFirstDeploy === true}
-                            deploying={Boolean(deploys[active.id]?.running)}
+                            deployLock={active.awaitingFirstDeploy === true && !active.team}
+                            deploying={
+                              Boolean(deploys[active.id]?.running) ||
+                              (Boolean(active.team) && teamWork.syncing(active.id))
+                            }
                             blockSubmitWhileDeploying={Boolean(
-                              settings?.experiments?.localDevPreview
+                              settings?.experiments?.localDevPreview || active.team
                             )}
+                            submitBlockedTitle={
+                              active.team ? 'Saving to GitHub — sending resumes in a moment' : undefined
+                            }
                             onRequestDeploy={() => setCreateMode('deploy')}
                             modeSelectorEnabled={Boolean(settings?.experiments?.chatModeSelector)}
                             eventsManagedExternally
@@ -1386,7 +1595,15 @@ export default function Workbench({
                         <PreviewPane
                           project={active}
                           deploy={deploys[active.id]}
-                          onRefreshAuth={() => openAuthRefresh(active)}
+                          team={Boolean(active.team)}
+                          localBackend={devServers[active.id]?.backend}
+                          teamRun={activeTeamStatus?.run}
+                          onOpenTeamMap={
+                            active.team
+                              ? () => openTeamMap(active.team?.workspaceId ?? '', 'project', active.team?.folder)
+                              : undefined
+                          }
+                          onRefreshAuth={active.team ? undefined : () => openAuthRefresh(active)}
                           authBusy={fabricAuthBusy}
                           localPreviewUrl={
                             devServers[active.id]?.status === 'running'
@@ -1463,7 +1680,27 @@ export default function Workbench({
                 </div>
               </ProjectDependencyGuard>
             ) : null}
-            {showHome || !active ? (
+            {teamMap && mapWorkspace ? (
+              <TeamMapView
+                key={mapWorkspace.id}
+                workspace={mapWorkspace}
+                focusFolder={teamMap.folder}
+                manage={teamMap.manage}
+                onClose={() => setTeamMap(null)}
+                onOpened={() => {
+                  setTeamMap(null)
+                  setNotice(null)
+                  setShowHome(false)
+                  void refreshProjects()
+                }}
+                onNewApp={(workspaceId) => {
+                  setTeamMap(null)
+                  setNewAppTeamId(workspaceId)
+                  setCreateMode('create')
+                }}
+                onChanged={() => void refreshProjects()}
+              />
+            ) : showHome || !active ? (
               <>
                 {/* Project stays mounted underneath; hide the native preview (it paints
                   above all HTML) while the launcher covers it. */}
@@ -1479,6 +1716,24 @@ export default function Workbench({
                   onOpenExisting={openExisting}
                   onCloneFromGitHub={() => setShowClone(true)}
                   onChangeWorkspaceRoot={changeWorkspaceRoot}
+                  team={
+                    teamEnabled
+                      ? {
+                          workspaces: projects?.teamWorkspaces ?? [],
+                          onOpened: () => {
+                            setNotice(null)
+                            setShowHome(false)
+                            void refreshProjects()
+                          },
+                          onNewApp: (workspaceId) => {
+                            setNewAppTeamId(workspaceId)
+                            setCreateMode('create')
+                          },
+                          onOpenMap: (workspaceId, manage) => openTeamMap(workspaceId, 'home', undefined, manage),
+                          onChanged: () => void refreshProjects()
+                        }
+                      : undefined
+                  }
                 />
               </>
             ) : null}
@@ -1489,11 +1744,22 @@ export default function Workbench({
       <footer className="statusbar">
         {active && (
           <>
-            <GitControl
-              projectId={active.id}
-              refreshKey={gitRefresh}
-              onSynced={() => setGitRefresh((n) => n + 1)}
-            />
+            {active.team ? (
+              <span
+                className="statusbar-item team-status-item"
+                title={`Team workspace${activeTeamWorkspace ? ` ${activeTeamWorkspace.repo}` : ''}. Working branch: ${active.team.branch ?? 'none'}`}
+              >
+                <span className="codicon codicon-organization" aria-hidden="true" />
+                {activeTeamWorkspace?.name ?? 'Team'}
+                {active.team.branch ? ` · ${active.team.branch.split('/').pop()}` : ''}
+              </span>
+            ) : (
+              <GitControl
+                projectId={active.id}
+                refreshKey={gitRefresh}
+                onSynced={() => setGitRefresh((n) => n + 1)}
+              />
+            )}
             <span className="statusbar-sep">·</span>
             <RayfinVersionControl info={rayfinVer} onUpdate={requestRayfinUpdate} />
           </>
@@ -1553,8 +1819,24 @@ export default function Workbench({
           onRemoveFromList={(p) => void removeFromList(p)}
           onMoveToTrash={setConfirmDelete}
           onClose={() => setManagingProject(null)}
+          teamWorkspaces={teamEnabled ? projects?.teamWorkspaces : undefined}
+          onMoveToTeam={
+            teamEnabled
+              ? async (p, workspaceId) => {
+                  const result = await window.api.team.moveProject(workspaceId, p.id)
+                  if (!result.project) return result.error ?? 'Could not move the project.'
+                  setShowHome(false)
+                  await refreshProjects()
+                  if (result.error) toast.error(result.error, { title: 'Not on GitHub yet' })
+                  else toast.success(`${p.name} is now in the team workspace.`, { title: 'Moved' })
+                  return null
+                }
+              : undefined
+          }
         />
       )}
+
+      {teamWork.overlays}
 
       {confirmDelete && (
         <DeleteProjectModal

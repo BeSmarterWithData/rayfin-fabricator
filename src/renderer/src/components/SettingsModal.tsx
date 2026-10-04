@@ -305,6 +305,12 @@ export default function SettingsModal({
                     checked={Boolean(settings.experiments?.localDevPreview)}
                     onChange={(v) => onChange({ experiments: { localDevPreview: v } })}
                   />
+                  <ToggleRow
+                    label="Team workspaces"
+                    hint="Build apps with your team in a private GitHub repository. Everyone works on their own copy, and a pipeline publishes to Fabric with a deploy identity that Fabricator sets up. Team apps never deploy from this computer. Needs the GitHub CLI."
+                    checked={Boolean(settings.experiments?.teamWorkspaces)}
+                    onChange={(v) => onChange({ experiments: { teamWorkspaces: v } })}
+                  />
                 </div>
               )}
             </div>

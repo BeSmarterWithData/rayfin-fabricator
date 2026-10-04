@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
-import type { StudioProject } from '@shared/ipc'
+import type { StudioProject, TeamWorkspace } from '@shared/ipc'
 import { useSuppressPreview } from '../overlay'
 import { useModalFocus } from '../modalFocus'
 
@@ -10,6 +10,10 @@ interface Props {
   onRemoveFromList: (project: StudioProject) => void
   onMoveToTrash: (project: StudioProject) => void
   onClose: () => void
+  /** Team workspaces this project can move into (experimental). */
+  teamWorkspaces?: TeamWorkspace[]
+  /** Copy the project into a team workspace; returns an error message, or null when done. */
+  onMoveToTeam?: (project: StudioProject, workspaceId: string) => Promise<string | null>
 }
 
 function messageFor(error: unknown): string {
@@ -24,7 +28,9 @@ export default function ManageProjectModal({
   onRename,
   onRemoveFromList,
   onMoveToTrash,
-  onClose
+  onClose,
+  teamWorkspaces,
+  onMoveToTeam
 }: Props): JSX.Element {
   useSuppressPreview()
   const titleId = useId()
@@ -32,9 +38,33 @@ export default function ManageProjectModal({
   const [name, setName] = useState(project.name)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const moveTargets = (teamWorkspaces ?? []).filter((w) => !w.setup || w.setup.done)
+  const [moveTarget, setMoveTarget] = useState(moveTargets[0]?.id ?? '')
+  const [moveError, setMoveError] = useState<string | null>(null)
+  const teamName = project.team
+    ? (teamWorkspaces ?? []).find((w) => w.id === project.team?.workspaceId)?.name
+    : undefined
   const hasDeploy = Boolean(project.lastDeploy?.url)
   const trimmedName = name.trim()
   const canSave = Boolean(trimmedName) && trimmedName !== project.name && !saving
+
+  async function moveToTeam(): Promise<void> {
+    if (!onMoveToTeam || !moveTarget) return
+    setSaving(true)
+    setMoveError(null)
+    try {
+      const nextError = await onMoveToTeam(project, moveTarget)
+      if (nextError) {
+        setMoveError(nextError)
+        return
+      }
+      onClose()
+    } catch (reason) {
+      setMoveError(reason instanceof Error ? reason.message : 'Could not move the project.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   useEffect(() => {
     setName(project.name)
@@ -160,8 +190,9 @@ export default function ManageProjectModal({
                 Recent projects
               </span>
               <span className="project-manage-hint">
-                Remove this entry from Fabricator without changing the local folder or any Fabric
-                app.
+                {project.team
+                  ? 'Remove this entry from Fabricator. Your work saved to GitHub stays, and you can open the app again from its team workspace.'
+                  : 'Remove this entry from Fabricator without changing the local folder or any Fabric app.'}
               </span>
             </div>
             <button
@@ -174,6 +205,61 @@ export default function ManageProjectModal({
             </button>
           </section>
 
+          {!project.team && onMoveToTeam && moveTargets.length > 0 && (
+            <section className="project-manage-section" aria-labelledby="project-team-title">
+              <div className="project-manage-section-heading">
+                <span id="project-team-title" className="project-manage-label">
+                  Move to a team workspace
+                </span>
+                <span className="project-manage-hint">
+                  Copies this app into the team workspace (with this chat) so your team can work on
+                  it. The team pipeline then deploys it as a new app; data in this project&apos;s
+                  current deployment isn&apos;t copied. This local project stays as it is.
+                </span>
+              </div>
+              <div className="project-manage-rename-row">
+                <select
+                  className="project-manage-input"
+                  value={moveTarget}
+                  disabled={saving}
+                  onChange={(event) => setMoveTarget(event.target.value)}
+                >
+                  {moveTargets.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn--primary btn--sm"
+                  disabled={saving || !moveTarget}
+                  onClick={() => void moveToTeam()}
+                >
+                  {saving ? 'Moving…' : 'Move'}
+                </button>
+              </div>
+              {moveError && (
+                <p className="project-manage-error" role="alert">
+                  {moveError}
+                </p>
+              )}
+            </section>
+          )}
+
+          {project.team ? (
+            <section className="project-manage-section" aria-labelledby="project-team-note">
+              <div className="project-manage-section-heading">
+                <span id="project-team-note" className="project-manage-label">
+                  Team app
+                </span>
+                <span className="project-manage-hint">
+                  This app belongs to the team workspace {teamName ? <strong>{teamName}</strong> : 'it was opened from'}.
+                  Its owners can remove it for everyone from the workspace&apos;s settings.
+                </span>
+              </div>
+            </section>
+          ) : (
           <section
             className="project-manage-section project-manage-section--danger"
             aria-labelledby="project-removal-title"
@@ -197,6 +283,7 @@ export default function ManageProjectModal({
               Review removal options...
             </button>
           </section>
+          )}
         </div>
 
         <div className="modal-footer">

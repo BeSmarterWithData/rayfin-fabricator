@@ -58,7 +58,7 @@ explain what is missing rather than inventing it. Do not claim to have consulted
 a page that was not retrieved.
 
 > [!WARNING]
-> Functions and storage are experimental and may not
-> be available in every Fabric region or tenant. Check the relevant service
-> documentation and target availability before designing around them; do not
-> enable experimental capabilities merely because they appear in the index.
+> Storage is experimental, and Functions (generally available since Rayfin
+> 1.36) aren't available in every Fabric region or tenant. Check the relevant
+> service documentation and target availability before designing around them;
+> do not enable either merely because it appears in the index.

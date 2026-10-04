@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { DeployResult, PreviewBounds, PreviewMode, StudioProject } from '@shared/ipc'
+import type {
+  DeployResult,
+  DevServerResult,
+  PreviewBounds,
+  PreviewMode,
+  StudioProject,
+  TeamRunStatus
+} from '@shared/ipc'
 import { usePreviewSuppressed } from '../overlay'
 import { measurePreviewBounds, watchPreviewPixelRatio } from '../previewBounds'
 import { DEVICES, deviceHostWidth, type DeviceId } from '../design/devices'
@@ -20,6 +27,8 @@ import {
   PhoneIcon
 } from './icons'
 import DeployStage from './DeployStage'
+import TeamDeployCard from './team/TeamDeployCard'
+import TeamRunStrip from './team/TeamRunStrip'
 
 export interface DeployUiState {
   running: boolean
@@ -111,6 +120,14 @@ interface Props {
    *  running), the preview surface shows this instead of the deployed app, with a
    *  "Local" badge. See {@link RayfinStudioApi.dev}. */
   localPreviewUrl?: string | null
+  /** A team app (experimental): its pipeline deploys it, so there's no Deploy here. */
+  team?: boolean
+  /** Team apps: the deployment the local preview's data comes from. */
+  localBackend?: DevServerResult['backend']
+  /** Team apps: the pipeline run deploying this app right now, if any. */
+  teamRun?: TeamRunStatus
+  /** Team apps: open the workspace overview. */
+  onOpenTeamMap?: () => void
 }
 
 function statusLabel(running: boolean, status: string | undefined): string {
@@ -182,7 +199,11 @@ export default function PreviewPane({
   onDesignSend,
   onDesignSurface,
   onLoadingChange,
-  localPreviewUrl
+  localPreviewUrl,
+  team = false,
+  localBackend,
+  teamRun,
+  onOpenTeamMap
 }: Props): JSX.Element {
   const suppressed = usePreviewSuppressed()
   const running = deploy?.running ?? false
@@ -200,6 +221,8 @@ export default function PreviewPane({
         : 'error'
       : project.lastDeploy?.status
   const error = deploy?.result ? deploy.result.error : project.lastDeploy?.error
+  // Team apps: the pipeline is deploying this app (its preview, or a publish).
+  const teamDeploying = Boolean(team && teamRun && teamRun.status !== 'completed')
   // The first deploy of a project has no recorded Fabric workspace — surface a
   // prompt instead of a dead error so the user can pick a target and retry.
   const outcome = deploy?.result?.outcome ?? project.lastDeploy?.outcome
@@ -716,13 +739,18 @@ export default function PreviewPane({
   const polishSeconds = useElapsed(designActive ? (design?.polishingSince ?? null) : null)
   const designCount = design?.items.length ?? 0
   const dotClass =
-    status === 'success'
-      ? 'ok'
-      : status === 'error'
-        ? 'err'
-        : running || status === 'deploying'
-          ? 'busy'
+    running || status === 'deploying' || teamDeploying
+      ? 'busy'
+      : status === 'success'
+        ? 'ok'
+        : status === 'error'
+          ? 'err'
           : 'idle'
+  const statusText = teamDeploying
+    ? status === 'success'
+      ? 'Live · updating'
+      : 'Deploying…'
+    : statusLabel(running, status)
 
   return (
     <div className="preview">
@@ -759,14 +787,30 @@ export default function PreviewPane({
           </div>
           <span className={`preview-status preview-status--${dotClass}`}>
             <span className="preview-dot" />
-            <span className="preview-status-label">{statusLabel(running, status)}</span>
+            <span className="preview-status-label">{statusText}</span>
           </span>
           {isLocal && (
             <span
-              className="preview-local-badge"
-              title={`Live local preview — your app is running from a local Vite dev server at ${localPreviewUrl} for this turn`}
+              className={`preview-local-badge${team && localBackend === 'production' ? ' preview-local-badge--warn' : ''}`}
+              title={
+                team
+                  ? `Live local preview at ${localPreviewUrl}: Copilot's changes show here as it makes them. ${
+                      localBackend === 'production'
+                        ? "It uses the published app's data until your own preview is deployed, so changes you make in it are real."
+                        : localBackend === 'none'
+                          ? 'Nothing is deployed yet, so it runs without data.'
+                          : "It uses your preview's data."
+                    } It stays until the team pipeline has deployed your latest change.`
+                  : `Live local preview — your app is running from a local Vite dev server at ${localPreviewUrl} for this turn`
+              }
             >
-              Local
+              {team
+                ? localBackend === 'production'
+                  ? 'Local · published data'
+                  : localBackend === 'none'
+                    ? 'Local · no data yet'
+                    : 'Local'
+                : 'Local'}
             </span>
           )}
           {(displayUrl || deployedUrl) && (
@@ -913,6 +957,8 @@ export default function PreviewPane({
         </div>
       )}
 
+      {teamDeploying && teamRun && showWebview && <TeamRunStrip run={teamRun} onOpenMap={onOpenTeamMap} />}
+
       {surfaceError && <div className="preview-error-banner" role="alert">{surfaceError}</div>}
 
       {status === 'error' && !running && !needsWorkspace && (
@@ -966,12 +1012,27 @@ export default function PreviewPane({
               {error && <div className="alert alert--error ws-prompt-err">{error}</div>}
             </div>
           </div>
+        ) : teamDeploying && teamRun ? (
+          <div className="preview-placeholder">
+            <TeamDeployCard run={teamRun} first={!deployedUrl} onOpenMap={onOpenTeamMap} />
+          </div>
         ) : (
           <div className="preview-placeholder">
-            {status === 'error' ? (
+            {status === 'error' && team ? (
+              <p>
+                The team pipeline couldn&apos;t deploy this version. Open the team menu in the
+                header to see what happened.
+              </p>
+            ) : status === 'error' ? (
               <p>
                 Review the deployment error and logs above, then use <strong>Redeploy</strong> to
                 try again.
+              </p>
+            ) : team ? (
+              <p>
+                Your preview appears here after Copilot makes a change: Fabricator saves it to
+                GitHub and the team pipeline deploys your own preview. The first one takes a few
+                minutes.
               </p>
             ) : (
               <p>

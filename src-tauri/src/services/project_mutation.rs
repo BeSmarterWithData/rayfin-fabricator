@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 enum Owner {
   Chat,
   Deploy,
+  Team,
 }
 
 impl Owner {
@@ -16,6 +17,7 @@ impl Owner {
     match self {
       Owner::Chat => "Copilot is still working on this project. Wait for the turn to finish (or stop it), then try again.",
       Owner::Deploy => "This project is deploying. Wait for the deployment to finish, then try again.",
+      Owner::Team => "Fabricator is saving or publishing this project. Wait for it to finish, then try again.",
     }
   }
 }
@@ -67,6 +69,12 @@ impl ProjectMutations {
     self.acquire(project_id, Owner::Deploy)
   }
 
+  /// Lease a team project while Fabricator commits, pushes, updates or
+  /// publishes its working branch.
+  pub fn team(&self, project_id: &str) -> Result<MutationGuard, String> {
+    self.acquire(project_id, Owner::Team)
+  }
+
   #[cfg(test)]
   pub fn busy(&self, project_id: &str) -> bool {
     self.inner.lock().unwrap().contains_key(project_id)
@@ -101,5 +109,16 @@ mod tests {
     assert!(state.chat("p").is_ok());
     drop(b);
     assert!(!state.busy("q"));
+  }
+
+  #[test]
+  fn team_work_excludes_chat_turns() {
+    let state = ProjectMutations::default();
+    let team = state.team("p").unwrap();
+    assert!(state.chat("p").err().unwrap().contains("publishing"));
+    drop(team);
+    let chat = state.chat("p").unwrap();
+    assert!(state.team("p").err().unwrap().contains("Copilot is still working"));
+    drop(chat);
   }
 }

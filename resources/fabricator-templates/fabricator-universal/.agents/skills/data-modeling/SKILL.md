@@ -54,7 +54,10 @@ choosing field constraints or permissions.
 2. **Define the entities.** Create one class per file under `rayfin/data/`,
    following the modeling guide for the installed version. Declare permissions
    explicitly and follow the documented MSSQL field constraints; do not rely on
-   implicit access defaults.
+   implicit access defaults. Don't name an entity after a GraphQL built-in type
+   (`Date`, `DateTime`, `String`, `Int`, `Decimal`, `UUID`, `Query`, `Mutation`,
+   `Subscription`, or anything starting with `__`): Rayfin 1.36 rejects those
+   names. Use a specific name such as `EventDate`, or `@entity('EventDate')`.
 3. **Register every entity.** Update both the `schema` array and
    `UniversalAppSchema` type exported by `rayfin/data/schema.ts`. Keep those
    export names: the existing client imports `UniversalAppSchema` for its type.

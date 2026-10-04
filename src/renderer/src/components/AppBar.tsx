@@ -44,9 +44,12 @@ export function ProjectSwitcher({
 /** Shown on the launcher while a project stays open behind it. */
 export function BackToProject({
   name,
+  title,
   onClick
 }: {
   name: string
+  /** Tooltip; defaults to explaining the project kept running. */
+  title?: string
   onClick: () => void
 }): JSX.Element {
   return (
@@ -54,7 +57,7 @@ export function BackToProject({
       type="button"
       className="app-bar-back"
       onClick={onClick}
-      title={`Return to ${name} — it kept running while you browsed projects`}
+      title={title ?? `Return to ${name} — it kept running while you browsed projects`}
     >
       <Codicon name="arrow-left" />
       <span className="app-bar-back-label">Back to {name}</span>

@@ -18,45 +18,17 @@ use crate::services::{emit, history, store};
 use crate::state::AppState;
 use crate::types::{
   CommunityGallery, CommunityGalleryResult, CommunityTemplate, CreateProjectInput,
-  DeleteProgressEvent, ProjectActionResult, ProjectsState, StudioProject, TemplateInfo,
+  DeleteProgressEvent, ProjectActionResult, ProjectNameCheck, ProjectsState, StudioProject,
 };
 
 const CREATE_CHANNEL: &str = "create:project";
 
-/// The built-in template set shown in New Project: the bundled Fabricator
-/// variants (`fabricator-universal` / `fabricator-todoapp`, under
-/// `resources/fabricator-templates`), which strip the local-testing surface for
-/// the deploy-to-test workflow. Their metadata ships with the app, so the list is
-/// constant — no registry / `--list-templates` discovery is needed, and New
-/// Project opens instantly and offline. Order matters: the first entry is the
-/// default selection, so the Universal App leads — a lean base whose bundled
-/// capability router grows it into anything (so the user doesn't have to know the
-/// app shape up front), covering the blank-start and data/dashboard cases on its
-/// own. The Todo App follows as a pre-shaped starting point.
-fn bundled_templates() -> Vec<TemplateInfo> {
-  vec![
-    TemplateInfo {
-      name: "fabricator-universal".into(),
-      display_name: "Universal App".into(),
-      description:
-        "Start here — a lean app that grows into anything. A built-in capability router picks the right Fabric services, npm modules, and skills for whatever you describe: CRUD, storage, functions, charts, or analytics. Deploys to Fabric."
-          .into(),
-    },
-    TemplateInfo {
-      name: "fabricator-todoapp".into(),
-      display_name: "Todo App".into(),
-      description:
-        "A polished todo app with per-user row-level security on a Rayfin data model, ready to deploy to Fabric."
-          .into(),
-    },
-  ]
-}
-
-/// List the built-in (bundled) templates shown in New Project. The set is constant
-/// (the two bundled Fabricator variants), so this is instant and works offline.
-pub async fn list_templates() -> Vec<TemplateInfo> {
-  bundled_templates()
-}
+/// The bundled starter every new project uses unless the user picks a community
+/// example: the Universal App (`resources/fabricator-templates/fabricator-universal`),
+/// a lean base whose capability router grows it into whatever the user
+/// describes, so nobody has to choose an app shape up front. Its metadata and
+/// lockfile ship with the app, so creating from it works offline.
+pub(crate) const STARTER_TEMPLATE: &str = "fabricator-universal";
 
 /// Default community gallery (the user can point at any compatible repo).
 const DEFAULT_GALLERY: &str = "https://github.com/microsoft/awesome-rayfin";
@@ -222,7 +194,7 @@ fn read_template(dir: &str) -> Option<String> {
 }
 
 /// Register a project directory in the store (idempotent by path).
-fn register_project(dir: &Path, display_name: Option<&str>) -> StudioProject {
+pub(crate) fn register_project(dir: &Path, display_name: Option<&str>) -> StudioProject {
   let abs = normalize(dir).to_string_lossy().to_string();
   if let Some(existing) = store::get_state().projects.into_iter().find(|p| same_path(&p.path, &abs)) {
     return existing;
@@ -247,6 +219,7 @@ fn register_project(dir: &Path, display_name: Option<&str>) -> StudioProject {
     effort: None,
     preview_mode: None,
     fabric_preview_defaulted: None,
+    team: None,
     missing: None,
   };
   store::upsert_project(project.clone());
@@ -327,15 +300,56 @@ fn ensure_template_lockfile(template_dir: &Path, project_dir: &Path) {
   }
 }
 
-/// Scaffold a new Rayfin project, git-init it, and make it active.
-pub async fn create_project(app: &AppHandle, input: CreateProjectInput) -> ProjectActionResult {
+/// A validated request to scaffold a project.
+pub(crate) struct ScaffoldRequest {
+  pub name: String,
+  pub slug: String,
+  template: String,
+  template_name: Option<String>,
+  is_url: bool,
+}
+
+impl ScaffoldRequest {
+  pub fn is_fabricator_template(&self) -> bool {
+    self.template == STARTER_TEMPLATE
+  }
+
+  pub fn label(&self) -> String {
+    if self.is_url { "community template".to_string() } else { format!("{} template", self.template) }
+  }
+}
+
+/// Whether a new local project named `name` can be created under `root`: its
+/// folder (the same slug [`create_project`] uses) must not exist yet.
+pub(crate) fn check_local_name_in(root: &Path, name: &str) -> ProjectNameCheck {
+  let slug = crate::commands::util::slugify(name);
+  if slug.is_empty() {
+    return ProjectNameCheck { ok: false, message: Some("Use letters or numbers in the name.".into()) };
+  }
+  if root.join(&slug).exists() {
+    return ProjectNameCheck {
+      ok: false,
+      message: Some(format!("A folder named “{slug}” is already in your projects folder. Choose another name.")),
+    };
+  }
+  ProjectNameCheck { ok: true, message: None }
+}
+
+/// [`check_local_name_in`] for the workspace root new projects are saved in.
+pub fn check_local_name(name: &str) -> ProjectNameCheck {
+  let root = store::get_state().workspace_root;
+  check_local_name_in(Path::new(&root), name)
+}
+
+/// Validate a New Project request (name, template) into a [`ScaffoldRequest`].
+pub(crate) fn scaffold_request(input: &CreateProjectInput) -> Result<ScaffoldRequest, String> {
   let name = input.name.trim().to_string();
   if name.is_empty() {
-    return err("Please enter a project name.");
+    return Err("Please enter a project name.".into());
   }
   let template = {
     let t = input.template.trim();
-    if t.is_empty() { "fabricator-universal".to_string() } else { t.to_string() }
+    if t.is_empty() { STARTER_TEMPLATE.to_string() } else { t.to_string() }
   };
   let template_name = input
     .template_name
@@ -349,75 +363,68 @@ pub async fn create_project(app: &AppHandle, input: CreateProjectInput) -> Proje
   };
   let slug = crate::commands::util::slugify(&name);
   if slug.is_empty() {
-    return err("Project name must contain letters or numbers.");
+    return Err("Project name must contain letters or numbers.".into());
   }
+  Ok(ScaffoldRequest { name, slug, template, template_name, is_url })
+}
 
-  let root = store::get_state().workspace_root;
-  if !Path::new(&root).exists() {
-    if let Err(e) = std::fs::create_dir_all(&root) {
-      return err(format!("Could not create workspace folder: {e}"));
-    }
-  }
-  let dir = Path::new(&root).join(&slug);
-  if dir.exists() {
-    return err(format!("A folder named \"{slug}\" already exists in your workspace."));
-  }
-
-  let on = emit::proc_streamer(app, CREATE_CHANNEL);
-
+/// Run the Rayfin scaffolder into `<root>/<folder>` and prepare the result
+/// (skills, template lockfile). Doesn't touch git. Returns the project dir.
+pub(crate) async fn scaffold_project(
+  app: &AppHandle,
+  root: &Path,
+  folder: &str,
+  request: &ScaffoldRequest,
+  on: &OnData,
+) -> Result<PathBuf, String> {
+  let dir = root.join(folder);
   // Resolve the template source passed to `-t`:
   //   - bundled Fabricator templates -> the local template dir under resources
   //     (an absolute path, which the scaffolder treats as a local template),
   //   - community/URL templates       -> the URL (+ optional --template-name),
   //   - upstream built-in names       -> the bare name (the scaffolder resolves
   //     it against its bundled set).
-  let is_fabricator = matches!(
-    template.as_str(),
-    "fabricator-universal" | "fabricator-todoapp"
-  );
+  let is_fabricator = request.is_fabricator_template();
   let template_source = if is_fabricator {
-    let tmpl_dir = crate::services::paths::fabricator_templates_dir(app).join(&template);
+    let tmpl_dir = crate::services::paths::fabricator_templates_dir(app).join(&request.template);
     if !tmpl_dir.is_dir() {
-      return err(format!(
-        "The bundled \"{template}\" template is missing from this install."
-      ));
+      return Err(format!("The bundled \"{}\" template is missing from this install.", request.template));
     }
     tmpl_dir.to_string_lossy().to_string()
   } else {
-    template.clone()
+    request.template.clone()
   };
 
-  let label = if is_url { "community template".to_string() } else { format!("{template} template") };
-  say(&on, &format!("Creating \"{slug}\" from the {label}…\n"));
+  say(on, &format!("Creating \"{folder}\" from the {}…\n", request.label()));
 
-  // npm create @microsoft/rayfin@latest -- <slug> -t <source>
+  // npm create @microsoft/rayfin@latest -- <folder> -t <source>
   //   [--template-name <name>] --project-name "<name>"
-  // The positional <slug> is the target directory; --project-name carries the
+  // The positional <folder> is the target directory; --project-name carries the
   // human identity (rayfin.yml id/name + package name). A bundled single-entry
   // local template needs no --template-name.
   let mut create_args: Vec<String> = vec![
     "create".into(),
     "@microsoft/rayfin@latest".into(),
     "--".into(),
-    slug.clone(),
+    folder.to_string(),
     "-t".into(),
     template_source,
   ];
-  if is_url {
-    if let Some(tn) = &template_name {
+  if request.is_url {
+    if let Some(tn) = &request.template_name {
       create_args.push("--template-name".into());
       create_args.push(tn.clone());
     }
   }
   create_args.push("--project-name".into());
-  create_args.push(name.clone());
+  create_args.push(request.name.clone());
 
   let arg_refs: Vec<&str> = create_args.iter().map(String::as_str).collect();
   let init = run(
     "npm",
     &arg_refs,
     RunOptions {
-      cwd: Some(Path::new(&root).to_path_buf()),
+      cwd: Some(root.to_path_buf()),
       env: crate::services::npm_cache::fresh_registry_env(),
       on_data: Some(on.clone()),
       timeout_ms: Some(600_000),
@@ -427,11 +434,11 @@ pub async fn create_project(app: &AppHandle, input: CreateProjectInput) -> Proje
   .await;
 
   if init.not_found {
-    return err("npm was not found on PATH. Install Node.js (which includes npm) to create projects.");
+    return Err("npm was not found on PATH. Install Node.js (which includes npm) to create projects.".into());
   }
   if !init.ok || !is_rayfin_project(&dir.to_string_lossy()) {
     let code = init.exit_code.map(|c| c.to_string()).unwrap_or_else(|| "unknown".into());
-    return err(if is_url {
+    return Err(if request.is_url {
       format!("Creating the project from the template URL failed (exit code {code}). Check the URL is a valid Rayfin template.")
     } else {
       format!("Project creation failed (exit code {code}).")
@@ -442,12 +449,38 @@ pub async fn create_project(app: &AppHandle, input: CreateProjectInput) -> Proje
   // Bundled templates ship a committed lockfile so the first install can use the
   // deterministic, warm-cache-backed `npm ci`; make sure it survived scaffolding.
   if is_fabricator {
-    let tmpl_dir = crate::services::paths::fabricator_templates_dir(app).join(&template);
+    let tmpl_dir = crate::services::paths::fabricator_templates_dir(app).join(&request.template);
     ensure_template_lockfile(&tmpl_dir, &dir);
   }
-  init_git_repo(&dir, &format!("Initial commit ({label})"), &on).await;
+  Ok(dir)
+}
 
-  let project = register_project(&dir, Some(&name));
+/// Scaffold a new Rayfin project, git-init it, and make it active.
+pub async fn create_project(app: &AppHandle, input: CreateProjectInput) -> ProjectActionResult {
+  let request = match scaffold_request(&input) {
+    Ok(r) => r,
+    Err(e) => return err(e),
+  };
+
+  let root = store::get_state().workspace_root;
+  if !Path::new(&root).exists() {
+    if let Err(e) = std::fs::create_dir_all(&root) {
+      return err(format!("Could not create workspace folder: {e}"));
+    }
+  }
+  let dir = Path::new(&root).join(&request.slug);
+  if dir.exists() {
+    return err(format!("A folder named \"{}\" already exists in your workspace.", request.slug));
+  }
+
+  let on = emit::proc_streamer(app, CREATE_CHANNEL);
+  let dir = match scaffold_project(app, Path::new(&root), &request.slug, &request, &on).await {
+    Ok(dir) => dir,
+    Err(e) => return err(e),
+  };
+  init_git_repo(&dir, &format!("Initial commit ({})", request.label()), &on).await;
+
+  let project = register_project(&dir, Some(&request.name));
   // Mark this project as awaiting its first deployment so the workbench guides the
   // user to deploy before chatting (cleared on the first successful deploy). This
   // is set only on create — projects opened from disk are never gated. The preview
@@ -671,17 +704,31 @@ entries:
   }
 
   #[test]
-  fn bundled_templates_lists_only_the_fabricator_variants() {
-    let bundled = bundled_templates();
-    let names: Vec<&str> = bundled.iter().map(|t| t.name.as_str()).collect();
-    // The two bundled Fabricator templates offered as built-ins; the upstream
-    // gettingstartedauth/blankapp entries and the Data App are dropped in favour
-    // of the Universal App, whose capability router covers the blank-start and
-    // data/dashboard cases. Order is meaningful: the first entry is the default
-    // selection in New Project, so the Universal App leads.
-    assert_eq!(names, vec!["fabricator-universal", "fabricator-todoapp"]);
-    assert!(bundled
-      .iter()
-      .all(|t| !t.display_name.is_empty() && !t.description.is_empty()));
+  fn new_projects_start_from_the_bundled_universal_app() {
+    let input = |template: &str| CreateProjectInput {
+      name: "Trip Logger".into(),
+      template: template.into(),
+      template_name: None,
+    };
+    let blank = scaffold_request(&input("")).unwrap();
+    assert_eq!(blank.template, STARTER_TEMPLATE);
+    assert!(blank.is_fabricator_template() && !blank.is_url);
+    let example = scaffold_request(&input("https://github.com/microsoft/awesome-rayfin")).unwrap();
+    assert!(example.is_url && !example.is_fabricator_template());
+    // The starter must ship with the app.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../resources/fabricator-templates").join(STARTER_TEMPLATE);
+    assert!(dir.join("rayfin-template.yml").is_file(), "{} is missing", dir.display());
+  }
+
+  #[test]
+  fn local_names_must_not_reuse_an_existing_folder() {
+    let root = std::env::temp_dir().join(format!("fab-name-check-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("trip-logger")).unwrap();
+    let taken = check_local_name_in(&root, "Trip Logger");
+    assert!(!taken.ok);
+    assert!(taken.message.as_deref().unwrap_or_default().contains("“trip-logger”"));
+    assert_eq!(check_local_name_in(&root, "Trip Planner"), ProjectNameCheck { ok: true, message: None });
+    assert!(!check_local_name_in(&root, "!!!").ok);
+    let _ = std::fs::remove_dir_all(&root);
   }
 }

@@ -11,7 +11,7 @@ import { useSuppressPreview } from '../overlay'
 import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
 import { Codicon } from './icons'
-import DeploymentCreateForm from './DeploymentCreateForm'
+import DeploymentCreateForm, { checkActiveDeployTarget } from './DeploymentCreateForm'
 import ShareDeploymentModal from './ShareDeploymentModal'
 
 interface Props {
@@ -368,6 +368,7 @@ export default function DeploymentsControl({
                 setOpen(false)
                 setCreating(false)
               }}
+              checkTarget={checkActiveDeployTarget}
             />
           ) : (
             <>

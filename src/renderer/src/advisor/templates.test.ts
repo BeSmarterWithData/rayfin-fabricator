@@ -54,7 +54,7 @@ const templates = readdirSync(TEMPLATES).filter((name) => {
 
 describe('bundled templates', () => {
   it('are discovered', () => {
-    expect(templates).toEqual(expect.arrayContaining(['fabricator-universal', 'fabricator-todoapp']))
+    expect(templates).toEqual(['fabricator-universal'])
   })
 
   for (const name of templates) {
@@ -62,8 +62,10 @@ describe('bundled templates', () => {
       const files = readTree(join(TEMPLATES, name))
       // `rayfin init` installs the Rayfin skill after scaffolding.
       files['.agents/skills/rayfin/SKILL.md'] = '# Rayfin\n'
-      const snapshot = snapshotOf(files, { packages: installedPackages(files), isGitRepo: false })
-      const ctx = await buildQuickContext(snapshot, versionInfo())
+      const packages = installedPackages(files)
+      const pinned = packages.find((p) => p.name === '@microsoft/rayfin-cli')?.installed
+      const snapshot = snapshotOf(files, { packages, isGitRepo: false })
+      const ctx = await buildQuickContext(snapshot, versionInfo(pinned, pinned))
       const { findings, results } = runQuickRules(ctx)
       const serious = findings
         .filter((f) => f.severity === 'high' || f.severity === 'medium')

@@ -140,6 +140,8 @@ interface Props {
    *  enabled). Used by the live local preview so a turn never overlaps a deploy —
    *  otherwise the dev server can't start during the deploy and never comes back. */
   blockSubmitWhileDeploying?: boolean
+  /** Tooltip on the paused Send button (defaults to the deploy wording). */
+  submitBlockedTitle?: string
   /** Open the fullscreen deploy step (the gate CTA). */
   onRequestDeploy?: () => void
   /** Experimental: show the Agent / Plan / Autopilot mode selector in the composer.
@@ -193,6 +195,7 @@ export default function ChatPanel({
   deployLock = false,
   deploying = false,
   blockSubmitWhileDeploying = false,
+  submitBlockedTitle = 'Deploying — sending resumes when it goes live',
   onRequestDeploy,
   modeSelectorEnabled = false,
   eventsManagedExternally = false,
@@ -1748,7 +1751,7 @@ export default function ChatPanel({
               ) : (
                 <span
                   style={{ display: 'contents' }}
-                  title={submitBlocked ? 'Deploying — sending resumes when it goes live' : undefined}
+                  title={submitBlocked ? submitBlockedTitle : undefined}
                 >
                   <button
                     type="button"

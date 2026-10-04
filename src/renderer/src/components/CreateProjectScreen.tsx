@@ -4,13 +4,23 @@ import type {
   CommunityGallery,
   FabricWorkspacesResult,
   ProjectActionResult,
-  TemplateInfo
+  ProjectNameCheck,
+  TeamActionResult,
+  TeamWorkspace
 } from '@shared/ipc'
 import { useSuppressPreview } from '../overlay'
-import DeploymentCreateForm from './DeploymentCreateForm'
+import DeploymentCreateForm, { checkActiveDeployTarget } from './DeploymentCreateForm'
 
 type Mode = 'create' | 'deploy'
 type Step = 'details' | 'deploy'
+/** `scratch` = the bundled starter that grows into anything; `example` = a community template. */
+type Start = 'scratch' | 'example'
+
+/**
+ * The bundled starter (resources/fabricator-templates). Its capability router
+ * grows it into whatever the user describes, so nobody picks an app shape up front.
+ */
+export const STARTER_TEMPLATE = 'fabricator-universal'
 
 interface Props {
   /** 'create' runs Details → Deploy; 'deploy' shows only the Deploy step for the active project. */
@@ -29,6 +39,12 @@ interface Props {
   deploying?: boolean
   /** Refresh app auth after sign-in; rejection prevents retrying with an unverified account. */
   onSignedIn?: () => Promise<void> | void
+  /** Team workspaces a new app can go into (experimental). */
+  teamWorkspaces?: TeamWorkspace[]
+  /** Preselect this team workspace as the destination. */
+  initialTeamWorkspaceId?: string
+  /** A team app was created; there's no Deploy step (its pipeline deploys it). */
+  onTeamCreated?: (result: TeamActionResult) => void
 }
 
 const keyOf = (t: { path?: string; name: string }): string => t.path || t.name
@@ -118,20 +134,27 @@ export default function CreateProjectScreen({
   onDeploy,
   onContinueWithoutDeploy,
   onSignedIn,
-  deploying = false
+  deploying = false,
+  teamWorkspaces,
+  initialTeamWorkspaceId,
+  onTeamCreated
 }: Props): JSX.Element {
   // The native preview webview floats above HTML; suppress it while this covers the body.
   useSuppressPreview()
 
   const [step, setStep] = useState<Step>(mode === 'deploy' ? 'deploy' : 'details')
   const [createdName, setCreatedName] = useState<string | undefined>(projectName)
+  const teamTargets = (teamWorkspaces ?? []).filter((w) => !w.setup || w.setup.done)
+  /** '' = this computer; otherwise a team workspace id. */
+  const [destination, setDestination] = useState(
+    initialTeamWorkspaceId && teamTargets.some((w) => w.id === initialTeamWorkspaceId)
+      ? initialTeamWorkspaceId
+      : ''
+  )
 
-  // ----- Details step (ported from NewProjectModal) -----
-  const [templates, setTemplates] = useState<TemplateInfo[]>([])
-  const [loadingTemplates, setLoadingTemplates] = useState(true)
+  // ----- Details step -----
   const [name, setName] = useState('')
-  const [source, setSource] = useState<'builtin' | 'community'>('builtin')
-  const [template, setTemplate] = useState('')
+  const [start, setStart] = useState<Start>('scratch')
   const [gallery, setGallery] = useState<CommunityGallery | null>(null)
   const [loadingGallery, setLoadingGallery] = useState(false)
   const [galleryError, setGalleryError] = useState<string | null>(null)
@@ -190,17 +213,6 @@ export default function CreateProjectScreen({
     return () => window.removeEventListener('keydown', onKey)
   }, [step, busy, deploying, onCancel, onContinueWithoutDeploy])
 
-  useEffect(() => {
-    if (mode !== 'create') return
-    void window.api.projects
-      .templates()
-      .then((t) => {
-        setTemplates(t)
-        if (t.length) setTemplate(t[0].name)
-      })
-      .finally(() => setLoadingTemplates(false))
-  }, [mode])
-
   async function loadGallery(repoUrl?: string): Promise<void> {
     setLoadingGallery(true)
     setGalleryError(null)
@@ -218,12 +230,12 @@ export default function CreateProjectScreen({
     }
   }
 
-  // Lazily fetch the default gallery the first time the user opens the Community tab.
+  // Fetch the default gallery the first time the user asks for an example.
   useEffect(() => {
-    if (source === 'community' && !customMode && !gallery && !loadingGallery && !galleryError) {
+    if (start === 'example' && !customMode && !gallery && !loadingGallery && !galleryError) {
       void loadGallery()
     }
-  }, [source, customMode])
+  }, [start, customMode])
 
   useEffect(() => {
     const off = window.api.onProcLog((e) => {
@@ -262,17 +274,29 @@ export default function CreateProjectScreen({
     setStartedAt(Date.now())
     setNow(Date.now())
     try {
-      let tmpl: string
+      let tmpl = STARTER_TEMPLATE
       let tmplName: string | undefined
-      if (source === 'builtin') {
-        tmpl = template
-        tmplName = undefined
-      } else if (customMode) {
+      if (start === 'example' && customMode) {
         tmpl = url.trim()
         tmplName = templateName.trim() || undefined
-      } else {
+      } else if (start === 'example') {
         tmpl = selectedEntry?.repoUrl ?? gallery?.repoUrl ?? ''
         tmplName = selectedEntry?.name
+      }
+      if (destination) {
+        const teamResult = await window.api.team.createProject(destination, {
+          name,
+          template: tmpl,
+          templateName: tmplName
+        })
+        if (teamResult.project) {
+          setDone(true)
+          onTeamCreated?.(teamResult)
+        } else {
+          setError(teamResult.error ?? 'Project creation failed.')
+          setShowDetails(true)
+        }
+        return
       }
       const result = await window.api.projects.create({
         name,
@@ -301,10 +325,37 @@ export default function CreateProjectScreen({
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 
+  // Is the name free where the project will be saved (the projects folder, or
+  // the team workspace)? Checked shortly after typing stops. Only a confirmed
+  // conflict blocks Create; creating still refuses a taken folder on its own.
+  const checkKey = `${destination}\u0000${name.trim()}`
+  const [nameCheck, setNameCheck] = useState<(ProjectNameCheck & { key: string }) | null>(null)
+  useEffect(() => {
+    if (!slug || busy || step !== 'details') return
+    let stale = false
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        let result: ProjectNameCheck = { ok: true }
+        try {
+          result = await window.api.projects.checkName(name.trim(), destination || undefined)
+        } catch {
+          // A failed check never blocks creating.
+        }
+        if (!stale) setNameCheck({ ...result, key: checkKey })
+      })()
+    }, 300)
+    return () => {
+      stale = true
+      window.clearTimeout(timer)
+    }
+  }, [checkKey, slug, busy, step])
+  const nameTaken = nameCheck?.key === checkKey && !nameCheck.ok ? (nameCheck.message ?? 'That name is taken.') : null
+
   const urlValid = /^(https?:\/\/|git@|git\+)/i.test(url.trim())
   const canCreate =
     Boolean(slug) &&
-    (source === 'builtin' ? Boolean(template) : customMode ? urlValid : Boolean(selectedEntry))
+    !nameTaken &&
+    (start === 'scratch' || (customMode ? urlValid : Boolean(selectedEntry)))
 
   // ----- Create progress (cosmetic; completion is driven by `done`) -----
   const elapsedSec = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0
@@ -329,13 +380,13 @@ export default function CreateProjectScreen({
       ? mode === 'create'
         ? 'Deploy your app'
         : 'Create your first deployment'
-      : 'New Rayfin project'
+      : 'New project'
   const sub =
     step === 'deploy'
       ? `Publish ${createdName || 'your app'} to a Fabric workspace to start building with chat.`
       : busy
         ? `Setting up ${name.trim() || 'your app'}…`
-        : 'Name your app and pick a template to start from.'
+        : 'Give it a name. Next, describe what you want and Copilot builds it.'
   const skipLabel = mode === 'deploy' ? 'Maybe later' : 'Continue without deploying →'
 
   return (
@@ -346,7 +397,7 @@ export default function CreateProjectScreen({
             <h1 className="create-title">{heading}</h1>
             <p className="create-sub">{sub}</p>
           </div>
-          {mode === 'create' && (
+          {mode === 'create' && !destination && (
             <ol className="create-steps" aria-label="Progress">
               <li
                 className={`create-step${
@@ -379,70 +430,82 @@ export default function CreateProjectScreen({
                   autoCorrect="off"
                   spellCheck={false}
                   disabled={busy}
+                  aria-invalid={nameTaken ? true : undefined}
                   onChange={(e) => setName(e.target.value)}
                 />
-                {slug && (
-                  <span className="field-hint">
-                    Folder: <code>{slug}</code>
+                {nameTaken ? (
+                  <span className="field-hint field-hint--warn" role="alert">
+                    {nameTaken}
                   </span>
+                ) : (
+                  slug && (
+                    <span className="field-hint">
+                      Folder: <code>{slug}</code>
+                    </span>
+                  )
                 )}
               </label>
+              {teamTargets.length > 0 && (
+                <label className={`field${busy ? ' create-field-hidden' : ''}`}>
+                  <span className="field-label">Where</span>
+                  <select
+                    className="field-input"
+                    value={destination}
+                    disabled={busy}
+                    onChange={(e) => setDestination(e.target.value)}
+                  >
+                    <option value="">Just me, on this computer</option>
+                    {teamTargets.map((w) => (
+                      <option key={w.id} value={w.id}>
+                        Team workspace: {w.name}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="field-hint">
+                    {destination
+                      ? 'Your team sees the app once you publish it. The team pipeline deploys your preview, so there’s no deploy step.'
+                      : 'You deploy it yourself to a Fabric workspace you choose.'}
+                  </span>
+                </label>
+              )}
 
               <div className={`field${busy ? ' create-field-hidden' : ''}`}>
-                <span className="field-label">Template</span>
-                <div className="seg">
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className={`seg-btn${source === 'builtin' ? ' seg-btn--active' : ''}`}
-                    onClick={() => setSource('builtin')}
-                  >
-                    Featured
-                  </button>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    className={`seg-btn${source === 'community' ? ' seg-btn--active' : ''}`}
-                    onClick={() => setSource('community')}
-                  >
-                    Community
-                  </button>
-                </div>
+                {start === 'scratch' ? (
+                  <p className="create-start">
+                    Want a head start?{' '}
+                    <button
+                      type="button"
+                      className="link-btn"
+                      disabled={busy}
+                      onClick={() => setStart('example')}
+                    >
+                      Start from a community example
+                    </button>
+                  </p>
+                ) : (
+                  <div className="create-examples-head">
+                    <span className="field-label">Start from an example</span>
+                    <button
+                      type="button"
+                      className="link-btn"
+                      disabled={busy}
+                      onClick={() => {
+                        setStart('scratch')
+                        setCustomMode(false)
+                      }}
+                    >
+                      Start from scratch instead
+                    </button>
+                  </div>
+                )}
 
-                <p className="template-caption">
-                  {source === 'builtin'
-                    ? 'Curated, ready-to-run starting points — each deploys straight to a Fabric test workspace, then you keep building with chat.'
-                    : 'Start from any community template published in an awesome-rayfin GitHub repo.'}
-                </p>
+                {start === 'example' && !customMode && (
+                  <p className="template-caption">
+                    Ready-made apps from the Rayfin community. Pick one to build on.
+                  </p>
+                )}
 
-                {source === 'builtin' ? (
-                  loadingTemplates ? (
-                    <div className="template-grid" aria-busy="true">
-                      {Array.from({ length: 3 }).map((_, i) => (
-                        <div key={i} className="template-card template-card--skel">
-                          <span className="skel-line skel-line--title" />
-                          <span className="skel-line" />
-                          <span className="skel-line skel-line--short" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="template-grid">
-                      {templates.map((t) => (
-                        <button
-                          key={t.name}
-                          type="button"
-                          disabled={busy}
-                          className={`template-card${template === t.name ? ' template-card--active' : ''}`}
-                          onClick={() => setTemplate(t.name)}
-                        >
-                          <span className="template-card-name">{t.displayName}</span>
-                          <span className="template-card-desc">{t.description}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )
-                ) : customMode ? (
+                {start === 'scratch' ? null : customMode ? (
                   <div className="template-url">
                     <input
                       className="field-input"
@@ -476,7 +539,7 @@ export default function CreateProjectScreen({
                       disabled={busy}
                       onClick={() => setCustomMode(false)}
                     >
-                      ← Back to the gallery
+                      ← Back to the examples
                     </button>
                   </div>
                 ) : loadingGallery ? (
@@ -513,26 +576,32 @@ export default function CreateProjectScreen({
                   </div>
                 ) : (
                   <>
-                    <div className="template-grid">
-                      {gallery?.templates.map((t) => (
-                        <button
-                          key={keyOf(t)}
-                          type="button"
-                          disabled={busy}
-                          className={`template-card${communitySel === keyOf(t) ? ' template-card--active' : ''}`}
-                          onClick={() => setCommunitySel(keyOf(t))}
-                        >
-                          <span className="template-card-name">{t.name}</span>
-                          <span className="template-card-desc">{t.description}</span>
-                        </button>
-                      ))}
-                    </div>
+                    {gallery && gallery.templates.length === 0 ? (
+                      <div className="gallery-empty">
+                        <p className="gallery-empty-msg">This gallery doesn’t have any examples yet.</p>
+                      </div>
+                    ) : (
+                      <div className="template-grid">
+                        {gallery?.templates.map((t) => (
+                          <button
+                            key={keyOf(t)}
+                            type="button"
+                            disabled={busy}
+                            className={`template-card${communitySel === keyOf(t) ? ' template-card--active' : ''}`}
+                            onClick={() => setCommunitySel(keyOf(t))}
+                          >
+                            <span className="template-card-name">{t.name}</span>
+                            <span className="template-card-desc">{t.description}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <div className="gallery-footer">
                       <span className="field-hint">
                         From{' '}
-                        <code>
+                        <span className="gallery-source">
                           {gallery?.displayName || gallery?.repoUrl.replace(/^https?:\/\//, '')}
-                        </code>
+                        </span>
                       </span>
                       <button
                         type="button"
@@ -642,6 +711,7 @@ export default function CreateProjectScreen({
                 busyLabel="Deploying…"
                 defaultName="Development"
                 onSubmit={onDeploy}
+                checkTarget={checkActiveDeployTarget}
               />
               <div className="create-skip">
                 <button type="button" className="link-btn" onClick={onContinueWithoutDeploy}>

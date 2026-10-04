@@ -1,0 +1,64 @@
+import { useEffect, useState } from 'react'
+import type { TeamRunStep } from '@shared/ipc'
+
+export interface RunProgress {
+  done: number
+  total: number
+  /** The step running now (or the next one to run). */
+  current?: TeamRunStep
+  failed?: TeamRunStep
+  /** 0…1; a running step counts as half done so the bar moves while it works. */
+  fraction: number
+}
+
+export function runProgress(steps: TeamRunStep[]): RunProgress {
+  const total = steps.length
+  const done = steps.filter((s) => s.status === 'completed').length
+  const current = steps.find((s) => s.status === 'in_progress') ?? steps.find((s) => s.status !== 'completed')
+  const failed = steps.find((s) => s.conclusion === 'failure')
+  const fraction = total === 0 ? 0 : Math.min(1, (done + (current?.status === 'in_progress' ? 0.5 : 0)) / total)
+  return { done, total, current, failed, fraction }
+}
+
+/** The pipeline's step names, in plain words. */
+export function friendlyStep(name: string): string {
+  if (/^Run actions\/checkout@/i.test(name)) return 'Get the code'
+  if (/^Run actions\/setup-node@/i.test(name)) return 'Set up Node.js'
+  if (/^Run azure\/login@/i.test(name)) return 'Sign in to Fabric'
+  if (/^Run actions\/github-script@/i.test(name)) return 'Record the deployment'
+  return name.replace(/^Run /, '')
+}
+
+/** "42s", "3:07" — time since an ISO timestamp. */
+export function elapsed(since: string | undefined, now: number): string {
+  if (!since) return ''
+  const ms = now - Date.parse(since)
+  if (!Number.isFinite(ms) || ms < 0) return ''
+  const s = Math.floor(ms / 1000)
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
+
+/** "just now", "5 min ago", "3 h ago", "2 d ago". */
+export function timeAgo(iso: string | undefined, now: number): string {
+  if (!iso) return ''
+  const ms = now - Date.parse(iso)
+  if (!Number.isFinite(ms)) return ''
+  const min = Math.floor(ms / 60_000)
+  if (min < 1) return 'just now'
+  if (min < 60) return `${min} min ago`
+  const h = Math.floor(min / 60)
+  if (h < 24) return `${h} h ago`
+  return `${Math.floor(h / 24)} d ago`
+}
+
+/** The current time, updated every `intervalMs` while `active`. */
+export function useNow(active: boolean, intervalMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => setNow(Date.now()), intervalMs)
+    return () => window.clearInterval(timer)
+  }, [active, intervalMs])
+  return now
+}

@@ -583,6 +583,16 @@ pub fn preview_reload(app: AppHandle) -> AppResult<()> {
   Ok(())
 }
 
+/// Reload the preview when it shows a page from `origin` (e.g. a local preview
+/// that was just started again), leaving any other page alone.
+pub fn reload_if_showing(app: &AppHandle, origin: &str) {
+  let Some(wv) = app.get_webview(PREVIEW_LABEL) else { return };
+  let prefix = format!("{}/", origin.trim_end_matches('/'));
+  if wv.url().is_ok_and(|url| url.as_str().starts_with(&prefix)) {
+    let _ = wv.reload();
+  }
+}
+
 /// Navigate back one entry in the preview's history (no-op if at the start).
 #[tauri::command]
 pub fn preview_back(app: AppHandle, state: State<'_, PreviewState>) -> AppResult<()> {

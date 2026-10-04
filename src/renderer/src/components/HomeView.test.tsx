@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ComponentProps } from 'react'
-import HomeView from './HomeView'
+import HomeView, { displayPath } from './HomeView'
 import { makeProject } from '../../test/harness'
 
 function baseProps(): ComponentProps<typeof HomeView> {
@@ -60,5 +60,126 @@ describe('HomeView project launcher', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Change folder' }))
 
     expect(props.onChangeWorkspaceRoot).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows the most recent projects first and the rest on request', () => {
+    const props = baseProps()
+    props.projects = Array.from({ length: 9 }, (_, i) => makeProject(`p${i}`, { name: `App ${i}` }))
+    render(<HomeView {...props} />)
+    expect(screen.getAllByRole('listitem')).toHaveLength(6)
+    fireEvent.click(screen.getByRole('button', { name: 'Show all 9 projects' }))
+    expect(screen.getAllByRole('listitem')).toHaveLength(9)
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
+    expect(screen.getAllByRole('listitem')).toHaveLength(6)
+  })
+
+  it('shortens the user folder in project paths', () => {
+    expect(displayPath('C:\\Users\\sachi\\RayfinProjects\\notes')).toBe('~\\RayfinProjects\\notes')
+    expect(displayPath('/Users/amy/apps/notes')).toBe('~/apps/notes')
+    expect(displayPath('D:\\work\\notes')).toBe('D:\\work\\notes')
+  })
+})
+
+describe('HomeView team workspaces', () => {
+  function installTeamApi(): { openProject: ReturnType<typeof vi.fn> } {
+    const openProject = vi.fn(() =>
+      Promise.resolve({ ok: true, project: makeProject('t1', { name: 'Leads' }) })
+    )
+    ;(window as unknown as { api: unknown }).api = {
+      openExternal: vi.fn(),
+      team: {
+        joinOptions: vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            invitations: [{ id: 7, repo: 'octo/marketing', inviter: 'amy' }],
+            discovered: []
+          })
+        ),
+        reviewRequests: vi.fn(() => Promise.resolve([])),
+        map: vi.fn(() =>
+          Promise.resolve({
+            ok: true,
+            fetchedAt: '',
+            members: [],
+            runs: [],
+            apps: [
+              {
+                folder: 'leads',
+                name: 'Leads',
+                published: true,
+                production: { environment: 'production/leads', state: 'success' },
+                copies: []
+              }
+            ]
+          })
+        ),
+        activity: vi.fn(() => Promise.resolve({ ok: true, runs: [], fetchedAt: '' })),
+        openProject
+      }
+    }
+    return { openProject }
+  }
+
+  const workspace = {
+    id: 'w1',
+    name: 'Sales team',
+    repo: 'octo/sales-team',
+    defaultBranch: 'main',
+    dir: 'C:/team',
+    role: 'owner' as const,
+    addedAt: '2026-10-01T00:00:00Z'
+  }
+
+  afterEach(() => {
+    delete (window as unknown as { api?: unknown }).api
+  })
+
+  it('stays hidden unless the experiment provides it', () => {
+    render(<HomeView {...baseProps()} />)
+    expect(screen.queryByText('Team workspaces')).toBeNull()
+  })
+
+  it('lists workspaces with their apps, invitations, and opens an app on a branch', async () => {
+    const { openProject } = installTeamApi()
+    const onOpened = vi.fn()
+    const onOpenMap = vi.fn()
+    render(
+      <HomeView
+        {...baseProps()}
+        team={{ workspaces: [workspace], onOpened, onNewApp: vi.fn(), onOpenMap, onChanged: vi.fn() }}
+      />
+    )
+
+    expect(screen.getByText('Team workspaces')).toBeTruthy()
+    expect(await screen.findByText('octo/marketing')).toBeTruthy()
+    expect(screen.getByText(/invited to/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /overview/i }))
+    expect(onOpenMap).toHaveBeenCalledWith('w1')
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Leads' }))
+    await waitFor(() => expect(onOpened).toHaveBeenCalled())
+    expect(openProject).toHaveBeenCalledWith('w1', 'leads')
+  })
+
+  it('labels team projects in recents with their workspace', () => {
+    installTeamApi()
+    const props = baseProps()
+    props.projects = [
+      makeProject('t1', {
+        name: 'Leads',
+        path: 'C:/team/leads/leads',
+        team: { workspaceId: 'w1', folder: 'leads', worktree: 'C:/team/leads' }
+      })
+    ]
+    render(
+      <HomeView
+        {...props}
+        team={{ workspaces: [workspace], onOpened: vi.fn(), onNewApp: vi.fn(), onChanged: vi.fn() }}
+      />
+    )
+    const recents = screen.getByRole('region', { name: 'Recent projects' })
+    const row = within(recents).getByRole('button', { name: 'Open Leads' })
+    expect(row.textContent).toContain('Sales team')
+    // A team app's deep worktree path isn't shown, only kept in the tooltip.
+    expect(row.textContent).not.toContain('C:/team/leads/leads')
   })
 })

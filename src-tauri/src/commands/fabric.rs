@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::services::{exec, fabric_auth, paths, store};
 use crate::services::exec::RunOptions;
-use crate::types::{FabricDeleteResult, FabricWorkspacesResult};
+use crate::types::{DeployTargetCheck, FabricDeleteResult, FabricDeployment, FabricWorkspacesResult};
 use crate::types::{FabricCapacitiesResult, FabricCreateWorkspaceResult};
 use crate::types::{FabricShareResult, SemanticModelRef};
 use crate::types::FabricDirectoryResult;
@@ -195,6 +195,97 @@ struct DeleteItem {
   workspace_id: String,
   item_id: String,
   name: String,
+}
+
+/// Helper executed by the system `node` to list the Rayfin apps (`AppBackend`
+/// items, the type `rayfin up` creates and reuses) in one workspace. argv:
+/// <authModulePath> <apiBase> <workspaceId>.
+const APP_ITEMS_HELPER_SOURCE: &str = r#"import { makeRayfinTokens, makeApi, fetchAllPages, runHelper } from './fabric_auth_helper.mjs'
+
+async function main() {
+  const [authPath, base, workspaceId] = process.argv.slice(2)
+  const token = await makeRayfinTokens(authPath)
+  const api = makeApi(await token(), base)
+  const url = base + '/workspaces/' + encodeURIComponent(workspaceId) + '/items?type=AppBackend'
+  const items = await fetchAllPages(api, url, { label: 'Fabric apps' })
+  return { ok: true, names: items.map((i) => String(i.displayName ?? '')) }
+}
+
+runHelper(main)
+"#;
+
+/// The existing app a deploy into `workspace_id` would replace: a Rayfin app
+/// there with the project's item name (matched like the CLI does, ignoring
+/// case), unless this project already deploys to that workspace, in which case
+/// the CLI reuses the project's own recorded item.
+fn replaced_app(item_name: &str, workspace_id: &str, own: &[FabricDeployment], existing: &[String]) -> Option<String> {
+  let deploys_there = own
+    .iter()
+    .any(|d| d.workspace_id.as_deref().is_some_and(|w| w.eq_ignore_ascii_case(workspace_id)));
+  if deploys_there {
+    return None;
+  }
+  existing.iter().find(|n| n.eq_ignore_ascii_case(item_name)).cloned()
+}
+
+/// The Fabric item name a project deploys as on its first deploy to a
+/// workspace: `rayfin.yml`'s `id` (what `rayfin up` uses without `--item-name`).
+fn project_item_name(project_dir: &Path) -> Option<String> {
+  let text = std::fs::read_to_string(project_dir.join("rayfin").join("rayfin.yml")).ok()?;
+  let yaml: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
+  yaml.get("id").and_then(|v| v.as_str()).map(str::trim).filter(|s| !s.is_empty()).map(String::from)
+}
+
+/// Rayfin app names in a workspace, as the active project's Rayfin sign-in sees them.
+async fn app_items_in(project_dir: &Path, workspace_id: &str) -> Result<Vec<String>, String> {
+  #[derive(Deserialize)]
+  struct AppItems {
+    ok: bool,
+    #[serde(default)]
+    names: Vec<String>,
+    error: Option<String>,
+  }
+  let auth_path = project_auth_module(Some(project_dir)).await?;
+  let script_path = write_helper("fabric-app-items.mjs", APP_ITEMS_HELPER_SOURCE)
+    .map_err(|e| format!("Could not prepare the Fabric app lookup: {e}"))?;
+  let (script, auth) = (script_path.to_string_lossy().to_string(), auth_path.to_string_lossy().to_string());
+  let res = exec::run("node", &[&script, &auth, FABRIC_API_BASE, workspace_id], RunOptions::timeout(60_000)).await;
+  let parsed: AppItems = fabric_auth::parse_helper_output(&res)?;
+  if parsed.ok {
+    Ok(parsed.names)
+  } else {
+    Err(parsed.error.unwrap_or_else(|| "Could not list the apps in that workspace.".into()))
+  }
+}
+
+/// Before the active project's first deploy into a workspace, find a same-named
+/// Rayfin app there. `rayfin up -y` (how Fabricator deploys) would silently reuse
+/// it and overwrite its configuration. Best-effort: a failed lookup reports an
+/// error but never blocks the deploy by itself.
+#[tauri::command]
+pub async fn fabric_check_deploy_target(workspace_id: String) -> DeployTargetCheck {
+  let Some(project) = store::active_project() else {
+    return DeployTargetCheck::default();
+  };
+  if crate::services::team::is_team_project(&project) {
+    return DeployTargetCheck::default();
+  }
+  let dir = PathBuf::from(&project.path);
+  let Some(item_name) = project_item_name(&dir) else {
+    return DeployTargetCheck::default();
+  };
+  let (own, existing) = tokio::join!(
+    crate::commands::deploy::deploy_list_checked(&project.id),
+    app_items_in(&dir, &workspace_id)
+  );
+  match existing {
+    Ok(existing) => DeployTargetCheck {
+      conflict: replaced_app(&item_name, &workspace_id, &own.unwrap_or_default(), &existing),
+      item_name: Some(item_name),
+      error: None,
+    },
+    Err(error) => DeployTargetCheck { item_name: Some(item_name), conflict: None, error: Some(error) },
+  }
 }
 
 /// Write a helper script to the app data dir and return its path.
@@ -466,6 +557,17 @@ pub async fn fabric_create_workspace(name: String, capacity_id: String) -> Fabri
 /// folder is removed. Never throws — returns a structured summary.
 #[tauri::command]
 pub async fn fabric_delete_apps(project_id: String) -> FabricDeleteResult {
+  // A team app's deployments belong to its workspace's pipeline; owners remove
+  // them with the app (team_remove_project).
+  if store::find_project(&project_id).is_some_and(|p| p.team.is_some()) {
+    return FabricDeleteResult {
+      ok: false,
+      deleted: 0,
+      failures: vec![],
+      needs_login: None,
+      error: Some(crate::services::team::NO_LOCAL_DEPLOY.to_string()),
+    };
+  }
   if store::find_project(&project_id).is_none() {
     return FabricDeleteResult {
       ok: false,
@@ -873,6 +975,37 @@ pub async fn fabric_list_workspace_models(
 mod tests {
   use super::*;
   use crate::types::FabricWorkspace;
+
+  #[test]
+  fn a_first_deploy_flags_a_same_named_app_but_not_its_own() {
+    let own = |ws: &str| FabricDeployment {
+      workspace_name: "Dev".into(),
+      name: None,
+      active: true,
+      workspace_id: Some(ws.into()),
+      item_id: Some("i1".into()),
+      api_url: None,
+      hosting_url: None,
+      deployed_at: None,
+    };
+    let existing = vec!["Notes".to_string(), "trip-logger".to_string()];
+    assert_eq!(replaced_app("notes", "ws-b", &[], &existing), Some("Notes".into()));
+    assert_eq!(replaced_app("notes", "WS-B", &[own("ws-b")], &existing), None);
+    assert_eq!(replaced_app("notes", "ws-b", &[own("ws-a")], &existing), Some("Notes".into()));
+    assert_eq!(replaced_app("budget", "ws-b", &[], &existing), None);
+    assert!(APP_ITEMS_HELPER_SOURCE.contains("type=AppBackend") && APP_ITEMS_HELPER_SOURCE.contains("runHelper(main)"));
+  }
+
+  #[test]
+  fn the_item_name_comes_from_rayfin_yml_id() {
+    let dir = std::env::temp_dir().join(format!("fab-item-name-{}", std::process::id()));
+    std::fs::create_dir_all(dir.join("rayfin")).unwrap();
+    std::fs::write(dir.join("rayfin").join("rayfin.yml"), "id: trip-logger\nname: Trip Logger\n").unwrap();
+    assert_eq!(project_item_name(&dir).as_deref(), Some("trip-logger"));
+    std::fs::write(dir.join("rayfin").join("rayfin.yml"), "name: No id\n").unwrap();
+    assert_eq!(project_item_name(&dir), None);
+    let _ = std::fs::remove_dir_all(&dir);
+  }
 
   #[test]
   fn workspaces_success_shape_deserializes() {

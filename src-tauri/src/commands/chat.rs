@@ -776,7 +776,7 @@ pub(crate) async fn run_turn(
     // relative event order is preserved.
     let mut todos_dirty = false;
 
-    let mut opts = MessageOptions::new(text.clone());
+    let mut opts = MessageOptions::new(crate::services::team::chat_text(&project_id, &text));
     if !attach.is_empty() {
       opts = opts.with_attachments(attach.clone());
     }

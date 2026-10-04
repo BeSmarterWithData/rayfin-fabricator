@@ -91,7 +91,7 @@ async fn latest_version(pkg: &str) -> Option<String> {
 }
 
 /// Parse the `x.y.z` core of a semver string (ignoring any prerelease/build).
-fn parse_core(version: Option<&str>) -> Option<(u64, u64, u64)> {
+pub(crate) fn parse_core(version: Option<&str>) -> Option<(u64, u64, u64)> {
   static RE: Lazy<regex::Regex> =
     Lazy::new(|| regex::Regex::new(r"(\d+)\.(\d+)\.(\d+)").unwrap());
   let v = version?;

@@ -135,7 +135,9 @@ pub async fn git_commit(id: String, message: String) -> GitCommitResult {
     git(&dir, &["config", "user.name", "Fabricator"]).await;
   }
 
-  let add = git(&dir, &["add", "-A"]).await;
+  // A team app commits only its own folder (the shared root files stay as published).
+  let add_args: &[&str] = if project.team.is_some() { &["add", "-A", "--", "."] } else { &["add", "-A"] };
+  let add = git(&dir, add_args).await;
   if !add.ok {
     let e = add.stderr.trim().to_string();
     return GitCommitResult {
@@ -234,13 +236,18 @@ pub async fn git_log(id: String) -> GitHistory {
     return none();
   };
   let cwd = project.path.clone();
+  // A team app shares its repository with the workspace's other apps: its
+  // history and changes are limited to its own folder (the cwd).
+  let scope: &[&str] = if project.team.is_some() { &["--", "."] } else { &[] };
 
   let inside = git(&cwd, &["rev-parse", "--is-inside-work-tree"]).await;
   if !inside.ok || inside.stdout.trim() != "true" {
     return none();
   }
 
-  let status = git(&cwd, &["status", "--porcelain=v1", "--untracked-files=all"]).await;
+  let mut status_args = vec!["status", "--porcelain=v1", "--untracked-files=all"];
+  status_args.extend_from_slice(scope);
+  let status = git(&cwd, &status_args).await;
   let working_changes = if status.ok {
     status.stdout.split('\n').filter(|l| !l.trim().is_empty()).count() as u32
   } else {
@@ -257,7 +264,10 @@ pub async fn git_log(id: String) -> GitHistory {
 
   let fmt = format!("{RECORD}%H{FIELD}%h{FIELD}%an{FIELD}%ar{FIELD}%aI{FIELD}%s");
   let n = MAX_COMMITS.to_string();
-  let log = git(&cwd, &["log", "-n", &n, "--shortstat", &format!("--pretty=format:{fmt}")]).await;
+  let pretty = format!("--pretty=format:{fmt}");
+  let mut log_args = vec!["log", "-n", &n, "--shortstat", &pretty];
+  log_args.extend_from_slice(scope);
+  let log = git(&cwd, &log_args).await;
   if !log.ok {
     return GitHistory { is_repo: true, no_commits: Some(true), commits: vec![], working_changes, head };
   }
@@ -616,6 +626,53 @@ pub async fn git_file_log(id: String, path: String) -> Vec<GitCommitSummary> {
 mod tests {
   use super::*;
 
+  fn run_git(dir: &Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git").args(args).current_dir(dir).output().expect("git runs");
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+  }
+
+  #[tokio::test]
+  async fn restoring_a_team_app_only_touches_its_folder() {
+    if which::which("git").is_err() {
+      return;
+    }
+    let root = std::env::temp_dir().join(format!("fab-revert-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(root.join("app")).unwrap();
+    std::fs::create_dir_all(root.join("other")).unwrap();
+    let commit = |msg: &str| run_git(&root, &["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", msg]);
+    run_git(&root, &["init", "-q", "-b", "main"]);
+    run_git(&root, &["config", "core.autocrlf", "false"]);
+    std::fs::write(root.join("app/a.txt"), "v1\n").unwrap();
+    std::fs::write(root.join("other/b.txt"), "theirs v1\n").unwrap();
+    std::fs::write(root.join("shared.json"), "{\"v\":1}\n").unwrap();
+    run_git(&root, &["add", "-A"]);
+    commit("first");
+    let old = run_git(&root, &["rev-parse", "HEAD"]);
+    std::fs::write(root.join("app/a.txt"), "v2\n").unwrap();
+    std::fs::write(root.join("other/b.txt"), "theirs v2\n").unwrap();
+    std::fs::write(root.join("shared.json"), "{\"v\":2}\n").unwrap();
+    commit("second");
+    run_git(&root, &["config", "user.name", "Me"]);
+    run_git(&root, &["config", "user.email", "me@example.com"]);
+
+    let app = root.join("app").to_string_lossy().to_string();
+    let result = revert_folder(&app, &old, "first").await;
+    assert!(result.ok, "{:?}", result.error);
+    assert_eq!(std::fs::read_to_string(root.join("app/a.txt")).unwrap(), "v1\n");
+    // Teammates' apps and shared files keep their latest version.
+    assert_eq!(std::fs::read_to_string(root.join("other/b.txt")).unwrap(), "theirs v2\n");
+    assert_eq!(std::fs::read_to_string(root.join("shared.json")).unwrap(), "{\"v\":2}\n");
+    let changed = run_git(&root, &["show", "--name-only", "--pretty=format:", "HEAD"]);
+    assert_eq!(changed, "app/a.txt");
+    assert_eq!(run_git(&root, &["log", "-1", "--pretty=%an"]), "Me");
+
+    // Restoring the same version again changes nothing.
+    let again = revert_folder(&app, &old, "first").await;
+    assert_eq!(again.no_changes, Some(true));
+    let _ = std::fs::remove_dir_all(&root);
+  }
+
   #[test]
   fn parse_status_branch_and_count() {
     let out = "## main...origin/main [ahead 1]\n M src/a.rs\n?? new.txt\n";
@@ -702,6 +759,49 @@ fn revert_err(message: &str) -> RevertResult {
   RevertResult { ok: false, head: None, no_changes: None, error: Some(message.to_string()) }
 }
 
+/// Restore a team app: only its folder (`cwd`) goes back to `target_sha`, so the
+/// workspace's other apps and shared files are untouched. Recorded as a new
+/// commit by the user's own git identity (set on the team clone).
+async fn revert_folder(cwd: &str, target_sha: &str, subject: &str) -> RevertResult {
+  let dirty = git(cwd, &["status", "--porcelain", "--", "."]).await;
+  if dirty.ok && !dirty.stdout.trim().is_empty() {
+    git(cwd, &["add", "-A", "--", "."]).await;
+    if !git(cwd, &["commit", "-m", "Save before restoring an earlier version"]).await.ok {
+      return revert_err("Could not save your current changes before restoring.");
+    }
+  }
+  let orig_res = git(cwd, &["rev-parse", "HEAD"]).await;
+  let orig = orig_res.stdout.trim().to_string();
+  if !orig_res.ok || orig.is_empty() {
+    return revert_err("Could not read the current version.");
+  }
+  let source = format!("--source={target_sha}");
+  let restored = git(cwd, &["restore", &source, "--staged", "--worktree", "--", "."]).await;
+  if !restored.ok {
+    let back = format!("--source={orig}");
+    git(cwd, &["restore", &back, "--staged", "--worktree", "--", "."]).await;
+    return revert_err("That version doesn’t include this app, so it can’t be restored.");
+  }
+  if git(cwd, &["diff", "--cached", "--quiet"]).await.ok {
+    return RevertResult { ok: true, head: Some(orig), no_changes: Some(true), error: None };
+  }
+  let restore_msg = format!("Restore earlier version — {subject}");
+  let commit = git(cwd, &["commit", "-m", &restore_msg]).await;
+  if !commit.ok {
+    let back = format!("--source={orig}");
+    git(cwd, &["restore", &back, "--staged", "--worktree", "--", "."]).await;
+    let e = commit.stderr.trim();
+    return revert_err(if e.is_empty() { "Could not save the restored version." } else { e });
+  }
+  let head = git(cwd, &["rev-parse", "HEAD"]).await;
+  RevertResult {
+    ok: true,
+    head: head.ok.then(|| head.stdout.trim().to_string()).filter(|h| !h.is_empty()),
+    no_changes: None,
+    error: None,
+  }
+}
+
 pub async fn git_revert(id: String, reference: String) -> RevertResult {
   let Some(project) = find_project(&id) else {
     return revert_err("Project not found.");
@@ -728,6 +828,10 @@ pub async fn git_revert(id: String, reference: String) -> RevertResult {
   } else {
     target_sha[..target_sha.len().min(7)].to_string()
   };
+
+  if project.team.is_some() {
+    return revert_folder(&cwd, &target_sha, &subject).await;
+  }
 
   // 1) Don't lose uncommitted work — commit it first.
   let dirty = git(&cwd, &["status", "--porcelain"]).await;
@@ -911,6 +1015,9 @@ fn no_repo_status() -> GitStatus {
   GitStatus { is_repo: false, branch: None, changed_count: 0, no_commits: None }
 }
 
+/// Team projects sync through their working branch (see `commands::team`).
+const TEAM_SYNC: &str = "Fabricator saves this team app to GitHub for you after each change. Use Update and Publish instead.";
+
 fn sync_err(message: &str, status: GitStatus, remote: GitRemoteStatus) -> GitSyncResult {
   GitSyncResult { ok: false, error: Some(message.to_string()), conflict: None, status, remote }
 }
@@ -919,6 +1026,9 @@ pub async fn git_pull(id: String) -> GitSyncResult {
   let Some(project) = find_project(&id) else {
     return sync_err("Project folder not found.", no_repo_status(), GitRemoteStatus::default());
   };
+  if project.team.is_some() {
+    return sync_err(TEAM_SYNC, git_status(id.clone()).await, GitRemoteStatus::default());
+  }
   if !Path::new(&project.path).exists() {
     return sync_err("Project folder not found.", no_repo_status(), GitRemoteStatus::default());
   }
@@ -1000,6 +1110,9 @@ pub async fn git_push(id: String) -> GitSyncResult {
   let Some(project) = find_project(&id) else {
     return sync_err("Project folder not found.", no_repo_status(), GitRemoteStatus::default());
   };
+  if project.team.is_some() {
+    return sync_err(TEAM_SYNC, git_status(id.clone()).await, GitRemoteStatus::default());
+  }
   if !Path::new(&project.path).exists() {
     return sync_err("Project folder not found.", no_repo_status(), GitRemoteStatus::default());
   }

@@ -177,6 +177,459 @@ export interface GithubReposResult {
   repos: GithubRepo[]
 }
 
+/* ------------------------------------------------------------------ *
+ * Team workspaces (experimental; ExperimentFlags.teamWorkspaces)
+ *
+ * A team workspace is one private GitHub repository holding several Rayfin
+ * apps (one per top-level folder). Its pipeline deploys each teammate's
+ * preview from pull requests and the published app from `main`, signing in as
+ * the workspace's service principal through GitHub OIDC. Team apps never
+ * deploy from this computer.
+ * ------------------------------------------------------------------ */
+
+/** Workspace-wide settings committed to the repo as `fabricator.workspace.json`. */
+export interface TeamManifest {
+  schema: number
+  name: string
+  tenantId: string
+  /** Signs in for pushes to main (published apps). */
+  deployIdentity: { clientId: string; displayName: string }
+  /** Signs in for pull requests (previews only); empty when one identity serves both. */
+  previewIdentity?: { clientId: string; displayName: string }
+  fabric: {
+    production: { id: string; name: string }
+    previews: { id: string; name: string }
+  }
+  settings: { requireReview: boolean }
+  templateVersion: number
+}
+
+export interface TeamCreateRequest {
+  name: string
+  /** GitHub account (you or an organization) that owns the repository. */
+  owner: string
+  ownerIsOrg?: boolean
+  capacityId: string
+  capacityName?: string
+  /** Use an app registration an administrator created (its client ID). */
+  existingClientId?: string
+}
+
+/** A setup or publishing problem, explained in plain language. */
+export interface TeamProblem {
+  step: string
+  message: string
+  guidance?: string
+  /** Ready-to-send instructions for an administrator. */
+  adminNote?: string
+}
+
+export interface TeamSetupState {
+  request: TeamCreateRequest
+  completed: string[]
+  tenantId?: string
+  appId?: string
+  appObjectId?: string
+  spObjectId?: string
+  previewAppId?: string
+  previewAppObjectId?: string
+  previewSpObjectId?: string
+  productionWorkspaceId?: string
+  previewsWorkspaceId?: string
+  /** 'enforced' when GitHub protects main; 'app' when only Fabricator does. */
+  protection?: 'enforced' | 'app'
+  problem?: TeamProblem
+  done: boolean
+}
+
+export interface TeamWorkspace {
+  id: string
+  name: string
+  /** `owner/name` on GitHub. */
+  repo: string
+  defaultBranch: string
+  dir: string
+  role: 'owner' | 'member' | ''
+  addedAt: string
+  manifest?: TeamManifest
+  /** Present when this computer set the workspace up. */
+  setup?: TeamSetupState
+}
+
+/** One pipeline deployment of a team app. */
+export interface TeamDeployRecord {
+  /** `production/<folder>` or `preview/<folder>/<login>`. */
+  environment: string
+  /** GitHub deployment state: success, failure, error, in_progress, queued, … */
+  state: string
+  sha?: string
+  url?: string
+  apiUrl?: string
+  portalUrl?: string
+  itemId?: string
+  workspaceId?: string
+  logUrl?: string
+  /** e.g. 'data-loss' when a destructive data-model change was refused. */
+  reason?: string
+  updatedAt?: string
+  /** The deployment's public `RAYFIN_PUBLIC_*` settings (for local previews). */
+  publicEnv?: Record<string, string>
+}
+
+export interface TeamPublishState {
+  stage: 'checks' | 'review' | 'merged' | 'deploying' | 'done' | 'failed'
+  prNumber?: number
+  mergeSha?: string
+  error?: string
+  dataLoss?: boolean
+  runUrl?: string
+  runId?: number
+  at: string
+}
+
+/** Ties a project to its folder in a team workspace. */
+export interface TeamBinding {
+  workspaceId: string
+  folder: string
+  worktree: string
+  branch?: string
+  prNumber?: number
+  prUrl?: string
+  /** Which deployment the preview shows. */
+  view?: 'preview' | 'production'
+  preview?: TeamDeployRecord
+  production?: TeamDeployRecord
+  publish?: TeamPublishState
+}
+
+export interface TeamRepoProject {
+  folder: string
+  name: string
+  /** Set once the app is open on this computer. */
+  projectId?: string
+}
+
+export interface TeamWorkspaceDetail {
+  ok: boolean
+  error?: string
+  workspace?: TeamWorkspace
+  projects: TeamRepoProject[]
+}
+
+export interface TeamEnvStatus {
+  enabled: boolean
+  ghInstalled: boolean
+  ghSignedIn: boolean
+  ghUser?: string
+  /** GitHub permissions the CLI's sign-in lacks (repo, read:org, workflow). */
+  ghMissingScopes: string[]
+  azSignedIn: boolean
+  azUser?: string
+  azTenant?: string
+  error?: string
+}
+
+export interface TeamOwner {
+  login: string
+  isOrg: boolean
+  avatarUrl?: string
+}
+
+export interface TeamOwnersResult {
+  ok: boolean
+  error?: string
+  owners: TeamOwner[]
+}
+
+export interface TeamInvitation {
+  id: number
+  repo: string
+  inviter?: string
+  createdAt?: string
+  description?: string
+}
+
+export interface TeamDiscovered {
+  repo: string
+  description?: string
+}
+
+export interface TeamJoinOptions {
+  ok: boolean
+  error?: string
+  invitations: TeamInvitation[]
+  discovered: TeamDiscovered[]
+}
+
+export interface TeamMember {
+  login: string
+  avatarUrl?: string
+  role: 'owner' | 'member'
+  pending: boolean
+  invitationId?: number
+}
+
+export interface TeamMembersResult {
+  ok: boolean
+  error?: string
+  members: TeamMember[]
+  canManage: boolean
+}
+
+/** Someone with access to a team workspace's Fabric apps. */
+export interface TeamFabricPerson {
+  principalId: string
+  name: string
+  email?: string
+  /** 'User' or 'Group'. */
+  kind: string
+  /** The workspaces they can reach: 'published apps' and/or 'previews'. */
+  access: string[]
+  /** The GitHub member they were given access for, when known. */
+  member?: string
+}
+
+export interface TeamFabricAccess {
+  ok: boolean
+  error?: string
+  people: TeamFabricPerson[]
+}
+
+export interface TeamActionResult {
+  ok: boolean
+  error?: string
+  problem?: TeamProblem
+  workspace?: TeamWorkspace
+  project?: StudioProject
+  /** Files changed by both you and a teammate (repo-relative). */
+  conflicts?: string[]
+}
+
+export interface TeamRunStep {
+  name: string
+  status: string
+  conclusion?: string
+  startedAt?: string
+  completedAt?: string
+}
+
+export interface TeamRunStatus {
+  id: number
+  kind: 'preview' | 'production'
+  status: string
+  conclusion?: string
+  url: string
+  sha: string
+  steps: TeamRunStep[]
+  startedAt?: string
+}
+
+export interface TeamPullRequest {
+  number: number
+  url: string
+  draft: boolean
+  state: 'open' | 'closed' | 'merged'
+  title: string
+  author: string
+  headSha?: string
+  approvals: number
+}
+
+/** A team app's working state (app bar Publish control). */
+export interface TeamSessionStatus {
+  ok: boolean
+  error?: string
+  branch?: string
+  pr?: TeamPullRequest
+  /** Saved changes not yet published. */
+  unpublished: number
+  /** Edits not saved to GitHub yet. */
+  dirty: boolean
+  /** Teammates' published changes to this app not yet in your branch. */
+  behind: number
+  /** A merge with teammates' changes is waiting to be resolved. */
+  conflicted: boolean
+  requireReview: boolean
+  run?: TeamRunStatus
+  preview?: TeamDeployRecord
+  production?: TeamDeployRecord
+  publish?: TeamPublishState
+  view: 'preview' | 'production'
+  viewer?: string
+}
+
+export interface TeamReviewRequest {
+  workspaceId: string
+  repo: string
+  pr: TeamPullRequest
+}
+
+export interface TeamHealthItem {
+  id: string
+  label: string
+  state: 'ok' | 'warn' | 'error' | 'unknown'
+  detail?: string
+  repairable: boolean
+}
+
+export interface TeamHealth {
+  ok: boolean
+  error?: string
+  items: TeamHealthItem[]
+}
+
+/** A file a working copy changes, compared with the published version. */
+export interface TeamMapFile {
+  /** Repository-relative path. */
+  path: string
+  change: 'added' | 'modified' | 'deleted' | 'renamed'
+  additions: number
+  deletions: number
+}
+
+/** Someone's working copy of a team app: branch, pull request, changes and preview. */
+export interface TeamMapCopy {
+  branch: string
+  /** GitHub login. */
+  author: string
+  avatarUrl?: string
+  mine: boolean
+  pr?: TeamPullRequest
+  additions: number
+  deletions: number
+  changedFiles: number
+  commits: number
+  /** Edits on this computer that aren't saved to GitHub yet. */
+  localEdits: boolean
+  /** Teammates' published changes not in this copy yet (this computer only). */
+  behind?: number
+  review?: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | string
+  updatedAt?: string
+  preview?: TeamDeployRecord
+  files: TeamMapFile[]
+}
+
+export interface TeamMapApp {
+  folder: string
+  name: string
+  /** On `main`; otherwise it exists only on someone's branch so far. */
+  published: boolean
+  /** Set when the app is open on this computer. */
+  projectId?: string
+  production?: TeamDeployRecord
+  copies: TeamMapCopy[]
+}
+
+export interface TeamMapJob {
+  name: string
+  /** The app a `Preview <folder>` / `Deploy <folder>` job deploys. */
+  folder?: string
+  status: string
+  conclusion?: string
+  startedAt?: string
+  completedAt?: string
+  url?: string
+  steps: TeamRunStep[]
+}
+
+/** A run of the workspace's pipeline. */
+export interface TeamMapRun {
+  id: number
+  kind: 'preview' | 'production' | 'verify' | 'manual' | 'other'
+  status: string
+  conclusion?: string
+  url: string
+  sha: string
+  branch?: string
+  title?: string
+  actor?: string
+  actorAvatar?: string
+  prNumber?: number
+  startedAt?: string
+  updatedAt?: string
+  /** Jobs, for runs that haven't finished. */
+  jobs: TeamMapJob[]
+}
+
+export interface TeamMapMember {
+  login: string
+  avatarUrl?: string
+  role: 'owner' | 'member'
+}
+
+/** Everything in a team workspace, for the workspace map. */
+export interface TeamMap {
+  ok: boolean
+  error?: string
+  workspace?: TeamWorkspace
+  viewer?: string
+  apps: TeamMapApp[]
+  runs: TeamMapRun[]
+  members: TeamMapMember[]
+  fetchedAt: string
+}
+
+export interface TeamActivity {
+  ok: boolean
+  error?: string
+  runs: TeamMapRun[]
+  fetchedAt: string
+}
+
+export interface TeamDiffFile {
+  path: string
+  change: 'added' | 'modified' | 'deleted' | 'renamed'
+  additions: number
+  deletions: number
+  /** Unified-diff hunks; absent for binary or very large files. */
+  patch?: string
+  truncated: boolean
+}
+
+export interface TeamDiff {
+  ok: boolean
+  error?: string
+  files: TeamDiffFile[]
+  truncated: boolean
+}
+
+/** Which copy of an app to read for the overview's data view. */
+export interface TeamResourceRequest {
+  folder: string
+  /** A working copy's branch on GitHub; omitted for the published app. */
+  branch?: string
+  /** Your copy on this computer, unsaved edits included. */
+  local?: boolean
+}
+
+/** One copy of an app's config: rayfin.yml, its data model and its functions' source. */
+export interface TeamResourceSource {
+  folder: string
+  branch?: string
+  local: boolean
+  ok: boolean
+  error?: string
+  /** Project-relative path → text. */
+  files: Record<string, string>
+  /** Some files were left out for size. */
+  truncated: boolean
+}
+
+export interface TeamResources {
+  ok: boolean
+  error?: string
+  sources: TeamResourceSource[]
+}
+
+/** Streamed progress of setup (scope = a caller tag) or publish (scope = project id). */
+export interface TeamProgressEvent {
+  scope: string
+  step: string
+  state: 'running' | 'done' | 'error' | 'skipped'
+  label: string
+  detail?: string
+}
+
 /** A Fabric workspace the signed-in user can access, with capacity details. */
 export interface FabricWorkspace {
   id: string
@@ -478,13 +931,6 @@ export interface InstallResult extends ProcResult {
  * Projects
  * ------------------------------------------------------------------ */
 
-/** A built-in (bundled) Rayfin project template shown in the New Project picker. */
-export interface TemplateInfo {
-  name: string
-  displayName: string
-  description: string
-}
-
 /** One template entry from a community gallery repo's root `rayfin-template.yml`. */
 export interface CommunityTemplate {
   /** Gallery repo URL this is scaffolded from (`npm create @microsoft/rayfin -- -t <repoUrl>`). */
@@ -576,6 +1022,8 @@ export interface DevServerResult {
   url?: string
   error?: string
   conflict?: PortConflict
+  /** Team apps: the deployment the local preview uses (`production` = the published app). */
+  backend?: 'preview' | 'production' | 'none'
 }
 
 /** A process listening on a local port the live preview needs. */
@@ -609,6 +1057,15 @@ export interface PortConflict {
 export interface DevPortPlan {
   port?: number
   conflict?: PortConflict
+}
+
+/** A local preview's server changed on its own (on `dev:state`). */
+export interface DevStateEvent {
+  projectId: string
+  /** `running`: it stopped answering and was started again. `stopped`: it couldn't be. */
+  state: 'running' | 'stopped'
+  url?: string
+  error?: string
 }
 
 /** One Fabric deployment recorded for a project (`rayfin up list`). */
@@ -774,6 +1231,11 @@ export interface StudioProject {
    * is looking at.
    */
   previewMode?: PreviewMode
+  /**
+   * Set when the project lives in a GitHub-backed team workspace (experimental).
+   * Team projects are deployed by the workspace's pipeline, never locally.
+   */
+  team?: TeamBinding
   /** True when the folder no longer exists / is no longer a Rayfin project. */
   missing?: boolean
 }
@@ -784,6 +1246,8 @@ export interface ProjectsState {
   /** Currently active project id, or null when none is selected. */
   activeProjectId: string | null
   projects: StudioProject[]
+  /** Team workspaces on this computer (empty while the experiment is off). */
+  teamWorkspaces?: TeamWorkspace[]
 }
 
 export type ThemePreference = 'dark' | 'light' | 'system'
@@ -824,13 +1288,20 @@ export interface ExperimentFlags {
    * Off by default; requires the project's locally installed Vite.
    */
   localDevPreview?: boolean
+  /**
+   * Team workspaces: share apps through a private GitHub repository, work on
+   * branches, and publish through a pipeline that deploys with a service
+   * principal. Team apps never deploy from this computer. Turning it off hides
+   * team workspaces without deleting anything.
+   */
+  teamWorkspaces?: boolean
 }
 
 export interface CreateProjectInput {
   name: string
   /**
-   * Template the project is scaffolded from. Either a built-in (bundled) name
-   * ('fabricator-universal' | 'fabricator-todoapp') or a community template URL
+   * Template the project is scaffolded from: the bundled starter
+   * ('fabricator-universal', also used when empty) or a community template URL
    * (e.g. an awesome-rayfin git/tarball URL) — `npm create @microsoft/rayfin -- -t`
    * accepts either.
    */
@@ -847,6 +1318,26 @@ export interface ProjectActionResult {
   ok: boolean
   error?: string
   project?: StudioProject
+}
+
+/** Whether a new project's name is free where it will be saved. */
+export interface ProjectNameCheck {
+  ok: boolean
+  /** Why the name can't be used, in plain language. */
+  message?: string
+}
+
+/**
+ * Whether deploying the active project into a workspace would replace another
+ * app: `rayfin up -y` reuses a same-named Rayfin app there on a first deploy.
+ */
+export interface DeployTargetCheck {
+  /** The Fabric item name the project deploys as (`rayfin.yml` `id`). */
+  itemName?: string
+  /** The existing app's name, when one would be replaced. */
+  conflict?: string
+  /** The check couldn't run; the deploy isn't blocked. */
+  error?: string
 }
 
 /** A compact snapshot of a project's git working tree. */
@@ -1572,7 +2063,9 @@ export const IpcChannels = {
   previewNav: 'preview:nav',
   previewAgent: 'preview:agent',
   updateProgress: 'update:progress',
-  deleteProgress: 'delete:progress'
+  deleteProgress: 'delete:progress',
+  teamProgress: 'team:progress',
+  devState: 'dev:state'
 } as const
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels]
@@ -1717,15 +2210,23 @@ export interface RayfinStudioApi {
      * `needsLogin` when the Fabric session has lapsed.
      */
     listWorkspaceModels: (workspaceId: string) => Promise<WorkspaceModelsResult>
+    /**
+     * Before the active project's first deploy into a workspace, look for a
+     * same-named app there that the deploy would replace. Never throws.
+     */
+    checkDeployTarget: (workspaceId: string) => Promise<DeployTargetCheck>
   }
 
   projects: {
     /** Current projects state (workspace root, list, active id). */
     state: () => Promise<ProjectsState>
-    /** Available scaffolding templates. */
-    templates: () => Promise<TemplateInfo[]>
     /** Fetch a community template gallery (defaults to microsoft/awesome-rayfin). */
     communityTemplates: (repoUrl?: string) => Promise<CommunityGalleryResult>
+    /**
+     * Whether a new project's name is free: in the projects folder, or in a
+     * team workspace (its apps and its published-apps Fabric workspace).
+     */
+    checkName: (name: string, teamWorkspaceId?: string) => Promise<ProjectNameCheck>
     /** Native folder picker; returns the chosen path or null if cancelled. */
     pickFolder: () => Promise<string | null>
     /** Native folder picker for the workspace root; persists and returns state. */
@@ -2067,6 +2568,12 @@ export interface RayfinStudioApi {
      * the app. A failed push undoes the rayfin.yml edit. Streams on `dev:register`.
      */
     registerPort: (projectId: string, port: number) => Promise<DeployResult>
+    /**
+     * A local preview's server changed on its own: `running` (it stopped
+     * answering and was started again; the preview reloads) or `stopped` (it
+     * couldn't be, with why). Returns the unsubscribe function.
+     */
+    onState: (callback: (event: DevStateEvent) => void) => () => void
   }
 
   /**
@@ -2192,4 +2699,92 @@ export interface RayfinStudioApi {
   onChatEvent: (cb: (envelope: ChatEventEnvelope) => void) => () => void
   /** Subscribe to streamed advisor events. Returns an unsubscribe function. */
   onAdvisorEvent: (cb: (envelope: AdvisorEventEnvelope) => void) => () => void
+
+  /**
+   * Team workspaces (experimental). Every call refuses while
+   * {@link ExperimentFlags.teamWorkspaces} is off.
+   */
+  team: {
+    /** GitHub CLI and Azure CLI sign-in, plus missing GitHub permissions. */
+    envStatus: () => Promise<TeamEnvStatus>
+    /** Open a terminal to sign in to GitHub (or add permissions); poll envStatus. */
+    githubSignIn: (signedIn: boolean) => Promise<ProcResult>
+    /** GitHub accounts that can own a workspace (you and your organizations). */
+    owners: () => Promise<TeamOwnersResult>
+    /** Fabric capacities for the workspace's apps (via the Azure CLI). */
+    capacities: () => Promise<FabricCapacitiesResult>
+    /** Set up a new team workspace automatically; progress on `team:progress` (scope). */
+    create: (request: TeamCreateRequest, scope: string) => Promise<TeamActionResult>
+    /** Continue an interrupted setup, optionally with an existing app registration. */
+    resumeSetup: (
+      workspaceId: string,
+      scope: string,
+      existingClientId?: string
+    ) => Promise<TeamActionResult>
+    /** Stop waiting on a long operation (setup verification or publish). */
+    cancel: (key: string) => Promise<boolean>
+    /** Pending invitations and team workspaces you can join. */
+    joinOptions: () => Promise<TeamJoinOptions>
+    acceptInvitation: (invitationId: number, repo: string) => Promise<TeamActionResult>
+    join: (repo: string) => Promise<TeamActionResult>
+    /** The workspace's apps, refreshed from GitHub. */
+    detail: (workspaceId: string) => Promise<TeamWorkspaceDetail>
+    /** Forget a workspace on this computer (work on GitHub is kept). */
+    leave: (workspaceId: string) => Promise<ProjectsState>
+    /** Delete a workspace (owners): identity removed, repo archived. */
+    delete: (workspaceId: string, deleteFabric: boolean) => Promise<TeamActionResult>
+    /** Open a team app on a working branch (resuming your open changes). */
+    openProject: (workspaceId: string, folder: string) => Promise<TeamActionResult>
+    /** Create a new app in a team workspace (streams on `create:project`). */
+    createProject: (workspaceId: string, input: CreateProjectInput) => Promise<TeamActionResult>
+    /** Copy a local project into a team workspace as a new team app. */
+    moveProject: (workspaceId: string, projectId: string) => Promise<TeamActionResult>
+    /** Remove an app from the workspace (owners), optionally deleting its Fabric apps. */
+    removeProject: (
+      workspaceId: string,
+      folder: string,
+      deleteApps: boolean
+    ) => Promise<TeamActionResult>
+    /** Save the app's changes to its working branch (deploys your preview). */
+    sync: (projectId: string, message: string) => Promise<TeamActionResult>
+    /** Working state; `refresh` also asks GitHub (PR, deployments, pipeline run). */
+    status: (projectId: string, refresh: boolean) => Promise<TeamSessionStatus>
+    /** Bring in teammates' published changes; `keepConflicts` leaves them for Copilot. */
+    update: (projectId: string, keepConflicts: boolean) => Promise<TeamActionResult>
+    /** Throw away unpublished changes and start fresh from the published app. */
+    discard: (projectId: string) => Promise<TeamActionResult>
+    /** Show your preview or the published app in the preview pane. */
+    setView: (projectId: string, view: 'preview' | 'production') => Promise<TeamActionResult>
+    runLog: (projectId: string, runId: number) => Promise<string>
+    /** Publish (progress on `team:progress` with scope = projectId). */
+    publish: (projectId: string, confirmDataLoss: boolean) => Promise<TeamActionResult>
+    reviewRequests: () => Promise<TeamReviewRequest[]>
+    approve: (workspaceId: string, prNumber: number) => Promise<TeamActionResult>
+    members: (workspaceId: string) => Promise<TeamMembersResult>
+    invite: (
+      workspaceId: string,
+      login: string,
+      owner: boolean,
+      email?: string
+    ) => Promise<TeamActionResult>
+    grantFabricAccess: (workspaceId: string, email: string, login?: string) => Promise<TeamActionResult>
+    /** People who can open the workspace's apps in Fabric (owners). */
+    fabricAccess: (workspaceId: string) => Promise<TeamFabricAccess>
+    revokeFabricAccess: (workspaceId: string, principalId: string) => Promise<TeamActionResult>
+    /** Remove a member (and the Fabric access given to them from this computer). */
+    removeMember: (workspaceId: string, login: string, invitationId?: number) => Promise<TeamActionResult>
+    setRequireReview: (workspaceId: string, require: boolean) => Promise<TeamActionResult>
+    health: (workspaceId: string) => Promise<TeamHealth>
+    /** Fix what the health check found, then verify the pipeline. */
+    repair: (workspaceId: string, scope: string) => Promise<TeamActionResult>
+    /** Apps, working copies, deployments, pipeline runs and members (workspace map). */
+    map: (workspaceId: string) => Promise<TeamMap>
+    /** The pipeline's recent runs, with the steps of those in progress. */
+    activity: (workspaceId: string) => Promise<TeamActivity>
+    /** A working copy's changes: a pull request's, or your copy here (with unsaved edits). */
+    diff: (workspaceId: string, folder: string, prNumber?: number) => Promise<TeamDiff>
+    /** Apps' config (data model, functions, connectors), published and in working copies. */
+    resources: (workspaceId: string, requests: TeamResourceRequest[]) => Promise<TeamResources>
+    onProgress: (cb: (event: TeamProgressEvent) => void) => () => void
+  }
 }

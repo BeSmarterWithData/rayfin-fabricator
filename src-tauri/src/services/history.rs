@@ -70,6 +70,15 @@ pub fn clear_history(project_id: &str) {
   let _ = std::fs::remove_file(history_file(project_id));
 }
 
+/// Copy one project's conversation to another (used when a project moves into
+/// a team workspace and gets a new id).
+pub fn copy_history(from_project_id: &str, to_project_id: &str) {
+  let messages = load_history(from_project_id);
+  if !messages.is_empty() {
+    save_history(to_project_id, messages);
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;

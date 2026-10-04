@@ -421,7 +421,7 @@ describe('platform rules', () => {
         'rayfin/connectors/sales/schema.ts': "import { Sales } from './Sales.js';\nexport type AppConnectorsSchema = { sales: Sales };\n",
         'rayfin/connectors/sales/Sales.ts': 'export class Sales {}\n',
         'rayfin/connectors/old/schema.ts': 'export {}\n',
-        'src/connectors.ts': "import { ConnectorsRayfinClient } from '@microsoft/rayfin-client';\n"
+        'src/connectors.ts': "import { ConnectorsRayfinClient } from '@microsoft/rayfin-client/experimental';\n"
       },
       {
         packages: [
@@ -435,7 +435,7 @@ describe('platform rules', () => {
       expect.arrayContaining([
         'platform/connector-app-auth',
         'platform/connector-schema-value-import',
-        'platform/connectors-stable-entry',
+        'platform/connector-client-experimental-import',
         'platform/connector-orphaned-dir',
         'platform/connector-version'
       ])
@@ -453,7 +453,7 @@ describe('platform rules', () => {
     expect((await check()).status('config/connectors-list-shape')).toBe('na')
   })
 
-  it('checks functions and experimental services', async () => {
+  it('checks functions, their availability, and experimental storage', async () => {
     const out = await check({
       'rayfin/rayfin.yml': YML.replace('  staticHosting:', '  functions:\n    enabled: true\n  staticHosting:'),
       'rayfin/functions/package.json': JSON.stringify({ dependencies: { mssql: '^11.0.1' } }, null, 2),
@@ -464,10 +464,22 @@ describe('platform rules', () => {
       expect.arrayContaining([
         'platform/functions-context-import',
         'platform/functions-mssql',
-        'platform/experimental-services'
+        'platform/functions-availability',
+        'config/functions-auth'
       ])
     )
-    expect(out.finding('platform/experimental-services')!.severity).toBe('note')
+    expect(out.ids).not.toContain('platform/experimental-services')
+    expect(out.finding('platform/functions-availability')!.severity).toBe('note')
+    expect(out.finding('config/functions-auth')!.severity).toBe('high')
+
+    const withAuth = await check({
+      'rayfin/rayfin.yml': YML.replace(
+        '  staticHosting:',
+        '  functions:\n    enabled: true\n    auth:\n      type: application\n  storage:\n    enabled: true\n  staticHosting:'
+      )
+    })
+    expect(withAuth.ids).not.toContain('config/functions-auth')
+    expect(withAuth.finding('platform/experimental-services')!.detail).toContain('storage')
   })
 
   it('flags deprecated Fabric callbacks and missing agent files', async () => {
@@ -477,6 +489,103 @@ describe('platform rules', () => {
       '.agents/skills/rayfin/SKILL.md': null
     })
     expect(out.ids).toEqual(expect.arrayContaining(['platform/deprecated-fabric-callback', 'platform/ai-files-missing']))
+  })
+})
+
+describe('Rayfin 1.36 rules', () => {
+  it('flags reserved entity names and unsupported relationship options', async () => {
+    const event = [
+      "import { entity, authenticated, uuid, text, one } from '@microsoft/rayfin-core';",
+      "import { Todo } from './Todo.js';",
+      '',
+      '@entity()',
+      "@authenticated('read')",
+      'export class Date {',
+      '  @uuid() id!: string;',
+      '  @text({ max: 50 }) label!: string;',
+      "  @one(() => Todo, { optional: true, foreignKey: 'todo' }) todo?: Todo;",
+      '}',
+      ''
+    ].join('\n')
+    const out = await check({
+      'rayfin/data/Date.ts': event,
+      'rayfin/data/schema.ts':
+        "import { Todo } from './Todo.js';\nimport { Date } from './Date.js';\n\nexport type AppSchema = {\n  Todo: Todo;\n  Date: Date;\n};\n\nexport const schema = [Todo, Date];\n"
+    })
+    expect(out.finding('data-model/reserved-entity-name')!.detail).toContain('`Date`')
+    const relation = out.finding('data-model/relation-options')!
+    expect(relation.detail).toContain('passes `foreignKey` to `@one`')
+
+    const renamed = await check({
+      'rayfin/data/Date.ts': event.replace('@entity()', "@entity('EventDate')").replace(", foreignKey: 'todo'", '')
+    })
+    expect(renamed.ids).not.toContain('data-model/reserved-entity-name')
+    expect(renamed.ids).not.toContain('data-model/relation-options')
+  })
+
+  it('flags removed experimental imports, removed audiences, and the old context API', async () => {
+    const out = await check({
+      'rayfin/data/Note.ts':
+        "import { entity, text, blob } from '@microsoft/rayfin-core/experimental';\nexport const x = [entity, text, blob]\n",
+      'rayfin/rayfin.yml': YML.replace(
+        '  staticHosting:',
+        '  functions:\n    enabled: true\n    auth:\n      type: application\n  staticHosting:'
+      ),
+      'rayfin/functions/src/function_app.ts': [
+        'export const f = async (ctx) => {',
+        '  const a = AudienceType.KeyVault',
+        "  const t = await ctx.getToken(AudienceType.Sql)",
+        "  const s = await ctx.getSecret('API_KEY')",
+        '  return [a, t, s]',
+        '}',
+        ''
+      ].join('\n')
+    })
+    const moved = out.finding('platform/removed-experimental-import')!
+    expect(moved.detail).toContain('`entity`, `text`')
+    expect(moved.detail).not.toContain('`blob`')
+    expect(out.finding('platform/functions-removed-audience')!.detail).toContain('AudienceType.KeyVault')
+    expect(out.finding('platform/functions-legacy-context-api')!.locations).toHaveLength(1)
+
+    // Code that's correct for an older Rayfin isn't flagged by 1.36-only rules.
+    const older = await check(
+      { 'rayfin/data/Note.ts': "import { entity } from '@microsoft/rayfin-core/experimental';\n" },
+      { packages: [{ name: '@microsoft/rayfin-core', installed: '1.35.1', declared: '1.35.1' }] }
+    )
+    expect(older.status('platform/removed-experimental-import')).toBe('na')
+  })
+
+  it('checks rayfin.yml settings that changed in 1.35.1 and 1.36', async () => {
+    const yml = YML.replace('    assetAccess: protected\n', '')
+      .replace('  staticHosting:', '  connectors:\n    enabled: true\n  staticHosting:')
+      .replace('    enabled: true\n    folder: dist', '    enabled: true\n    anonymousAccess: true\n    folder: dist')
+    const out = await check({
+      'rayfin/rayfin.yml': yml,
+      'rayfin/.env.local': 'RAYFIN_FEATURE_FLAGS=storage,functions\nSECRET_TOKEN=abc123\n'
+    })
+    expect(out.finding('config/static-hosting-posture')!.severity).toBe('low')
+    const deprecated = out.finding('config/deprecated-yml-keys')!
+    expect(deprecated.detail).toMatch(/services\.connectors\.enabled/)
+    expect(deprecated.detail).toMatch(/anonymousAccess/)
+    const flags = out.finding('config/stale-feature-flags')!
+    expect(flags.detail).toContain('`functions`')
+    expect(flags.excerpt).not.toContain('SECRET_TOKEN')
+
+    const embedded = await check({
+      'rayfin/rayfin.yml': YML.replace('    assetAccess: protected', '    assetAccess: public\n    embedded:\n      only: true')
+    })
+    expect(embedded.finding('config/embedded-public-conflict')!.severity).toBe('high')
+  })
+
+  it('flags direct Entra sign-in without the exchange enabled', async () => {
+    const source = "import { signInWithEntraToken } from '@microsoft/rayfin-auth-provider-fabric';\nawait signInWithEntraToken(client.auth, { entraToken })\n"
+    const off = await check({ 'src/services/entra.ts': source })
+    expect(off.ids).toContain('access/entra-exchange-not-enabled')
+    const on = await check({
+      'src/services/entra.ts': source,
+      'rayfin/rayfin.yml': YML.replace('    fabric:\n      enabled: true', '    fabric:\n      enabled: true\n      externalEntraExchange: true')
+    })
+    expect(on.ids).not.toContain('access/entra-exchange-not-enabled')
   })
 })
 

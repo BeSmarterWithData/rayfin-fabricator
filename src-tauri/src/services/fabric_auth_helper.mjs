@@ -77,10 +77,18 @@ export function azToken(resource, execute = execFile) {
   })
 }
 
+// Fabric's and Power BI's own hosts: their public endpoints, and the regional
+// clusters (`wabi-west-us3-a-primary-redirect.analysis.windows.net`) that
+// long-running operations and paging send callers to for the tenant's region.
+const MICROSOFT_API_HOSTS = [/\.analysis(?:-df)?\.windows\.net$/i, /(^|\.)fabric\.microsoft\.com$/i, /(^|\.)powerbi\.com$/i]
+
+const microsoftApi = (url) => url.protocol === 'https:' && MICROSOFT_API_HOSTS.some((host) => host.test(url.hostname))
+
 export function apiUrl(value, base) {
   const url = new URL(value, base)
   const expected = new URL(base)
-  if (url.origin !== expected.origin || url.username || url.password) {
+  const sameService = url.origin === expected.origin || (microsoftApi(expected) && microsoftApi(url))
+  if (!sameService || url.username || url.password) {
     throw new Error('The API returned a URL outside the authenticated service.')
   }
   return url.href

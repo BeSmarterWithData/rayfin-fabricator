@@ -1,4 +1,4 @@
-import { parseClasses, readSchemaList, readSchemaTypeNames } from '../../model/parseSchema'
+import { parseClasses, readSchemaList, readSchemaTypeNames, skipBalanced } from '../../model/parseSchema'
 import type { ModelField } from '../../model/parseSchema'
 import type { QuickHit, QuickRuleImpl } from '../quick'
 import { listLabels } from '../quick'
@@ -21,6 +21,39 @@ const FIELD_DECORATORS = new Set([
 ])
 const RELATIONS = new Set(['one', 'many'])
 const DATA_FILE = /^rayfin\/data\/[^/]+\.ts$/
+/** GraphQL type names the generated schema already defines (case-sensitive), per Rayfin 1.36. */
+const RESERVED_NAMES = new Set([
+  'Any', 'Base64String', 'Boolean', 'Byte', 'ByteArray', 'Date', 'DateTime', 'Decimal', 'Duration',
+  'Float', 'ID', 'Int', 'LocalDate', 'LocalDateTime', 'LocalTime', 'Long', 'Mutation', 'Query',
+  'Short', 'SignedByte', 'Single', 'String', 'Subscription', 'Time', 'TimeSpan', 'UnsignedByte',
+  'UnsignedInt', 'UnsignedLong', 'UnsignedShort', 'URI', 'URL', 'UUID'
+])
+/** The only options `@one()` / `@many()` accept. */
+const RELATION_OPTIONS = new Set(['optional', 'unique'])
+
+/** Top-level keys of the options object in a decorator's argument text. */
+function optionKeys(args: string): string[] {
+  const open = args.indexOf('{')
+  if (open < 0) return []
+  const body = args.slice(open + 1, skipBalanced(args, open, '{', '}') - 1)
+  const keys: string[] = []
+  let depth = 0
+  let token = ''
+  for (const ch of body) {
+    if ('{[('.includes(ch)) depth++
+    else if ('}])'.includes(ch)) depth--
+    if (depth === 0 && ch === ':') {
+      const key = /([A-Za-z_$][\w$]*)\s*$/.exec(token)?.[1]
+      if (key) keys.push(key)
+      token = ''
+    } else if (depth === 0 && ch === ',') {
+      token = ''
+    } else {
+      token += ch
+    }
+  }
+  return keys
+}
 
 function isRelation(f: ModelField): boolean {
   return f.decorator === 'one' || f.decorator === 'many'
@@ -264,6 +297,47 @@ export const dataModelRules: QuickRuleImpl[] = [
             label: `${e.name} ↔ ${other.name}`,
             message: `${code(e.name)} and ${code(other.name)} each declare ${code('@many')} of the other, which Rayfin doesn't support without a join entity.`
           })
+        }
+      }
+      return hits
+    }
+  },
+  {
+    id: 'data-model/reserved-entity-name',
+    run: (ctx) =>
+      ctx.model.entities.flatMap((e) => {
+        const name = e.customName ?? e.name
+        if (!RESERVED_NAMES.has(name) && !name.startsWith('__')) return []
+        return [
+          {
+            file: e.file,
+            line: e.line,
+            label: name,
+            message: e.customName
+              ? `${code(e.name)} is registered as ${code(name)}, a name GraphQL reserves.`
+              : `The entity ${code(name)} uses a name GraphQL reserves.`
+          }
+        ]
+      })
+  },
+  {
+    id: 'data-model/relation-options',
+    run: (ctx) => {
+      const hits: QuickHit[] = []
+      for (const e of ctx.model.entities) {
+        for (const f of e.fields) {
+          for (const d of f.decorators ?? []) {
+            if (!RELATIONS.has(d.name)) continue
+            const comma = d.args.indexOf(',', d.args.indexOf('=>') + 1)
+            const bad = comma < 0 ? [] : optionKeys(d.args.slice(comma + 1)).filter((k) => !RELATION_OPTIONS.has(k))
+            if (bad.length === 0) continue
+            hits.push({
+              file: e.file,
+              line: d.line || f.line,
+              label: `${e.name}.${f.name}`,
+              message: `${code(`${e.name}.${f.name}`)} passes ${bad.map(code).join(', ')} to ${code(`@${d.name}`)}, which accepts only ${code('optional')} and ${code('unique')}.`
+            })
+          }
         }
       }
       return hits

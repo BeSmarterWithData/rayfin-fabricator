@@ -115,3 +115,27 @@ describe('SettingsModal diagnostics', () => {
     ).toBe(false)
   })
 })
+
+describe('SettingsModal team workspaces experiment', () => {
+  function teamCheckbox(): HTMLInputElement {
+    fireEvent.click(screen.getByRole('button', { name: /Experiments/ }))
+    const label = screen.getByText('Team workspaces').closest('label')
+    if (!label) throw new Error('Team workspaces label not found')
+    return label.querySelector('input[type="checkbox"]') as HTMLInputElement
+  }
+
+  it('is off by default and turns on through the experiment flags', async () => {
+    installApi()
+    const { onChange } = await renderModal()
+    const checkbox = teamCheckbox()
+    expect(checkbox.checked).toBe(false)
+    fireEvent.click(checkbox)
+    expect(onChange).toHaveBeenCalledWith({ experiments: { teamWorkspaces: true } })
+  })
+
+  it('reflects the persisted flag', async () => {
+    installApi()
+    await renderModal({ settings: { theme: 'system', experiments: { teamWorkspaces: true } } })
+    expect(teamCheckbox().checked).toBe(true)
+  })
+})

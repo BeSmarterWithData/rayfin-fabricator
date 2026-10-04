@@ -1,6 +1,8 @@
 //! Live local preview (experimental): run a project's **Vite dev server** while
 //! an agent turn is in flight so edits show live (HMR) at `localhost`, then stop
-//! it at turn end and let the normal after-turn deploy take over.
+//! it at turn end and let the normal after-turn deploy take over. Team apps keep
+//! theirs until the pipeline has deployed the saved change, and run against
+//! their pipeline deployment's settings (see [`team::local_preview`]).
 //!
 //! Unlike a deploy, this does NOT run `rayfin up` — it spawns Vite *directly*
 //! (`node <project>/node_modules/vite/bin/vite.js`) for a fast preview, after a
@@ -27,14 +29,14 @@ use std::time::Duration;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::AsyncReadExt;
 use tokio::sync::oneshot;
 
 use crate::error::{AppError, AppResult};
 use crate::services::exec::{self, CancelToken, RunOptions, Stream};
-use crate::services::{emit, local_ports, redirect_uris, store};
-use crate::types::{DeployResult, DevPortPlan, DevServerResult, PortConflict, StudioProject};
+use crate::services::{emit, local_ports, preview, redirect_uris, store, team};
+use crate::types::{DeployResult, DevPortPlan, DevServerResult, DevStateEvent, PortConflict, StudioProject};
 
 /// UI log channel for streamed dev-server output (matches `IpcChannels` `dev:run`).
 const DEV_CHANNEL: &str = "dev:run";
@@ -49,6 +51,14 @@ const ENV_TIMEOUT_MS: u64 = 30_000;
 /// Cap on the per-stream scan buffer used to spot the `Local:` line even when it
 /// straddles two reads.
 const SCAN_TAIL: usize = 4096;
+/// Tells the renderer a local preview restarted, or stopped, on its own.
+const DEV_STATE_EVENT: &str = "dev:state";
+/// How often a ready local preview is checked; how many failed checks in a row
+/// mean Vite stopped serving (its own restarts close the server only briefly);
+/// and how many times it's started again before giving up.
+const HEALTH_EVERY: Duration = Duration::from_secs(2);
+const HEALTH_MISSES: u32 = 3;
+const MAX_RESTARTS: u32 = 3;
 
 /// Vite's ready banner line, e.g. `➜  Local:   http://localhost:5173/`. `NO_COLOR`
 /// keeps it plain, but we still stop the capture at whitespace or an ESC just in
@@ -165,6 +175,7 @@ fn resolve_port(servers: &DevServers, project: &StudioProject, requested: Option
                     plan.conflict.as_ref().map_or(redirect_uris::DEFAULT_PORT, |c| c.port)
                 )),
                 conflict: plan.conflict,
+                backend: None,
             }),
         };
     };
@@ -258,6 +269,23 @@ pub struct DevServers {
 }
 
 impl DevServers {
+    /// Whether `token`'s server is still this project's live server.
+    fn is_current(&self, project_id: &str, token: &CancelToken) -> bool {
+        self.inner
+            .lock()
+            .unwrap()
+            .get(project_id)
+            .is_some_and(|h| h.cancel.same(token) && !h.cancel.is_cancelled())
+    }
+
+    /// Wait (up to `limit`) until the project's stopped server has been reaped.
+    async fn wait_until_gone(&self, project_id: &str, limit: Duration) {
+        let deadline = tokio::time::Instant::now() + limit;
+        while self.inner.lock().unwrap().contains_key(project_id) && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
     /// Whether this project has a live, Fabricator-started server on its port.
     pub fn owns_project(&self, project_id: &str) -> bool {
         self.inner.lock().unwrap().get(project_id).is_some_and(|h| {
@@ -367,7 +395,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
         let handles = state.inner.lock().unwrap();
         if let Some(h) = handles.get(&project_id) {
             if let Some(url) = h.url.clone().filter(|_| !h.cancel.is_cancelled()) {
-                return Ok(DevServerResult { ok: true, outcome: "running".into(), url: Some(url), error: None, conflict: None });
+                return Ok(DevServerResult { ok: true, outcome: "running".into(), url: Some(url), error: None, conflict: None, backend: None });
             }
             return Ok(failed("The local preview is still starting or stopping. Retry after it finishes."));
         }
@@ -376,6 +404,9 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
     let Some(project) = store::find_project(&project_id) else {
         return Ok(unsupported("Project not found."));
     };
+    // Team apps are deployed by their pipeline: the preview runs against your
+    // preview's deployment (or the published app's) and never deploys from here.
+    let team_backend = project.team.as_ref().map(|binding| team::local_preview::choose(binding).0);
     let project_dir = PathBuf::from(&project.path);
 
     // The one requirement is that Vite is installed — we run it directly, no `dev`
@@ -415,7 +446,13 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
     {
         let dir = project_dir.clone();
         let env_renderer = renderer.clone();
+        let binding = project.team.clone();
         tokio::spawn(async move {
+            // A team app first gets its pipeline deployment's settings in rayfin/.env.
+            if let Some(binding) = binding.as_ref() {
+                let log = env_renderer.clone();
+                team::local_preview::prepare(&dir, binding, move |text| log(Stream::System, text)).await;
+            }
             let result = exec::run_project_rayfin(
                 &dir,
                 &["env", "--framework", "vite"],
@@ -435,12 +472,47 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
         });
     }
 
-    let mut cmd = tokio::process::Command::new(&node);
-    cmd.arg(&vite_script)
+    let launch = Launch { project_id: project_id.clone(), project_dir, node, vite_script, port, renderer: renderer.clone() };
+    match spawn_vite(&state, &launch).await {
+        Ok((url, token)) => {
+            renderer(Stream::System, &format!("\n✅ Local preview at {url}\n"));
+            tokio::spawn(watch(app, state.clone(), launch, token));
+            Ok(DevServerResult {
+                ok: true,
+                outcome: "running".into(),
+                url: Some(url),
+                error: None,
+                conflict: None,
+                backend: team_backend.map(|b| b.as_str().to_string()),
+            })
+        }
+        Err(reason) => Ok(failed(&reason)),
+    }
+}
+
+/// What it takes to start (or restart) a project's Vite.
+#[derive(Clone)]
+struct Launch {
+    project_id: String,
+    project_dir: PathBuf,
+    node: PathBuf,
+    vite_script: PathBuf,
+    port: u16,
+    renderer: exec::OnData,
+}
+
+/// Spawn the project's Vite on its port and wait until it serves. Returns its URL
+/// and the token that stops it, or why it didn't start (nothing is left running).
+async fn spawn_vite(state: &DevServers, launch: &Launch) -> Result<(String, CancelToken), String> {
+    let Launch { project_id, project_dir, node, vite_script, port, renderer } = launch;
+    let port = *port;
+    let expected = local_url(port);
+    let mut cmd = tokio::process::Command::new(node);
+    cmd.arg(vite_script)
         // Pin the sign-in-ready port and fail rather than let Vite silently fall
         // back to another one — an unregistered port would load but break sign-in.
         .args(["--host", "localhost", "--port", &port.to_string(), "--strictPort"])
-        .current_dir(&project_dir)
+        .current_dir(project_dir)
         .env("NO_COLOR", "1")
         .env("FORCE_COLOR", "0")
         .stdin(Stdio::null())
@@ -456,11 +528,12 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
         Ok(c) => c,
         Err(e) => {
             renderer(Stream::System, &format!("\nFailed to start Vite: {e}\n"));
-            return Ok(failed(&e.to_string()));
+            return Err(e.to_string());
         }
     };
     let pid = child.id();
     let cancel = CancelToken::new();
+    let token = cancel.clone();
 
     state.inner.lock().unwrap().insert(
         project_id.clone(),
@@ -534,28 +607,95 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
                 Ok(client) => client.get(&url).send().await.is_ok(),
                 Err(_) => false,
             };
-            if !responsive || !state.owns_project(&project_id) {
-                stop_project(&state, &project_id);
-                return Ok(failed("Vite printed a URL but the owned server is not responding. Check the local preview log and retry."));
+            if !responsive || !state.owns_project(project_id) {
+                stop_project(state, project_id);
+                return Err("Vite printed a URL but the owned server is not responding. Check the local preview log and retry.".into());
             }
-            renderer(Stream::System, &format!("\n✅ Local preview at {url}\n"));
-            Ok(DevServerResult {
-                ok: true,
-                outcome: "running".into(),
-                url: Some(url),
-                error: None,
-                conflict: None,
-            })
+            Ok((url, token))
         }
         Ok(Ok(Err(reason))) => {
-            stop_project(&state, &project_id);
-            Ok(failed(&reason))
+            stop_project(state, project_id);
+            Err(reason)
         }
         // Sender dropped, or timed out: give up and tear the process down.
         Ok(Err(_)) | Err(_) => {
-            stop_project(&state, &project_id);
+            stop_project(state, project_id);
             renderer(Stream::System, "\nLocal preview didn't become ready in time.\n");
-            Ok(failed("Timed out waiting for Vite to start."))
+            Err("Timed out waiting for Vite to start.".into())
+        }
+    }
+}
+
+/// Whether something accepts connections on `localhost:port` (Vite binds the
+/// address `localhost` resolves to first, IPv4 or IPv6).
+fn serving(port: u16) -> bool {
+    use std::net::{TcpStream, ToSocketAddrs};
+    ("localhost", port)
+        .to_socket_addrs()
+        .map(|mut addrs| addrs.any(|addr| TcpStream::connect_timeout(&addr, Duration::from_millis(800)).is_ok()))
+        .unwrap_or(false)
+}
+
+/// Tell the renderer a local preview restarted (`running`) or stopped on its own.
+fn emit_state(app: &AppHandle, project_id: &str, state: &str, url: Option<String>, error: Option<String>) {
+    let _ = app.emit(
+        DEV_STATE_EVENT,
+        DevStateEvent { project_id: project_id.to_string(), state: state.to_string(), url, error },
+    );
+}
+
+/// Keep a ready local preview serving. Vite restarts its server when an `.env`
+/// file or its config changes, and a restart that fails (say, while a package
+/// install rewrites node_modules) leaves Vite running but serving nothing: the
+/// preview shows a connection error. When the port stops answering for a few
+/// checks in a row, start Vite again on the same port and reload the preview.
+async fn watch(app: AppHandle, state: DevServers, launch: Launch, mut token: CancelToken) {
+    let mut misses = 0;
+    let mut restarts = 0;
+    loop {
+        tokio::select! {
+            _ = token.wait_cancelled() => return,
+            _ = tokio::time::sleep(HEALTH_EVERY) => {}
+        }
+        if !state.is_current(&launch.project_id, &token) {
+            return;
+        }
+        let port = launch.port;
+        if tokio::task::spawn_blocking(move || serving(port)).await.unwrap_or(true) {
+            misses = 0;
+            continue;
+        }
+        misses += 1;
+        if misses < HEALTH_MISSES {
+            continue;
+        }
+        misses = 0;
+        let _lifecycle = state.lifecycle.lock().await;
+        // Stopped (or replaced) while this waited: there's nothing to recover.
+        if !state.is_current(&launch.project_id, &token) {
+            return;
+        }
+        (launch.renderer)(Stream::System, "\nThe local preview stopped answering. Starting it again…\n");
+        stop_project(&state, &launch.project_id);
+        state.wait_until_gone(&launch.project_id, Duration::from_secs(10)).await;
+        restarts += 1;
+        let outcome = if restarts > MAX_RESTARTS {
+            Err("It kept stopping. Send your message again to start a new one.".to_string())
+        } else {
+            spawn_vite(&state, &launch).await
+        };
+        match outcome {
+            Ok((url, next)) => {
+                token = next;
+                (launch.renderer)(Stream::System, &format!("\n✅ Local preview back at {url}\n"));
+                preview::reload_if_showing(&app, &url);
+                emit_state(&app, &launch.project_id, "running", Some(url), None);
+            }
+            Err(reason) => {
+                (launch.renderer)(Stream::System, &format!("\nThe local preview stopped: {reason}\n"));
+                emit_state(&app, &launch.project_id, "stopped", None, Some(reason));
+                return;
+            }
         }
     }
 }
@@ -631,6 +771,9 @@ async fn register_port(app: AppHandle, project_id: String, port: u16) -> DeployR
         return register_result(false, "not-found", Some("Project not found.".into()));
     };
     let app_state = app.state::<crate::state::AppState>();
+    if project.team.is_some() {
+        return register_team_port(&app, &app_state, &project, port);
+    }
     let _lease = match app_state.mutations.deploy(&project_id) {
         Ok(lease) => lease,
         Err(error) => return register_result(false, "error", Some(error)),
@@ -673,6 +816,40 @@ fn register_result(ok: bool, outcome: &str, error: Option<String>) -> DeployResu
     DeployResult { ok, outcome: outcome.into(), url: None, api_url: None, portal_url: None, error }
 }
 
+/// A team app's new port is saved in rayfin.yml only: nothing deploys from this
+/// computer, so sign-in accepts the port once the change is saved to GitHub and
+/// the pipeline deploys your preview. Holds the team lease so it can't overlap
+/// a save.
+fn register_team_port(app: &AppHandle, app_state: &crate::state::AppState, project: &StudioProject, port: u16) -> DeployResult {
+    let _lease = match app_state.mutations.team(&project.id) {
+        Ok(lease) => lease,
+        Err(error) => return register_result(false, "error", Some(error)),
+    };
+    let dir = PathBuf::from(&project.path);
+    let renderer = emit::proc_streamer(app, REGISTER_CHANNEL);
+    match redirect_uris::read(&dir) {
+        Ok(origins) if !origins.auth_enabled => return register_result(true, "success", None),
+        Ok(_) => {}
+        Err(error) => return register_result(false, "error", Some(error)),
+    }
+    match redirect_uris::add(&dir, port) {
+        Ok(_) => {
+            renderer(
+                Stream::System,
+                &format!(
+                    "Added {} to rayfin/rayfin.yml. Sign-in accepts it after your next change is saved and the team pipeline deploys your preview.\n",
+                    redirect_uris::origin(port)
+                ),
+            );
+            register_result(true, "success", None)
+        }
+        Err(error) => {
+            renderer(Stream::System, &format!("{error}\n"));
+            register_result(false, "error", Some(error))
+        }
+    }
+}
+
 /// Whether the project supports the live local preview (has installed Vite).
 #[tauri::command]
 pub fn dev_supported_cmd(project_id: String) -> bool {
@@ -710,16 +887,80 @@ fn unsupported(msg: &str) -> DevServerResult {
         url: None,
         error: Some(msg.to_string()),
         conflict: None,
+        backend: None,
     }
 }
 
 fn failed(msg: &str) -> DevServerResult {
-    DevServerResult { ok: false, outcome: "error".into(), url: None, error: Some(msg.to_string()), conflict: None }
+    DevServerResult { ok: false, outcome: "error".into(), url: None, error: Some(msg.to_string()), conflict: None, backend: None }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serving_sees_a_listener_come_and_go() {
+        let listener = std::net::TcpListener::bind("localhost:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        assert!(serving(port));
+        drop(listener);
+        assert!(!serving(port));
+    }
+
+    /// The watchdog's recovery: a Vite that lost its server (but kept running) is
+    /// stopped, and a new one starts on the same port.
+    #[tokio::test]
+    async fn a_vite_that_stops_serving_starts_again_on_its_port() {
+        let Ok(node) = which::which("node") else { return };
+        let dir = std::env::temp_dir().join(format!("fab-vite-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("fake-vite.js");
+        std::fs::write(
+            &script,
+            r#"
+const fs = require('fs'), http = require('http'), path = require('path')
+const port = Number(process.argv[process.argv.indexOf('--port') + 1])
+const counter = path.join(__dirname, 'starts')
+const starts = (fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0) + 1
+fs.writeFileSync(counter, String(starts))
+const server = http.createServer((req, res) => res.end('ok')).listen(port, 'localhost', () => {
+  console.log(`  VITE ready\n  ➜  Local:   http://localhost:${port}/`)
+  // The first run loses its server, as a failed Vite restart does, but keeps running.
+  if (starts === 1) setTimeout(() => server.close(), 400)
+})
+setInterval(() => {}, 1000)
+"#,
+        )
+        .unwrap();
+        let port = std::net::TcpListener::bind("localhost:0").unwrap().local_addr().unwrap().port();
+        let launch = Launch {
+            project_id: "p".into(),
+            project_dir: dir.clone(),
+            node,
+            vite_script: script,
+            port,
+            renderer: Arc::new(|_, _| {}),
+        };
+        let state = DevServers::default();
+        let (url, first) = spawn_vite(&state, &launch).await.unwrap();
+        assert_eq!(url, local_url(port));
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert!(!serving(port), "the first run stopped serving");
+        assert!(state.is_current("p", &first), "but it's still running");
+
+        stop_project(&state, "p");
+        state.wait_until_gone("p", Duration::from_secs(10)).await;
+        let (_, second) = spawn_vite(&state, &launch).await.unwrap();
+        assert!(serving(port));
+        assert!(state.is_current("p", &second) && !state.is_current("p", &first));
+        assert_eq!(std::fs::read_to_string(dir.join("starts")).unwrap(), "2");
+
+        stop_project(&state, "p");
+        state.wait_until_gone("p", Duration::from_secs(10)).await;
+        assert!(!serving(port));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parses_vite_local_url() {

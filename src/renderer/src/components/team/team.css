@@ -1,0 +1,1062 @@
+/* Team workspaces (an experiment). Built on the app's tokens in main.css. */
+
+.home-recents.team-section {
+  flex: none;
+}
+
+.team-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.team-section-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Workspace cards on Home */
+
+.team-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 12px;
+}
+
+.team-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.team-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+}
+
+.team-card-mark {
+  --hue: 200;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  font-size: 14px;
+  font-weight: 650;
+  color: hsl(var(--hue) 65% 68%);
+  background: hsl(var(--hue) 55% 50% / 0.15);
+  border-radius: 8px;
+}
+
+[data-theme='light'] .team-card-mark,
+[data-theme='light'] .team-card-app-mark {
+  color: hsl(var(--hue) 55% 34%);
+  background: hsl(var(--hue) 55% 50% / 0.13);
+}
+
+.team-card-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.team-card-name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-card-sub {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-card-gear {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 15px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.team-card-gear:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+
+/* "2 deploying": a quiet pill with a blinking dot. */
+.team-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 2px 8px;
+  font-size: 11.5px;
+  font-weight: 550;
+  color: var(--text);
+  background: var(--bg-elev-2);
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.team-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: team-blink 1.2s ease-in-out infinite;
+}
+
+.team-card-setup {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px 14px;
+}
+
+/* Apps: inset rows like Recent projects, no rule between them. Marks sit in a
+   32px column so app names line up with the workspace name above. */
+.team-card-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border-top: 1px solid var(--border);
+}
+
+.team-card-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.team-card-app {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 120px 140px 16px;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 10px;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.team-card-app:hover:not(:disabled) {
+  background: var(--bg-elev-2);
+}
+
+.team-card-app:disabled {
+  cursor: wait;
+}
+
+.team-card-app-mark {
+  --hue: 200;
+  display: grid;
+  place-items: center;
+  justify-self: center;
+  width: 24px;
+  height: 24px;
+  font-size: 11px;
+  font-weight: 650;
+  color: hsl(var(--hue) 65% 68%);
+  background: hsl(var(--hue) 55% 50% / 0.15);
+  border-radius: 6px;
+}
+
+.team-card-app-mark--new {
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  transition: color 0.12s ease;
+}
+
+.team-card-app-mark--new svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+.team-card-app--new:hover .team-card-app-mark--new {
+  color: var(--text);
+  background: var(--bg-elev-3);
+}
+
+.team-card-app-name {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-card-app--new .team-card-app-name {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.team-card-app--new:hover .team-card-app-name {
+  color: var(--text);
+}
+
+.team-card-app-people {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.team-card-avatars {
+  display: inline-flex;
+}
+
+.team-card-avatars > * {
+  box-shadow: 0 0 0 2px var(--bg-elev);
+}
+
+.team-card-app:hover .team-card-avatars > * {
+  box-shadow: 0 0 0 2px var(--bg-elev-2);
+}
+
+.team-card-avatars > * + * {
+  margin-left: -5px;
+}
+
+.team-card-app-go {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.team-card-app-go svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+}
+
+.team-card-app:hover .team-card-app-go,
+.team-card-app:focus-visible .team-card-app-go,
+.team-card-app--opening .team-card-app-go {
+  color: var(--text-dim);
+  opacity: 1;
+}
+
+/* Status: a small dot and a word. */
+.team-status {
+  --dot: var(--text-faint);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.team-status--live {
+  --dot: var(--ok);
+}
+
+.team-status--deploying {
+  --dot: var(--accent);
+  color: var(--text);
+}
+
+.team-status--failed {
+  --dot: var(--danger);
+  color: var(--danger);
+}
+
+.team-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dot);
+}
+
+.team-status--idle .team-status-dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.25px var(--dot);
+}
+
+.team-status--deploying .team-status-dot {
+  animation: team-blink 1.2s ease-in-out infinite;
+}
+
+.team-inbox {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team-notice-icon {
+  flex: none;
+  font-size: 15px;
+  color: var(--accent);
+}
+
+/* No workspaces yet */
+
+.team-empty {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px;
+  background: var(--bg-elev);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.team-empty-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  font-size: 17px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-radius: 8px;
+}
+
+.team-empty-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.team-empty-text > p {
+  margin: 0;
+}
+
+.team-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+@keyframes team-blink {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-live-dot,
+  .team-status--deploying .team-status-dot {
+    animation: none;
+  }
+}
+.team-app {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.team-app-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-app-folder {
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.team-muted {
+  color: var(--text-dim);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.team-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  font-size: 12.5px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.team-notice-text {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Wizard + checklists */
+
+.team-modal {
+  max-width: 600px;
+}
+
+.team-modal--wide {
+  max-width: 720px;
+}
+
+.team-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.team-step {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.team-step-ico {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-faint);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.team-step--done .team-step-ico {
+  color: var(--on-accent);
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.team-step--error .team-step-ico {
+  color: #fff;
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+.team-step--skipped .team-step-ico {
+  color: var(--text-faint);
+  border-style: dashed;
+}
+
+.team-step--running .team-step-ico {
+  border: 0;
+}
+
+.team-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.team-step--pending .team-step-label {
+  color: var(--text-dim);
+}
+
+.team-step-detail {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.team-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.team-check-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.team-check-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.team-check-dot--ok {
+  background: var(--ok);
+}
+
+.team-check-dot--warn {
+  background: var(--pending);
+}
+
+.team-check-dot--error {
+  background: var(--danger);
+}
+
+.team-problem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--danger) 7%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--danger) 35%, var(--border));
+  border-radius: var(--radius);
+}
+
+.team-problem-title {
+  margin: 0;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.team-problem p {
+  margin: 0;
+}
+
+.team-admin-note {
+  max-height: 180px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius-sm);
+}
+
+.team-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* A picker's placeholder while its choices load: same box, dim text. */
+.team-field-loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+  cursor: progress;
+  user-select: none;
+}
+
+.team-field-problem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.team-field-problem .codicon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-size: 14px;
+  color: var(--danger);
+}
+
+.team-field-problem-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.team-field-problem .link-btn {
+  flex-shrink: 0;
+  align-self: auto;
+}
+
+.team-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.team-row > .field-input {
+  flex: 1;
+}
+
+/* App bar: workspace overview (icon) and the team app's split Publish control */
+
+.team-map-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 15px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.team-map-btn:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+
+.team-map-btn-dot {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg);
+  animation: team-blink 1.2s ease-in-out infinite;
+}
+
+.team-split {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+  height: 30px;
+  overflow: hidden;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.team-split-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 220px;
+  padding: 0 8px 0 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.team-split-status:hover,
+.team-split-status[aria-expanded='true'] {
+  background: var(--bg-elev-3);
+}
+
+.team-split-status .codicon-git-branch {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.team-split-caret {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.team-split-publish {
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-faint);
+  background: transparent;
+  border: 0;
+  border-left: 1px solid var(--border);
+  cursor: default;
+}
+
+/* Something to publish: Publish becomes the one primary action. */
+.team-split--ready .team-split-publish {
+  color: var(--on-accent);
+  background: var(--accent);
+  border-left-color: var(--accent);
+  cursor: pointer;
+}
+
+.team-split--ready .team-split-publish:hover {
+  background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-map-btn-dot {
+    animation: none;
+  }
+}
+
+.team-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.team-branch-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The team app's menu, under the split control */
+.team-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-height: calc(100vh - 120px);
+  overflow: auto;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-md);
+}
+
+.team-menu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.team-menu > .team-menu-section {
+  padding: 12px 14px;
+}
+
+.team-menu > .team-menu-section + .team-menu-section {
+  border-top: 1px solid var(--border);
+}
+
+.team-menu-title {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.team-menu-name {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.team-menu-branch {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.team-menu-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-menu .team-muted {
+  font-size: 12px;
+}
+
+.team-menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* "Preview shows": two equal choices, each with its deploy state. */
+.team-view.seg {
+  display: flex;
+  margin: 0;
+}
+
+.team-view .seg-btn {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  min-width: 0;
+  padding: 6px 10px;
+  text-align: left;
+}
+
+.team-view-label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.team-view-state {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.team-view .seg-btn--active .team-view-state {
+  color: var(--text-dim);
+}
+
+.team-count {
+  min-width: 18px;
+  padding: 0 5px;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--on-accent);
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.team-log {
+  max-height: 320px;
+  margin: 0;
+  overflow: auto;
+  padding: 10px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border-radius: var(--radius-sm);
+}
+
+.team-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-dim);
+}
+
+/* Preview pane: the pipeline deploying this app, live */
+
+.team-run-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+
+.team-run-strip-orb {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: team-spin 0.8s linear infinite;
+}
+
+.team-run-strip-text {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.team-run-strip-text strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.team-run-strip-step {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+}
+
+.team-run-strip-bar {
+  position: relative;
+  flex: 1;
+  min-width: 60px;
+  height: 2px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 1px;
+}
+
+.team-run-strip-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  transition: width 0.5s ease;
+}
+
+.team-run-strip-time {
+  flex: none;
+  min-width: 34px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+@keyframes team-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-run-strip-orb {
+    animation: none;
+  }
+}
+
+/* Preview area: the pipeline deploying an app that has nothing to show yet */
+.team-deploy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 28px 32px;
+  text-align: center;
+}
+
+.team-deploy-card-spinner {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 4px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: team-spin 0.8s linear infinite;
+}
+
+.team-deploy-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.team-deploy-card-step {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.team-deploy-card-dim {
+  color: var(--text-dim);
+}
+
+.team-deploy-card-bar {
+  position: relative;
+  width: 280px;
+  height: 4px;
+  overflow: hidden;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.team-deploy-card-bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.team-deploy-card-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.team-deploy-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* While this app deploys, a thin progress line along the split control's bottom edge. */
+.team-split-progress {
+  position: absolute;
+  inset: auto 0 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  pointer-events: none;
+}
+
+.team-split-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.5s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .team-deploy-card-spinner {
+    animation: none;
+  }
+}
