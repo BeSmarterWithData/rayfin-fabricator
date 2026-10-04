@@ -16,13 +16,21 @@ const problems: Problem[] = [];
 const warnings: Problem[] = [];
 let screenshotComments = 0;
 
+/**
+ * Reads a page with LF line endings. A Windows checkout can have CRLF, and the line-anchored
+ * patterns below (`.*$`) never match a line that ends in `\r`, which would silently skip checks.
+ */
+async function readSource(file: string): Promise<string> {
+  return (await readFile(file, 'utf8')).replace(/\r\n?/g, '\n');
+}
+
 async function main() {
   const files = await collectMdx(CONTENT);
   if (files.length === 0) throw new Error(`No MDX files under ${CONTENT}`);
   const routes = new Set(files.map(toRoute));
   const headings = await collectHeadings(files);
   for (const file of files) {
-    const raw = await readFile(file, 'utf8');
+    const raw = await readSource(file);
     const rel = path.relative(ROOT, file).replace(/\\/g, '/');
     let data: Record<string, unknown>; let content: string;
     try { const parsed = matter(raw); data = parsed.data; content = parsed.content; }
@@ -40,7 +48,7 @@ async function main() {
 async function collectHeadings(files: string[]): Promise<Map<string, Set<string>>> {
   const map = new Map<string, Set<string>>();
   for (const file of files) {
-    const raw = await readFile(file, 'utf8');
+    const raw = await readSource(file);
     let content = ''; try { content = matter(raw).content; } catch { continue; }
     const slugger = new GithubSlugger(); const anchors = new Set<string>();
     for (const match of content.matchAll(/^#{2,6}\s+(.+)$/gm)) {
@@ -60,17 +68,33 @@ function checkFrontmatter(file: string, data: Record<string, unknown>) {
 }
 
 function checkCodeFences(file: string, content: string) {
-  const lines = content.split('\n'); let inFence = false; let fenceMarker = '';
+  const lines = content.split('\n'); let inFence = false; let fenceMarker = ''; let fenceLang = '';
   lines.forEach((line, index) => {
-    const match = line.match(/^(\s*)(`{3,}|~{3,})(.*)$/); if (!match) return;
+    const match = line.match(/^(\s*)(`{3,}|~{3,})(.*)$/);
+    const closes = Boolean(inFence && match && match[2].startsWith(fenceMarker[0]) && match[3].trim() === '');
+    if (inFence && fenceLang === 'mermaid' && !closes) checkMermaidLine(file, index + 1, line);
+    if (!match) return;
     const [, , marker, rest] = match;
-    if (inFence) { if (marker.startsWith(fenceMarker[0]) && rest.trim() === '') { inFence = false; fenceMarker = ''; } return; }
+    if (inFence) { if (closes) { inFence = false; fenceMarker = ''; fenceLang = ''; } return; }
     inFence = true; fenceMarker = marker;
-    const info = rest.trim(); const lang = info.split(/\s+/)[0];
+    const info = rest.trim(); const lang = info.split(/\s+/)[0]; fenceLang = lang;
     if (!lang) problems.push({ file, line: index + 1, message: 'code fence has no language' });
     if (lang === 'prompt' && !/\btitle=("[^"]+"|'[^']+')/.test(info)) problems.push({ file, line: index + 1, message: 'prompt fence needs title="…"' });
   });
   if (inFence) problems.push({ file, message: 'unterminated code fence' });
+}
+
+/** components/mermaid.tsx injects theme-aware styles for these classes; fences only tag nodes. */
+const MERMAID_CLASSES = new Set(['actor', 'service', 'store', 'external', 'experimental']);
+
+function checkMermaidLine(file: string, line: number, text: string) {
+  if (/^\s*(classDef|style|linkStyle)\b/.test(text)) {
+    problems.push({ file, line, message: 'mermaid fences must not style nodes; tag them with `class <ids> <class>` and let the site theme them' });
+  }
+  const tagged = text.match(/^\s*class\s+\S+\s+([\w-]+)\s*;?\s*$/);
+  if (tagged && !MERMAID_CLASSES.has(tagged[1])) {
+    problems.push({ file, line, message: `unknown mermaid class "${tagged[1]}" (use ${[...MERMAID_CLASSES].join(', ')})` });
+  }
 }
 
 function checkComponents(file: string, content: string) {

@@ -23,11 +23,16 @@ for agents. Express rich content with Markdown primitives that the renderer upgr
 | Diagram | ` ```mermaid ` fence | Diagram | intact fence |
 | Command or file content | fenced block with a language, plus `title="…"` when it belongs in a file | Highlighted block with copy button | intact fence |
 | Comparison | GFM table | Table | table |
-| Screenshot | `![Alt text](/screenshots/<id>.png)` | Image | image link |
+| Screenshot | `![Alt text](/screenshots/<id>.webp)` | Image | image link |
 
 Allowed MDX components: `<Steps>` / `<Step>`, `<Tabs>` / `<Tab>`, `<Cards>` / `<Card>`.
 Nothing else. Keep them shallow, so the content still makes sense when it is flattened into
 Markdown. Prefer plain numbered lists to `<Steps>` unless a procedure has sub-content.
+
+Mermaid diagrams tag nodes with semantic classes, for example `class Repo,Branch store`:
+`actor`, `service`, `store`, `external` and `experimental`. The site injects theme-aware
+styles for these, so never add `classDef`, `style` or colors to a fence. `check-docs`
+rejects them.
 
 MDX pitfalls: a bare `{` starts an expression and a bare `<` starts a tag. Put code,
 paths, placeholders and anything with braces or angle brackets in backticks
