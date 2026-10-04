@@ -33,6 +33,7 @@ You author locally. Fabricator automatically manages a local Vite frontend previ
 | `npm run dev:renderer` | Runs the renderer development server. |
 | `npm run build:renderer` | Builds the renderer. |
 | `npm run typecheck` | Runs TypeScript type checking. |
+| `npm test` | Runs renderer regression tests (also run in CI). |
 | `npm run lint` | Runs lint checks. |
 | `npm run format` | Formats code with Prettier. |
 
@@ -57,16 +58,98 @@ Cargo may not be on `PATH`, so the explicit path above is often safest on Window
 
 ## Project layout
 
-- `src-tauri/` - Rust/Tauri backend.
-  - `src/commands/` - IPC handlers.
-  - `src/services/` - exec, preview, store, and telemetry services.
-  - `vendor/wry/` - vendored `wry` crate with a one-line WebView2 device-compliance SSO patch.
-- `src/renderer/` - React + TypeScript UI.
-  - `screens/` - top-level renderer screens.
-  - `components/` - reusable UI components.
-- `src/shared/ipc.ts` - shared IPC types.
-- `docs/` - project docs, including `DEPLOY.md` and `VENDORED-WRY-PATCH.md`.
-- `analytics/` - Application Insights KQL.
+```text
+rayfin-fabricator/
+├─ src-tauri/                 Rust Tauri backend, IPC commands, services, resources, packaging
+│  ├─ src/commands/           IPC handlers: advisor, auth, chat, deploy, design, doctor, fabric, files, git, projects, settings, team, …
+│  ├─ src/services/           exec, preview, store, telemetry, history, crashlog, emit, paths, team, …
+│  └─ vendor/wry/             Vendored wry: WebView2 device-compliance SSO patch + macOS preview-positioning fix
+├─ src/renderer/              React 18 + TypeScript UI built with Vite
+│  ├─ screens/                SetupScreen onboarding and Workbench shell
+│  └─ components/             ChatPanel, PreviewPane, CodeViewer, DeploymentsControl, AdvisorView, GitControl, SettingsModal, …
+├─ src/shared/ipc.ts          Shared TypeScript IPC types
+├─ src/shared/advisor/        Advisor rule catalog (rules.json), shared by the renderer and the Rust core
+├─ src/shared/docs-links.json Docs pages the app links to (checked by the docs build)
+├─ website/                   Documentation site (Next.js + Fumadocs), published to GitHub Pages
+├─ scripts/docs-screenshots/  Tooling that captures the docs site's screenshots
+├─ docs/                      Maintainer deployment notes and the vendored wry patch write-up
+├─ analytics/                 Application Insights KQL queries and notes
+├─ resources/                 Runtime resources, including telemetry configuration placeholders
+├─ .github/workflows/         CI, the release workflow (Windows NSIS and macOS dmg builds), and the docs site deploy
+├─ package.json               npm scripts and renderer dependencies
+└─ logo.png                   Project logo
+```
+
+The vendored `wry` patch is documented in [`docs/VENDORED-WRY-PATCH.md`](./docs/VENDORED-WRY-PATCH.md). It enables WebView2 device-compliance SSO so the embedded preview can sign in to Entra Conditional Access "compliant device" apps.
+
+## Architecture
+
+```mermaid
+flowchart TD
+  User["Developer"]
+
+  subgraph Desktop["Fabricator desktop app"]
+    Renderer["React 18 + TypeScript renderer<br/>Vite UI"]
+    Core["Tauri v2 Rust core<br/>IPC commands + services"]
+    Editor["Monaco code editor"]
+    Model["Data model view<br/>entities + access"]
+    Preview["Native WebView2 preview<br/>deployed app or Fabric portal shell"]
+    Advisor["Advisor<br/>quick checks + read-only Copilot review"]
+  end
+
+  subgraph Local["Local workspace"]
+    Files["Project files under workspace/"]
+    Git["Git history"]
+  end
+
+  Copilot["GitHub Copilot CLI<br/>authoring agent"]
+  Rayfin["Rayfin CLI<br/>rayfin up"]
+
+  subgraph Fabric["Microsoft Fabric"]
+    Runtime["Remote app runtime"]
+    Data["Remote data and platform services"]
+    Portal["Fabric portal shell"]
+  end
+
+  User --> Renderer
+  Renderer <--> Core
+  Renderer --> Editor
+  Renderer --> Model
+  Renderer --> Preview
+  Renderer --> Advisor
+
+  Core --> Files
+  Core --> Git
+  Core --> Copilot
+  Core --> Rayfin
+  Copilot --> Files
+  Advisor --> Copilot
+  Rayfin --> Runtime
+  Runtime <--> Data
+  Preview --> Runtime
+  Preview --> Portal
+  Portal --> Runtime
+```
+
+A React renderer drives the workbench, chat, editor, data model view, preview, deployments, advisor, settings, skills, and history. A Tauri v2 Rust core owns the IPC handlers in `src-tauri/src/commands/` and the services in `src-tauri/src/services/` for running external tools, persistence, preview hosting, telemetry, history, crash logs, auto-updates, and path management.
+
+Fabricator wraps the tools you'd otherwise run by hand. It shells out to the GitHub Copilot CLI to author and to the Rayfin CLI to deploy, tracks your project with git, and loads the running app — deployed to Microsoft Fabric — into the embedded preview. The Advisor closes the loop: instant rule checks plus an on-demand, read-only Copilot review flag issues like unguarded routes, loose database policies, or unbounded text columns, and it tells you when a review has gone stale.
+
+## Documentation site
+
+The user docs at <https://spatney.github.io/rayfin-fabricator/> are built from [`website/`](./website) (Next.js + Fumadocs, static export). `.github/workflows/docs.yml` builds it on pull requests and publishes it to GitHub Pages on every push to `master` that touches the site.
+
+```powershell
+cd website
+npm install
+npm run dev          # http://localhost:3000
+npm run check:docs   # content lint
+```
+
+- Pages are MDX files in `website/content/docs/`. Read [`website/AGENTS.md`](./website/AGENTS.md), the authoring contract, before writing one.
+- Update the docs in the same pull request when you change behavior, setup, UI labels, or messages users see.
+- The app links to specific docs pages and headings through `src/shared/docs-links.json`. `npm run verify:app-links` (run by the docs workflow after a build) fails if one of them disappears, so rename a linked page or heading together with that file.
+- Screenshots live in `website/public/screenshots/`. Refresh them with the tooling in [`scripts/docs-screenshots/`](./scripts/docs-screenshots/README.md), which runs an isolated copy of the app and removes personal details.
 
 ## Coding conventions
 
@@ -82,7 +165,7 @@ Cargo may not be on `PATH`, so the explicit path above is often safest on Window
 - Open PRs against https://github.com/spatney/rayfin-fabricator.
 - Link related issues where possible.
 - Include screenshots or notes for UI changes.
-- Update docs when behavior, setup, or release steps change.
+- Update the docs site (`website/content/docs/`) when behavior, setup, or release steps change.
 
 ## Vendored wry patch
 

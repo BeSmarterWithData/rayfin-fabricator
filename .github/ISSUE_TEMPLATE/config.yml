@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Troubleshooting guide
+    url: https://spatney.github.io/rayfin-fabricator/docs/troubleshooting
+    about: Fixes for common install, sign-in, chat, preview, deploy and team workspace problems.
   - name: Questions and discussions
     url: https://github.com/spatney/rayfin-fabricator/issues
     about: Ask questions on the repository Issues page.
