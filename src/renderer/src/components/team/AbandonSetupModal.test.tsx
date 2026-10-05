@@ -21,6 +21,7 @@ const workspace: TeamWorkspace = {
   dir: 'C:\\Projects\\sales',
   role: 'owner',
   addedAt: '2026-10-01T00:00:00Z',
+  account: 'octo',
   setup: {
     request: { name: 'Sales', owner: 'octo', ownerIsOrg: false, capacityId: 'cap' },
     completed: ['github', 'fabric', 'identity'],
@@ -144,13 +145,14 @@ describe('AbandonSetupModal', () => {
 
     expect(button('Delete and abandon').disabled).toBe(true)
     await act(async () => fireEvent.click(button('Grant GitHub access')))
-    expect(githubSignIn).toHaveBeenCalledWith(true, true)
+    expect(githubSignIn).toHaveBeenCalledWith(true, true, 'octo')
+    expect(envStatus).not.toHaveBeenCalled()
     expect(button('Waiting…')).toBeTruthy()
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(3000)
     })
-    expect(envStatus).toHaveBeenCalled()
+    expect(envStatus).toHaveBeenCalledWith('octo')
     expect(screen.queryByRole('button', { name: /Grant GitHub access|Waiting…/ })).toBeNull()
     expect(button('Delete and abandon').disabled).toBe(false)
   })
@@ -219,7 +221,14 @@ describe('CreateTeamWorkspaceModal', () => {
     ;(window as unknown as { api: unknown }).api = {
       team: {
         envStatus: vi.fn(() =>
-          Promise.resolve({ ghInstalled: true, ghSignedIn: true, ghUser: 'octo', ghMissingScopes: [], azSignedIn: true })
+          Promise.resolve({
+            ghInstalled: true,
+            ghSignedIn: true,
+            ghUser: 'octo',
+            ghMissingScopes: [],
+            ghAccounts: [{ login: 'octo', active: true, signedIn: true, missingScopes: [], canDeleteRepos: false }],
+            azSignedIn: true
+          })
         ),
         resumeSetup: vi.fn(() =>
           Promise.resolve({ ok: false, error: 'Blocked.', problem: { step: 'identity', message: 'Blocked.' }, workspace: failed })

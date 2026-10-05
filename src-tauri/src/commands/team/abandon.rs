@@ -33,7 +33,8 @@ fn label(step: &str) -> &'static str {
 
 const WRONG_TENANT: &str =
   "The Azure CLI is signed in to a different organization than the one this workspace was set up in.";
-const SIGN_IN_AS_OWNER: &str = "Sign in to GitHub with the account that set up the workspace, then try again.";
+const SIGN_IN_AS_OWNER: &str =
+  "Sign in to GitHub with the account that set up the workspace (in the GitHub CLI), then try again.";
 
 /// The workspace and its setup record, when its setup can be abandoned.
 fn unfinished(workspace_id: &str) -> Result<(TeamWorkspace, TeamSetupState), String> {
@@ -206,7 +207,7 @@ pub async fn team_abandon_plan(workspace_id: String) -> TeamAbandonPlan {
     Ok(found) => found,
     Err(e) => return TeamAbandonPlan { ok: false, error: Some(e), ..Default::default() },
   };
-  match inventory(&ws, &setup).await {
+  match gh::as_account(ws.account.clone(), inventory(&ws, &setup)).await {
     Ok(found) => TeamAbandonPlan {
       ok: true,
       items: items(&ws, &found),
@@ -227,7 +228,7 @@ pub async fn team_abandon_setup(app: AppHandle, workspace_id: String, scope: Str
     Ok(found) => found,
     Err(e) => return fail(e),
   };
-  let result = abandon(&Steps { app: &app, scope: &scope }, &ws, &setup).await;
+  let result = gh::as_account(ws.account.clone(), abandon(&Steps { app: &app, scope: &scope }, &ws, &setup)).await;
   crate::services::telemetry::track_team(crate::commands::auth::get_cached_identity().as_ref(), "abandon", result.ok);
   result
 }
@@ -475,6 +476,7 @@ mod tests {
       added_at: String::new(),
       manifest: None,
       setup: Some(setup(None)),
+      account: None,
       fabric_members: Default::default(),
     };
     let found = Found {

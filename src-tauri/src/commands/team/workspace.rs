@@ -50,6 +50,11 @@ async fn save_manifest(ws: &TeamWorkspace, manifest: &TeamManifest, message: &st
 /// Require (or stop requiring) a teammate's approval before publishing.
 #[tauri::command]
 pub async fn team_set_require_review(workspace_id: String, require: bool) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, set_require_review(workspace_id, require)).await
+}
+
+async fn set_require_review(workspace_id: String, require: bool) -> TeamActionResult {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
     Err(e) => return fail(e),
@@ -99,6 +104,11 @@ async fn check_identity(client_id: &str) -> IdentityCheck {
 /// Check everything setup created. Members see what they're allowed to read.
 #[tauri::command]
 pub async fn team_health(workspace_id: String) -> TeamHealth {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, health(workspace_id)).await
+}
+
+async fn health(workspace_id: String) -> TeamHealth {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
     Err(e) => return TeamHealth { ok: false, error: Some(e), items: vec![] },
@@ -251,6 +261,51 @@ fn corrected_manifest(base: Option<TeamManifest>, ws: &TeamWorkspace, targets: &
 /// Fix whatever the health check found (owners), then verify the pipeline.
 #[tauri::command]
 pub async fn team_repair(app: AppHandle, workspace_id: String, scope: String) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, repair(app, workspace_id, scope)).await
+}
+
+/// Use another GitHub account (one the GitHub CLI is signed in to) for a
+/// workspace. It must be able to change the repository; commits made here are
+/// attributed to it from then on.
+#[tauri::command]
+pub async fn team_set_account(workspace_id: String, account: String) -> TeamActionResult {
+  let ws = match workspace(&workspace_id) {
+    Ok(ws) => ws,
+    Err(e) => return fail(e),
+  };
+  let account = account.trim().to_string();
+  if !gh::is_login(&account) {
+    return fail("Choose one of the GitHub accounts you're signed in to.");
+  }
+  let checked = gh::as_account(Some(account.clone()), async {
+    let me = super::viewer().await?;
+    let info = match gh::repo(&ws.repo).await {
+      Ok(info) if info.push => info,
+      Ok(_) => return Err(format!("{} can view {} but not change it. Choose an account with write access.", me.login, ws.repo)),
+      Err(e) if e.is_not_found() => {
+        return Err(format!("{} can't see {}. Choose an account that's a member of the workspace.", me.login, ws.repo))
+      }
+      Err(e) => return Err(e.describe(&format!("Check {}'s access to {}", me.login, ws.repo))),
+    };
+    let (name, email) = super::git_identity(&me);
+    repo::set_identity(&ws, &name, &email).await?;
+    Ok((me.login, info.admin))
+  })
+  .await;
+  match checked {
+    Ok((login, admin)) => {
+      let updated = store::mutate_team_workspace(&ws.id, |w| {
+        w.account = Some(login);
+        w.role = if admin { "owner".into() } else { "member".into() };
+      });
+      with_workspace(updated.unwrap_or(ws))
+    }
+    Err(e) => fail(e),
+  }
+}
+
+async fn repair(app: AppHandle, workspace_id: String, scope: String) -> TeamActionResult {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
     Err(e) => return fail(e),
@@ -377,6 +432,7 @@ mod tests {
       added_at: String::new(),
       manifest: None,
       setup: None,
+      account: None,
       fabric_members: Default::default(),
     };
     let mut tampered = TeamManifest { name: "Team".into(), ..Default::default() };

@@ -213,6 +213,8 @@ export interface TeamCreateRequest {
   capacityName?: string
   /** Use an app registration an administrator created (its client ID). */
   existingClientId?: string
+  /** The GitHub account to set it up as; the GitHub CLI's active account when absent. */
+  account?: string
 }
 
 /** A setup or publishing problem, explained in plain language. */
@@ -254,6 +256,11 @@ export interface TeamWorkspace {
   manifest?: TeamManifest
   /** Present when this computer set the workspace up. */
   setup?: TeamSetupState
+  /**
+   * The GitHub account Fabricator uses for this workspace, whichever account the
+   * GitHub CLI has active. Absent for older workspaces until it's remembered.
+   */
+  account?: string
 }
 
 /** One pipeline deployment of a team app. */
@@ -325,6 +332,8 @@ export interface TeamEnvStatus {
   ghMissingScopes: string[]
   /** The sign-in may delete repositories (only abandoning a setup needs it). */
   ghCanDeleteRepos: boolean
+  /** Every account the GitHub CLI is signed in to, active first. The `gh*` fields describe the one asked about. */
+  ghAccounts: TeamGhAccount[]
   azSignedIn: boolean
   azUser?: string
   azTenant?: string
@@ -343,17 +352,33 @@ export interface TeamOwnersResult {
   owners: TeamOwner[]
 }
 
+/** An account the GitHub CLI is signed in to. */
+export interface TeamGhAccount {
+  login: string
+  /** The CLI's active account. */
+  active: boolean
+  /** Its stored sign-in works. */
+  signedIn: boolean
+  /** Required GitHub permissions it lacks. */
+  missingScopes: string[]
+  canDeleteRepos: boolean
+}
+
 export interface TeamInvitation {
   id: number
   repo: string
   inviter?: string
   createdAt?: string
   description?: string
+  /** The GitHub account the invitation is for. */
+  account?: string
 }
 
 export interface TeamDiscovered {
   repo: string
   description?: string
+  /** The GitHub account that can see it. */
+  account?: string
 }
 
 export interface TeamJoinOptions {
@@ -667,6 +692,8 @@ export interface TeamDiagnoseRequest {
   projectId?: string
   /** The repository a join targeted (`owner/name`). */
   repo?: string
+  /** The GitHub account a join used (a workspace's own account otherwise). */
+  account?: string
   runId?: number
   /** A run or log URL, when the run id isn't known. */
   runUrl?: string
@@ -2869,15 +2896,22 @@ export interface RayfinStudioApi {
    * {@link ExperimentFlags.teamWorkspaces} is off.
    */
   team: {
-    /** GitHub CLI and Azure CLI sign-in, plus missing GitHub permissions. */
-    envStatus: () => Promise<TeamEnvStatus>
     /**
-     * Open a terminal to sign in to GitHub (or add permissions); poll envStatus.
-     * `deleteRepo` also asks for permission to delete repositories.
+     * GitHub CLI and Azure CLI sign-ins. `ghAccounts` lists every GitHub account
+     * the CLI is signed in to; the other `gh*` fields describe `account` (the
+     * CLI's active account when absent).
      */
-    githubSignIn: (signedIn: boolean, deleteRepo?: boolean) => Promise<ProcResult>
-    /** GitHub accounts that can own a workspace (you and your organizations). */
-    owners: () => Promise<TeamOwnersResult>
+    envStatus: (account?: string) => Promise<TeamEnvStatus>
+    /**
+     * Open a terminal to sign in to GitHub; poll envStatus. With `account`, that
+     * account's sign-in is refreshed (adding permissions); otherwise `signedIn`
+     * refreshes the active account and `false` signs in to another account.
+     * `deleteRepo` also asks for permission to delete repositories. The CLI's
+     * active account stays the same.
+     */
+    githubSignIn: (signedIn: boolean, deleteRepo?: boolean, account?: string) => Promise<ProcResult>
+    /** GitHub accounts that can own a workspace set up as `account` (it and its organizations). */
+    owners: (account?: string) => Promise<TeamOwnersResult>
     /** Fabric capacities for the workspace's apps (via the Azure CLI). */
     capacities: () => Promise<FabricCapacitiesResult>
     /** Set up a new team workspace automatically; progress on `team:progress` (scope). */
@@ -2897,10 +2931,15 @@ export interface RayfinStudioApi {
     abandonSetup: (workspaceId: string, scope: string) => Promise<TeamActionResult>
     /** Stop waiting on a long operation (setup verification or publish). */
     cancel: (key: string) => Promise<boolean>
-    /** Pending invitations and team workspaces you can join. */
-    joinOptions: () => Promise<TeamJoinOptions>
-    acceptInvitation: (invitationId: number, repo: string) => Promise<TeamActionResult>
-    join: (repo: string) => Promise<TeamActionResult>
+    /**
+     * Pending invitations and team workspaces `account` can join; without it,
+     * those of every signed-in account, each marked with its account.
+     */
+    joinOptions: (account?: string) => Promise<TeamJoinOptions>
+    /** Accept an invitation as `account` and join the workspace. */
+    acceptInvitation: (invitationId: number, repo: string, account?: string) => Promise<TeamActionResult>
+    /** Join a workspace `account` can already change (`owner/name`). */
+    join: (repo: string, account?: string) => Promise<TeamActionResult>
     /** The workspace's apps, refreshed from GitHub. */
     detail: (workspaceId: string) => Promise<TeamWorkspaceDetail>
     /** Forget a workspace on this computer (work on GitHub is kept). */
@@ -2951,6 +2990,11 @@ export interface RayfinStudioApi {
     health: (workspaceId: string) => Promise<TeamHealth>
     /** Fix what the health check found, then verify the pipeline. */
     repair: (workspaceId: string, scope: string) => Promise<TeamActionResult>
+    /**
+     * Use another GitHub account the CLI is signed in to for this workspace. It
+     * must be able to change the repository.
+     */
+    setAccount: (workspaceId: string, account: string) => Promise<TeamActionResult>
     /** Apps, working copies, deployments, pipeline runs and members (workspace map). */
     map: (workspaceId: string) => Promise<TeamMap>
     /** The pipeline's recent runs, with the steps of those in progress. */

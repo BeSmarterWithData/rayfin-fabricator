@@ -3,8 +3,16 @@
 //! `GH_TOKEN`/`GITHUB_TOKEN` are stripped, as for Clone from GitHub). Git network
 //! operations use gh as a per-command credential helper, so the user's global
 //! git configuration is never changed.
+//!
+//! The CLI can be signed in to several accounts. Each team workspace remembers
+//! the account it uses: run its work inside [`as_account`], and every `gh` call
+//! and git operation in it uses that account's stored token (`GH_TOKEN`, which
+//! `gh` and its credential helper prefer), whichever account is active.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -62,7 +70,12 @@ impl GhError {
       return format!("{action}: the GitHub CLI (gh) isn't installed.");
     }
     if self.is_auth() {
-      return format!("{action}: your GitHub sign-in has expired. Sign in to GitHub again.");
+      return match current_account() {
+        Some(login) => format!(
+          "{action}: the GitHub CLI's sign-in for {login} has expired or was removed. Sign in to GitHub as {login} again."
+        ),
+        None => format!("{action}: your GitHub sign-in has expired. Sign in to GitHub again."),
+      };
     }
     if self.message.contains("SAML") {
       return format!(
@@ -117,9 +130,160 @@ pub fn encode(value: &str) -> String {
   out
 }
 
-/// Run `gh` with the sanitized environment and return its result.
+/* ------------------------------- accounts ------------------------------- */
+
+tokio::task_local! {
+  /// The GitHub login the current team operation acts as.
+  static ACCOUNT: Option<String>;
+}
+
+/// Run `f` as `account` (a login the GitHub CLI is signed in to), or as the
+/// CLI's active account when `None`.
+pub async fn as_account<F: Future>(account: Option<String>, f: F) -> F::Output {
+  ACCOUNT.scope(account.map(|a| a.trim().to_string()).filter(|a| !a.is_empty()), f).await
+}
+
+/// The account the current task acts as (`None`: the CLI's active account).
+/// Spawned tasks don't inherit it: wrap what they run in [`as_account`].
+pub fn current_account() -> Option<String> {
+  ACCOUNT.try_with(Clone::clone).ok().flatten()
+}
+
+static LOGIN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$").unwrap());
+
+/// Whether `value` looks like a GitHub login (managed users have `_shortcode`).
+pub fn is_login(value: &str) -> bool {
+  LOGIN_RE.is_match(value)
+}
+
+/// Stored tokens by lowercase login, fetched from the CLI on first use.
+static TOKENS: Lazy<Mutex<HashMap<String, (Instant, String)>>> = Lazy::new(Default::default);
+const TOKEN_TTL: Duration = Duration::from_secs(300);
+
+/// Forget fetched tokens (after a sign-in changes).
+pub fn forget_tokens() {
+  TOKENS.lock().unwrap().clear();
+}
+
+/// The GitHub CLI's stored token for `login`.
+async fn token_for(login: &str) -> Result<String, GhError> {
+  let key = login.to_ascii_lowercase();
+  if let Some((at, token)) = TOKENS.lock().unwrap().get(&key) {
+    if at.elapsed() < TOKEN_TTL {
+      return Ok(token.clone());
+    }
+  }
+  if !is_login(login) {
+    return Err(GhError::new(format!("{login} isn't a GitHub account name.")));
+  }
+  let res = exec::run("gh", &["auth", "token", "--hostname", "github.com", "--user", login], gh_options(20_000)).await;
+  if res.not_found {
+    return Err(GhError { status: None, message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true });
+  }
+  let token = res.stdout.trim().to_string();
+  if !res.ok || token.is_empty() || token.contains(char::is_whitespace) {
+    return Err(GhError { status: Some(401), message: format!("The GitHub CLI isn't signed in to {login}."), missing_cli: false });
+  }
+  TOKENS.lock().unwrap().insert(key, (Instant::now(), token.clone()));
+  Ok(token)
+}
+
+/// The token for the account the current task acts as, if it isn't the CLI's
+/// active one. Git takes it as `GH_TOKEN` (the credential helper prefers it).
+pub async fn account_token() -> Result<Option<String>, GhError> {
+  match current_account() {
+    Some(login) => token_for(&login).await.map(Some),
+    None => Ok(None),
+  }
+}
+
+/// One account the GitHub CLI is signed in to on github.com.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Account {
+  pub login: String,
+  /// The CLI's active account, which `gh` and git use by default.
+  pub active: bool,
+  /// Its stored sign-in works.
+  pub signed_in: bool,
+  /// Classic OAuth scopes; empty for tokens that don't report them.
+  pub scopes: Vec<String>,
+}
+
+/// `gh auth status --json hosts`: `None` when the output isn't that JSON.
+fn parse_accounts(stdout: &str) -> Option<Vec<Account>> {
+  let value: Value = serde_json::from_str(stdout.trim()).ok()?;
+  let hosts = value.get("hosts")?.as_object()?;
+  let Some(list) = hosts.get("github.com").and_then(Value::as_array) else {
+    return Some(Vec::new());
+  };
+  Some(
+    list
+      .iter()
+      .filter_map(|a| {
+        let login = str_of(a, "login").filter(|l| is_login(l))?;
+        Some(Account {
+          login,
+          active: a.get("active").and_then(Value::as_bool).unwrap_or(false),
+          signed_in: str_of(a, "state").as_deref() == Some("success"),
+          scopes: str_of(a, "scopes")
+            .map(|s| s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect())
+            .unwrap_or_default(),
+        })
+      })
+      .collect(),
+  )
+}
+
+/// Every account the GitHub CLI is signed in to on github.com, active first.
+/// CLIs too old for `auth status --json` report just the active account.
+pub async fn accounts() -> Result<Vec<Account>, GhError> {
+  let res = exec::run("gh", &["auth", "status", "--hostname", "github.com", "--json", "hosts"], gh_options(45_000)).await;
+  if res.not_found {
+    return Err(GhError { status: None, message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true });
+  }
+  if let Some(mut list) = parse_accounts(&res.stdout) {
+    list.sort_by_key(|a| !a.active);
+    return Ok(list);
+  }
+  if !res.stderr.contains("unknown flag") {
+    return Err(parse_error(&res));
+  }
+  // An older CLI: only the active account is known.
+  match viewer().await {
+    Ok(me) => {
+      let scopes = token_scopes().await.unwrap_or_default();
+      Ok(vec![Account { login: me.login, active: true, signed_in: true, scopes }])
+    }
+    Err(e) if e.is_auth() => Ok(Vec::new()),
+    Err(e) => Err(e),
+  }
+}
+
+/// Run `gh` with the sanitized environment, as the current account, and return
+/// its result.
 async fn gh(args: &[&str], timeout_ms: u64) -> RunResult {
-  exec::run("gh", args, gh_options(timeout_ms)).await
+  let mut options = gh_options(timeout_ms);
+  let account = current_account();
+  if let Some(login) = &account {
+    match token_for(login).await {
+      Ok(token) => options.env.push(("GH_TOKEN".into(), token)),
+      Err(e) => {
+        return RunResult {
+          ok: false,
+          exit_code: None,
+          stdout: String::new(),
+          stderr: format!("{} (HTTP {})", e.message, e.status.unwrap_or(401)),
+          not_found: e.missing_cli,
+        }
+      }
+    }
+  }
+  let res = exec::run("gh", args, options).await;
+  if let Some(login) = account.filter(|_| !res.ok && parse_error(&res).is_auth()) {
+    // The stored sign-in changed: read it again next time.
+    TOKENS.lock().unwrap().remove(&login.to_ascii_lowercase());
+  }
+  res
 }
 
 /// Call the GitHub REST API. `body` is sent as JSON.
@@ -509,6 +673,7 @@ pub fn invitation(v: &Value) -> Option<TeamInvitation> {
     inviter: v.get("inviter").and_then(|u| str_of(u, "login")),
     created_at: str_of(v, "created_at"),
     description: str_of(repository, "description").filter(|d| !d.trim().is_empty()),
+    account: None,
   })
 }
 
@@ -1235,6 +1400,33 @@ mod tests {
     let with_delete = parse_scopes("X-Oauth-Scopes: delete_repo, read:org, repo, workflow\r\n");
     assert!(can_delete_repos(&with_delete));
     assert!(missing_scopes(&with_delete).is_empty());
+  }
+
+  #[test]
+  fn every_signed_in_account_is_listed() {
+    let json = r#"{"hosts":{"github.com":[
+      {"state":"success","active":true,"host":"github.com","login":"octo","tokenSource":"keyring","scopes":"gist, read:org, repo, workflow","gitProtocol":"https"},
+      {"state":"error","active":false,"host":"github.com","login":"octo_contoso","tokenSource":"keyring","gitProtocol":"https"},
+      {"state":"success","active":false,"host":"github.com","login":"bad login; rm"}
+    ],"ghe.example.com":[{"state":"success","active":true,"login":"elsewhere"}]}}"#;
+    let accounts = parse_accounts(json).unwrap();
+    assert_eq!(accounts.len(), 2, "an unsafe login is dropped, other hosts are ignored");
+    assert_eq!(accounts[0], Account { login: "octo".into(), active: true, signed_in: true, scopes: vec!["gist".into(), "read:org".into(), "repo".into(), "workflow".into()] });
+    assert_eq!(accounts[1], Account { login: "octo_contoso".into(), active: false, signed_in: false, scopes: vec![] });
+    assert_eq!(parse_accounts(r#"{"hosts":{}}"#), Some(vec![]), "not signed in");
+    assert_eq!(parse_accounts("You are not logged into any GitHub hosts."), None);
+  }
+
+  #[tokio::test]
+  async fn sign_in_problems_name_the_account_in_use() {
+    let expired = GhError { status: Some(401), message: "Bad credentials".into(), missing_cli: false };
+    assert!(expired.describe("Open the repository").ends_with("your GitHub sign-in has expired. Sign in to GitHub again."));
+    let named = as_account(Some("octo_contoso".into()), async { expired.describe("Open the repository") }).await;
+    assert_eq!(
+      named,
+      "Open the repository: the GitHub CLI's sign-in for octo_contoso has expired or was removed. Sign in to GitHub as octo_contoso again."
+    );
+    assert!(is_login("octo_contoso") && is_login("a-b") && !is_login("-x") && !is_login("a b") && !is_login("a&b"));
   }
 
   #[test]

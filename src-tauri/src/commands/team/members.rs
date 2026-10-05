@@ -78,6 +78,11 @@ fn forget(ws: &TeamWorkspace, login: &str) -> Option<String> {
 
 #[tauri::command]
 pub async fn team_members(workspace_id: String) -> TeamMembersResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, members(workspace_id)).await
+}
+
+async fn members(workspace_id: String) -> TeamMembersResult {
   let empty = |error: String| TeamMembersResult { ok: false, error: Some(error), members: vec![], can_manage: false };
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
@@ -120,6 +125,11 @@ pub async fn team_members(workspace_id: String) -> TeamMembersResult {
 /// workspace's Fabric apps.
 #[tauri::command]
 pub async fn team_invite(workspace_id: String, login: String, owner: bool, email: Option<String>) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, invite(workspace_id, login, owner, email)).await
+}
+
+async fn invite(workspace_id: String, login: String, owner: bool, email: Option<String>) -> TeamActionResult {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
     Err(e) => return fail(e),
@@ -157,6 +167,11 @@ pub async fn team_invite(workspace_id: String, login: String, owner: bool, email
 /// Give a person (by work email) access to the workspace's Fabric apps.
 #[tauri::command]
 pub async fn team_grant_fabric_access(workspace_id: String, email: String, login: Option<String>) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, grant_fabric_access(workspace_id, email, login)).await
+}
+
+async fn grant_fabric_access(workspace_id: String, email: String, login: Option<String>) -> TeamActionResult {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
     Err(e) => return fail(e),
@@ -183,6 +198,11 @@ pub async fn team_grant_fabric_access(workspace_id: String, email: String, login
 /// identities aren't listed.
 #[tauri::command]
 pub async fn team_fabric_access(workspace_id: String) -> TeamFabricAccess {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, fabric_access(workspace_id)).await
+}
+
+async fn fabric_access(workspace_id: String) -> TeamFabricAccess {
   let empty = |error: String| TeamFabricAccess { ok: false, error: Some(error), people: vec![] };
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
@@ -224,6 +244,11 @@ pub async fn team_fabric_access(workspace_id: String) -> TeamFabricAccess {
 /// Remove a person's access to the workspace's Fabric apps (owners).
 #[tauri::command]
 pub async fn team_revoke_fabric_access(workspace_id: String, principal_id: String) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, revoke_fabric_access(workspace_id, principal_id)).await
+}
+
+async fn revoke_fabric_access(workspace_id: String, principal_id: String) -> TeamActionResult {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
     Err(e) => return fail(e),
@@ -247,6 +272,11 @@ pub async fn team_revoke_fabric_access(workspace_id: String, principal_id: Strin
 /// they were given from this computer.
 #[tauri::command]
 pub async fn team_remove_member(workspace_id: String, login: String, invitation_id: Option<u64>) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, remove_member(workspace_id, login, invitation_id)).await
+}
+
+async fn remove_member(workspace_id: String, login: String, invitation_id: Option<u64>) -> TeamActionResult {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
     Err(e) => return fail(e),

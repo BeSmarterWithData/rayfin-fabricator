@@ -9,7 +9,16 @@ import type {
 } from '@shared/ipc'
 import { useSuppressPreview } from '../../overlay'
 import { useModalFocus } from '../../modalFocus'
-import { ProblemView, StepList, TeamPrerequisites, teamError, useStepProgress } from './common'
+import {
+  FieldLoading,
+  FieldProblem,
+  GithubAccountField,
+  ProblemView,
+  StepList,
+  TeamPrerequisites,
+  teamError,
+  useStepProgress
+} from './common'
 import TeamDiagnosis from './diagnosis/TeamDiagnosis'
 import type { DiagnosisInput } from './diagnosis/useTeamDiagnosis'
 
@@ -31,29 +40,6 @@ type Phase = 'prereq' | 'details' | 'running' | 'failed' | 'done'
 const NO_CAPACITY =
   'You don’t have access to a Fabric capacity. Ask your Fabric administrator for one, then try again.'
 
-/** Holds a picker's place, at the picker's size, while its choices load. */
-function FieldLoading({ text }: { text: string }): JSX.Element {
-  return (
-    <div className="field-input team-field-loading" role="status">
-      <span className="ws-spinner" aria-hidden="true" />
-      {text}
-    </div>
-  )
-}
-
-/** Why a picker has no choices, with a way to ask again. */
-function FieldProblem({ text, onRetry }: { text: string; onRetry: () => void }): JSX.Element {
-  return (
-    <div className="team-field-problem" role="alert">
-      <span className="codicon codicon-warning" aria-hidden="true" />
-      <span className="team-field-problem-text">{text}</span>
-      <button type="button" className="link-btn" onClick={onRetry}>
-        Try again
-      </button>
-    </div>
-  )
-}
-
 interface Props {
   /** Continue this workspace's interrupted setup instead of starting a new one. */
   resume?: TeamWorkspace
@@ -74,6 +60,9 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
   const scope = useMemo(() => `team-setup-${crypto.randomUUID()}`, [])
   const [phase, setPhase] = useState<Phase>('prereq')
   const [name, setName] = useState(resume?.name ?? '')
+  /** The GitHub account the workspace is set up as (empty until the accounts load). */
+  const [account, setAccount] = useState('')
+  const [accountReady, setAccountReady] = useState(false)
   /** `null` while loading. */
   const [owners, setOwners] = useState<TeamOwner[] | null>(null)
   const [ownersError, setOwnersError] = useState<string | null>(null)
@@ -98,13 +87,13 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
   }, [running, onClose])
 
   // Owners (GitHub) and capacities (Fabric) load separately, so each picker
-  // appears as soon as its own answer arrives.
+  // appears as soon as its own answer arrives. Owners follow the GitHub account.
   async function loadOwners(): Promise<void> {
     setOwners(null)
     setOwnersError(null)
     let list: TeamOwner[] = []
     try {
-      const result = await window.api.team.owners()
+      const result = await window.api.team.owners(account || undefined)
       list = result.owners
       if (!result.ok || list.length === 0) {
         setOwnersError(result.error ?? 'Fabricator couldn’t find your GitHub account.')
@@ -115,6 +104,10 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
     setOwners(list)
     setOwner((current) => (list.some((o) => o.login === current) ? current : (list[0]?.login ?? '')))
   }
+
+  useEffect(() => {
+    if (phase === 'details' && account && accountReady) void loadOwners()
+  }, [phase, account, accountReady])
 
   async function loadCapacities(): Promise<void> {
     setCapacities(null)
@@ -138,7 +131,6 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
       return
     }
     setPhase('details')
-    void loadOwners()
     void loadCapacities()
   }
 
@@ -163,7 +155,8 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
       ownerIsOrg: Boolean(selectedOwner?.isOrg),
       capacityId,
       capacityName: capacity?.displayName,
-      existingClientId: clientId.trim() || undefined
+      existingClientId: clientId.trim() || undefined,
+      account: account || undefined
     }
   }
 
@@ -192,7 +185,7 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
     setPhase(result.workspace ? 'failed' : 'details')
   }
 
-  const canCreate = Boolean(name.trim() && owner && capacityId) && phase === 'details'
+  const canCreate = Boolean(name.trim() && account && accountReady && owner && capacityId) && phase === 'details'
   const identityProblem = problem && ['identity', 'trust'].includes(problem.step)
   // A picker that couldn't load is also worth diagnosing (locked-down tenants often stop there).
   const pickerProblem =
@@ -234,7 +227,11 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
                 works on their own copy, and a pipeline publishes the apps to Microsoft Fabric with
                 a deploy identity that Fabricator creates for you.
               </p>
-              <TeamPrerequisites onReady={onPrereqsReady} />
+              <TeamPrerequisites
+                onReady={onPrereqsReady}
+                account={resume?.account}
+                requireAccount={Boolean(resume)}
+              />
             </>
           )}
 
@@ -254,12 +251,22 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
                   Used for the GitHub repository and the Fabric workspaces.
                 </span>
               </label>
+              <GithubAccountField
+                value={account}
+                onChange={setAccount}
+                onReady={setAccountReady}
+                hint="Fabricator always uses this account for the workspace, whichever account the GitHub CLI has active."
+              />
               <div className="field">
                 <label className="field-label" htmlFor={ownerFieldId}>
                   GitHub owner
                 </label>
-                {owners === null ? (
-                  <FieldLoading text="Finding your GitHub accounts…" />
+                {!accountReady ? (
+                  <select id={ownerFieldId} className="field-input" disabled>
+                    <option>Choose a GitHub account first</option>
+                  </select>
+                ) : owners === null ? (
+                  <FieldLoading text={`Finding where ${account} can create repositories…`} />
                 ) : (
                   owners.length > 0 && (
                     <select

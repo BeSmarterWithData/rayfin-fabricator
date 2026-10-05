@@ -301,6 +301,7 @@ describe('CreateTeamWorkspaceModal', () => {
             ghSignedIn: true,
             ghUser: 'octo',
             ghMissingScopes: [],
+            ghAccounts: [{ login: 'octo', active: true, signedIn: true, missingScopes: [], canDeleteRepos: false }],
             azSignedIn: true
           })
         ),
@@ -321,13 +322,13 @@ describe('CreateTeamWorkspaceModal', () => {
     })
 
     expect(screen.getAllByRole('status')).toHaveLength(2)
-    expect(screen.getByText('Finding your GitHub accounts…')).toBeTruthy()
+    expect(screen.getByText('Finding where octo can create repositories…')).toBeTruthy()
     expect(screen.getByText('Finding the Fabric capacities you can use…')).toBeTruthy()
     const create = screen.getByRole('button', { name: 'Create workspace' }) as HTMLButtonElement
     expect(create.disabled).toBe(true)
 
     await act(async () => owners.resolve({ ok: true, owners: [{ login: 'octo', isOrg: false }] }))
-    expect(screen.queryByText('Finding your GitHub accounts…')).toBeNull()
+    expect(screen.queryByText('Finding where octo can create repositories…')).toBeNull()
     expect((screen.getByLabelText('GitHub owner') as HTMLSelectElement).value).toBe('octo')
     expect(screen.getByText('Finding the Fabric capacities you can use…')).toBeTruthy()
 
@@ -346,12 +347,23 @@ describe('CreateTeamWorkspaceModal', () => {
 
   it('offers a Copilot diagnosis when a picker can’t load, with what was entered so far', async () => {
     const diagnose = vi.fn(() => new Promise(() => {}))
+    const owners = vi.fn(() => Promise.resolve({ ok: true, owners: [{ login: 'contoso', isOrg: true }] }))
     ;(window as unknown as { api: unknown }).api = {
       team: {
         envStatus: vi.fn(() =>
-          Promise.resolve({ ghInstalled: true, ghSignedIn: true, ghUser: 'octo', ghMissingScopes: [], azSignedIn: true })
+          Promise.resolve({
+            ghInstalled: true,
+            ghSignedIn: true,
+            ghUser: 'octo',
+            ghMissingScopes: [],
+            ghAccounts: [
+              { login: 'octo', active: true, signedIn: true, missingScopes: [], canDeleteRepos: false },
+              { login: 'octo_contoso', active: false, signedIn: true, missingScopes: [], canDeleteRepos: false }
+            ],
+            azSignedIn: true
+          })
         ),
-        owners: vi.fn(() => Promise.resolve({ ok: true, owners: [{ login: 'contoso', isOrg: true }] })),
+        owners,
         capacities: vi.fn(() =>
           Promise.resolve({
             ok: false,
@@ -372,15 +384,21 @@ describe('CreateTeamWorkspaceModal', () => {
         </OverlayProvider>
       )
     })
-    const button = await screen.findByRole('button', { name: /Diagnose with Copilot/ })
+    await screen.findByRole('button', { name: /Diagnose with Copilot/ })
+    expect(owners).toHaveBeenLastCalledWith('octo')
+    // Owners follow the chosen account.
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText('GitHub account'), { target: { value: 'octo_contoso' } })
+    })
+    expect(owners).toHaveBeenLastCalledWith('octo_contoso')
     fireEvent.change(screen.getByPlaceholderText('Sales team apps'), { target: { value: 'Sales apps' } })
-    fireEvent.click(button)
+    fireEvent.click(screen.getByRole('button', { name: /Diagnose with Copilot/ }))
     expect(diagnose).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: 'setup',
         step: 'fabric',
         error: expect.stringContaining('AADSTS53003'),
-        request: expect.objectContaining({ name: 'Sales apps', owner: 'contoso', ownerIsOrg: true })
+        request: expect.objectContaining({ name: 'Sales apps', owner: 'contoso', ownerIsOrg: true, account: 'octo_contoso' })
       })
     )
   })

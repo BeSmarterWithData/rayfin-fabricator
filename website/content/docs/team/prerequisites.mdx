@@ -22,6 +22,14 @@ When the scopes are missing, Fabricator shows **Grant GitHub access** and opens 
 
 Abandoning an unfinished setup also needs the `delete_repo` scope to delete the workspace's repository. Fabricator asks for it only then, with the same **Grant GitHub access** button. See [Abandon an unfinished setup](/docs/team/create#abandon-an-unfinished-setup).
 
+### More than one GitHub account
+
+The GitHub CLI can be signed in to several GitHub accounts, for example a personal account and a work account. When you create or join a team workspace, choose the **GitHub account** to use. Fabricator remembers it and always uses that account for the workspace, whichever account the GitHub CLI has active. Workspaces under different accounts work side by side.
+
+- To add an account, select **Add account** next to **GitHub account**. Fabricator opens a terminal that runs `gh auth login`, then makes the account that was active before active again.
+- If the chosen account is missing scopes, **Grant GitHub access** refreshes that account's sign-in, then makes the previously active account active again.
+- To change the account an existing workspace uses, see [Change the GitHub account](/docs/team/overview#change-the-github-account).
+
 ## Azure CLI sign-in for Microsoft Entra ID
 
 Fabricator checks the Azure CLI sign-in before setup. You need an account in the tenant where the Fabric workspaces will live.

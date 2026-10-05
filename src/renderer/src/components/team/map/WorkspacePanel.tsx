@@ -9,7 +9,7 @@ import type {
 } from '@shared/ipc'
 import ConfirmModal from '../../ConfirmModal'
 import { Codicon } from '../../icons'
-import { ProblemView, StepList, teamError, useStepProgress } from '../common'
+import { GithubAccountField, ProblemView, StepList, teamError, useStepProgress } from '../common'
 import TeamDiagnosisModal from '../diagnosis/TeamDiagnosisModal'
 import type { DiagnosisInput } from '../diagnosis/useTeamDiagnosis'
 import { Avatar, FabricGlyph, fabricWorkspaceUrl } from './parts'
@@ -17,6 +17,8 @@ import { Avatar, FabricGlyph, fabricWorkspaceUrl } from './parts'
 export type WorkspaceTab = 'members' | 'access' | 'settings'
 
 const VERIFY_STEPS = [{ id: 'verify', label: 'Check that the pipeline can reach Fabric' }] as const
+
+const sameAccount = (a: string, b: string | undefined): boolean => a.toLowerCase() === (b ?? '').toLowerCase()
 
 /** Each health check's dot, in the overview's status colors. */
 const HEALTH_DOT: Record<TeamHealthItem['state'], string> = { ok: 'live', warn: 'warn', error: 'failed', unknown: 'idle' }
@@ -61,6 +63,10 @@ export default function WorkspacePanel({
   const [asOwner, setAsOwner] = useState(false)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [deleteFabric, setDeleteFabric] = useState(false)
+  /** Choosing another GitHub account for the workspace. */
+  const [changingAccount, setChangingAccount] = useState(false)
+  const [newAccount, setNewAccount] = useState('')
+  const [newAccountReady, setNewAccountReady] = useState(false)
   const [diagnose, setDiagnose] = useState<DiagnosisInput | null>(null)
   /** The last action was Repair (so `problem`/`error` are its outcome). */
   const [repairTried, setRepairTried] = useState(false)
@@ -159,6 +165,17 @@ export default function WorkspacePanel({
   async function repair(): Promise<void> {
     setRepairRows(VERIFY_STEPS.map((s) => ({ id: s.id, label: s.label, state: 'pending' })))
     await act('repair', () => window.api.team.repair(ws.id, repairScope), loadHealth, 'The workspace is healthy.')
+  }
+
+  async function saveAccount(): Promise<void> {
+    const login = newAccount
+    const ok = await act(
+      'account',
+      () => window.api.team.setAccount(ws.id, login),
+      loadMembers,
+      `Fabricator now works on this workspace as ${login}.`
+    )
+    if (ok) setChangingAccount(false)
   }
 
   async function runConfirmed(): Promise<void> {
@@ -385,6 +402,53 @@ export default function WorkspacePanel({
 
       {tab === 'settings' && (
         <>
+          <section className="tmap-insp-section">
+            <h4>GitHub account</h4>
+            {changingAccount ? (
+              <>
+                <GithubAccountField hideLabel value={newAccount} onChange={setNewAccount} onReady={setNewAccountReady} />
+                <div className="tmap-insp-actions">
+                  <button
+                    type="button"
+                    className="btn btn--sm btn--primary"
+                    disabled={!newAccountReady || Boolean(busy) || sameAccount(newAccount, ws.account)}
+                    onClick={() => void saveAccount()}
+                  >
+                    {busy === 'account' ? 'Checking…' : 'Use this account'}
+                  </button>
+                  <button type="button" className="btn btn--sm btn--ghost" disabled={Boolean(busy)} onClick={() => setChangingAccount(false)}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <ul className="tmap-insp-list">
+                <li className="tmap-insp-row">
+                  <Codicon name="github" />
+                  <span className="tmap-insp-grow">
+                    {ws.account ?? 'The GitHub CLI’s active account'}
+                    <span className="tmap-dim tmap-block">
+                      {ws.account
+                        ? 'Fabricator works on this workspace as this account.'
+                        : 'Fabricator remembers the account once it reads the workspace.'}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    disabled={Boolean(busy)}
+                    onClick={() => {
+                      setNewAccount(ws.account ?? '')
+                      setChangingAccount(true)
+                    }}
+                  >
+                    Change
+                  </button>
+                </li>
+              </ul>
+            )}
+          </section>
+
           <section className="tmap-insp-section">
             <h4>Publishing</h4>
             <label className="tmap-toggle">

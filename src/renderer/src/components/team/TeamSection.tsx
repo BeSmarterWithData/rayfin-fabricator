@@ -35,7 +35,8 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
   const [approving, setApproving] = useState<number | null>(null)
   const [creating, setCreating] = useState<TeamWorkspace | 'new' | null>(null)
   const [abandoning, setAbandoning] = useState<TeamWorkspace | null>(null)
-  const [joining, setJoining] = useState(false)
+  /** Join is open, starting with this GitHub account (an invitation's). */
+  const [joining, setJoining] = useState<{ account?: string } | null>(null)
 
   async function loadInbox(): Promise<void> {
     const [joinOptions, requests] = await Promise.all([
@@ -85,7 +86,7 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
         <h2 id="team-workspaces-title">Team workspaces</h2>
         {workspaces.length > 0 && (
           <div className="team-section-actions">
-            <button type="button" className="btn btn--sm btn--ghost" onClick={() => setJoining(true)}>
+            <button type="button" className="btn btn--sm btn--ghost" onClick={() => setJoining({ account: invitations[0]?.account })}>
               Join
               {invitations.length > 0 && <span className="team-count">{invitations.length}</span>}
             </button>
@@ -105,7 +106,11 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
                 You&apos;ve been invited to{' '}
                 <strong>{invitations.length === 1 ? invitations[0].repo : `${invitations.length} team workspaces`}</strong>.
               </span>
-              <button type="button" className="btn btn--sm btn--primary" onClick={() => setJoining(true)}>
+              <button
+                type="button"
+                className="btn btn--sm btn--primary"
+                onClick={() => setJoining({ account: invitations[0]?.account })}
+              >
                 Review invitations
               </button>
             </div>
@@ -143,7 +148,7 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
               <p className="team-muted">Your team&apos;s Rayfin apps in one place. Fabricator sets it all up.</p>
             </div>
             <div className="team-empty-actions">
-              <button type="button" className="btn btn--sm" onClick={() => setJoining(true)}>
+              <button type="button" className="btn btn--sm" onClick={() => setJoining({ account: invitations[0]?.account })}>
                 Join
                 {invitations.length > 0 && <span className="team-count">{invitations.length}</span>}
               </button>
@@ -207,9 +212,10 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
       )}
       {joining && (
         <JoinTeamWorkspaceModal
-          onClose={() => setJoining(false)}
+          initialAccount={joining.account}
+          onClose={() => setJoining(null)}
           onJoined={() => {
-            setJoining(false)
+            setJoining(null)
             onChanged()
             void loadInbox()
           }}

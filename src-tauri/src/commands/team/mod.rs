@@ -23,6 +23,7 @@ pub use session::*;
 pub use setup::*;
 pub use workspace::*;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -34,8 +35,8 @@ use crate::services::exec::CancelToken;
 use crate::services::store;
 use crate::services::team::{entra, fabric, gh, naming};
 use crate::types::{
-  FabricCapacitiesResult, ProcResult, StudioProject, TeamActionResult, TeamEnvStatus, TeamOwnersResult, TeamProblem,
-  TeamProgressEvent, TeamWorkspace,
+  FabricCapacitiesResult, ProcResult, StudioProject, TeamActionResult, TeamEnvStatus, TeamGhAccount, TeamOwnersResult,
+  TeamProblem, TeamProgressEvent, TeamWorkspace,
 };
 
 /// Event for streamed progress of long team operations.
@@ -75,19 +76,48 @@ pub(crate) fn problem(step: &str, message: impl Into<String>) -> TeamProblem {
 }
 
 /// The signed-in GitHub user, cached for the session (cleared on failures).
-static VIEWER: Lazy<Mutex<Option<gh::Viewer>>> = Lazy::new(|| Mutex::new(None));
+/// Signed-in GitHub users by account (lowercase login; empty for the CLI's
+/// active account), cached for the session (cleared on sign-in changes).
+static VIEWER: Lazy<Mutex<HashMap<String, gh::Viewer>>> = Lazy::new(Default::default);
 
+/// The GitHub user the current task acts as (see [`gh::as_account`]).
 pub(crate) async fn viewer() -> Result<gh::Viewer, String> {
-  if let Some(v) = VIEWER.lock().unwrap().clone() {
+  let key = gh::current_account().map(|a| a.to_ascii_lowercase()).unwrap_or_default();
+  if let Some(v) = VIEWER.lock().unwrap().get(&key).cloned() {
     return Ok(v);
   }
   let v = gh::viewer().await.map_err(|e| e.describe("Check your GitHub sign-in"))?;
-  *VIEWER.lock().unwrap() = Some(v.clone());
+  VIEWER.lock().unwrap().insert(key, v.clone());
   Ok(v)
 }
 
 pub(crate) fn forget_viewer() {
-  *VIEWER.lock().unwrap() = None;
+  VIEWER.lock().unwrap().clear();
+  gh::forget_tokens();
+}
+
+/// The GitHub account workspace `workspace_id` uses (`None`: the CLI's active one).
+pub(crate) fn workspace_account(workspace_id: &str) -> Option<String> {
+  store::find_team_workspace(workspace_id).and_then(|w| w.account)
+}
+
+/// The GitHub account the workspace of team project `project_id` uses.
+pub(crate) fn project_account(project_id: &str) -> Option<String> {
+  let workspace_id = store::find_project(project_id)?.team?.workspace_id;
+  workspace_account(&workspace_id)
+}
+
+/// Remember the account a workspace from before accounts were remembered
+/// works with: the active one, after it read the workspace.
+pub(crate) async fn pin_account(ws: &TeamWorkspace) {
+  if ws.account.is_some() || gh::current_account().is_some() {
+    return;
+  }
+  if let Ok(me) = viewer().await {
+    store::mutate_team_workspace(&ws.id, |w| {
+      w.account.get_or_insert(me.login);
+    });
+  }
 }
 
 /// (git user.name, user.email) that attribute commits to the GitHub user.
@@ -182,31 +212,44 @@ pub(crate) async fn finish_run(
 
 /* ------------------------------ prerequisites ----------------------------- */
 
+/// GitHub and Azure sign-ins. `account` picks which GitHub account the `gh_*`
+/// fields describe (the CLI's active account when absent); `gh_accounts` lists
+/// every account the CLI is signed in to.
 #[tauri::command]
-pub async fn team_env_status() -> TeamEnvStatus {
+pub async fn team_env_status(account: Option<String>) -> TeamEnvStatus {
   let enabled = store::team_workspaces_enabled();
-  let (who, scopes, account) = tokio::join!(gh::viewer(), gh::token_scopes(), entra::account());
+  let (accounts, azure) = tokio::join!(gh::accounts(), entra::account());
   let mut status = TeamEnvStatus { enabled, gh_installed: true, ..Default::default() };
-  match who {
-    Ok(v) => {
-      status.gh_signed_in = true;
-      status.gh_user = Some(v.login.clone());
-      *VIEWER.lock().unwrap() = Some(v);
+  match accounts {
+    Ok(list) => {
+      status.gh_accounts = list
+        .iter()
+        .map(|a| TeamGhAccount {
+          login: a.login.clone(),
+          active: a.active,
+          signed_in: a.signed_in,
+          missing_scopes: gh::missing_scopes(&a.scopes),
+          can_delete_repos: gh::can_delete_repos(&a.scopes),
+        })
+        .collect();
+      let wanted = account.as_deref().map(str::trim).filter(|a| !a.is_empty());
+      let chosen = match wanted {
+        Some(login) => status.gh_accounts.iter().find(|a| a.login.eq_ignore_ascii_case(login)),
+        None => status.gh_accounts.iter().find(|a| a.active),
+      };
+      if let Some(chosen) = chosen.filter(|a| a.signed_in).cloned() {
+        status.gh_signed_in = true;
+        status.gh_user = Some(chosen.login);
+        status.gh_missing_scopes = chosen.missing_scopes;
+        status.gh_can_delete_repos = chosen.can_delete_repos;
+      }
     }
     Err(e) => {
       status.gh_installed = !e.missing_cli;
-      forget_viewer();
+      status.error = Some(e.describe("Check your GitHub sign-in"));
     }
   }
-  if status.gh_signed_in {
-    let granted = scopes.ok();
-    status.gh_missing_scopes = match &granted {
-      Some(granted) => gh::missing_scopes(granted),
-      None => gh::REQUIRED_SCOPES.iter().map(|s| s.to_string()).collect(),
-    };
-    status.gh_can_delete_repos = granted.as_deref().is_some_and(gh::can_delete_repos);
-  }
-  if let Ok((tenant, user)) = account {
+  if let Ok((tenant, user)) = azure {
     status.az_signed_in = true;
     status.az_tenant = Some(tenant);
     status.az_user = Some(user);
@@ -214,11 +257,36 @@ pub async fn team_env_status() -> TeamEnvStatus {
   status
 }
 
-/// Open a terminal to sign in to GitHub (or add missing permissions) with the
-/// scopes team workspaces need, plus `delete_repo` when `delete_repo` is set
-/// (abandoning an unfinished setup). The renderer polls [`team_env_status`].
+/// The terminal command that signs in to GitHub with `scopes`: refreshes
+/// `refresh`'s sign-in (switching to it first when another account is active),
+/// or signs in to an account, adding it. Either way the CLI's `active` account
+/// is active again afterwards, since other workspaces and the terminal use it.
+fn signin_command(refresh: Option<&str>, active: Option<&str>, scopes: &str, windows: bool) -> String {
+  let switch = |login: &str| format!("gh auth switch --hostname github.com --user {login}");
+  let refresh_cmd = format!("gh auth refresh --hostname github.com --scopes {scopes}");
+  let (steps, back) = match refresh {
+    Some(login) if active.is_some_and(|a| a.eq_ignore_ascii_case(login)) => (vec![refresh_cmd], None),
+    Some(login) => (vec![switch(login), refresh_cmd], active),
+    None => (vec![format!("gh auth login --web --git-protocol https --hostname github.com --scopes {scopes}")], active),
+  };
+  let (clear, then, always) =
+    if windows { ("set \"GH_TOKEN=\" && set \"GITHUB_TOKEN=\" && ", " && ", " & ") } else { ("unset GH_TOKEN GITHUB_TOKEN; ", " && ", "; ") };
+  let mut cmd = format!("{clear}{}", steps.join(then));
+  if let Some(back) = back {
+    cmd.push_str(always);
+    cmd.push_str(&switch(back));
+  }
+  cmd
+}
+
+/// Open a terminal to sign in to GitHub with the scopes team workspaces need,
+/// plus `delete_repo` when `delete_repo` is set (abandoning an unfinished setup).
+/// With `account`, that account's sign-in is refreshed (or signed in again when
+/// the CLI no longer has it); otherwise `signed_in` refreshes the active
+/// account, and `false` signs in to another account. The renderer polls
+/// [`team_env_status`].
 #[tauri::command]
-pub fn team_github_signin(signed_in: bool, delete_repo: Option<bool>) -> ProcResult {
+pub async fn team_github_signin(signed_in: bool, delete_repo: Option<bool>, account: Option<String>) -> ProcResult {
   if which::which("gh").is_err() {
     return ProcResult {
       ok: false,
@@ -231,30 +299,39 @@ pub fn team_github_signin(signed_in: bool, delete_repo: Option<bool>) -> ProcRes
   if delete_repo.unwrap_or(false) {
     scopes.push(gh::DELETE_REPO_SCOPE);
   }
-  let scopes = scopes.join(",");
-  let gh_cmd = if signed_in {
-    format!("gh auth refresh --hostname github.com --scopes {scopes}")
-  } else {
-    format!("gh auth login --web --git-protocol https --hostname github.com --scopes {scopes}")
+  let accounts = gh::accounts().await.unwrap_or_default();
+  let active = accounts.iter().find(|a| a.active).map(|a| a.login.clone());
+  // A broken sign-in can't be refreshed: signing in again replaces it.
+  let refresh = match account.as_deref().map(str::trim).filter(|a| !a.is_empty()) {
+    Some(wanted) => accounts.iter().find(|a| a.signed_in && a.login.eq_ignore_ascii_case(wanted)).map(|a| a.login.clone()),
+    None if signed_in => accounts.iter().find(|a| a.active && a.signed_in).map(|a| a.login.clone()),
+    None => None,
   };
-  #[cfg(target_os = "windows")]
-  let cmd = format!("set \"GH_TOKEN=\" && set \"GITHUB_TOKEN=\" && {gh_cmd}");
-  #[cfg(not(target_os = "windows"))]
-  let cmd = format!("env -u GH_TOKEN -u GITHUB_TOKEN {gh_cmd}");
+  let cmd = signin_command(
+    refresh.as_deref().filter(|l| gh::is_login(l)),
+    active.as_deref().filter(|l| gh::is_login(l)),
+    &scopes.join(","),
+    cfg!(target_os = "windows"),
+  );
   let ok = crate::commands::github::launch_in_terminal(&cmd);
   ProcResult {
     ok,
     exit_code: None,
-    error: (!ok).then(|| format!("Couldn't open a terminal. Run `{gh_cmd}` yourself, then come back.")),
+    error: (!ok).then(|| format!("Couldn't open a terminal. Run `{cmd}` yourself, then come back.")),
   }
 }
 
+/// Accounts that can own a workspace set up as `account` (the CLI's active
+/// account when absent): the user and their organizations.
 #[tauri::command]
-pub async fn team_owners() -> TeamOwnersResult {
-  match gh::owners().await {
-    Ok(owners) => TeamOwnersResult { ok: true, error: None, owners },
-    Err(e) => TeamOwnersResult { ok: false, error: Some(e.describe("List your GitHub accounts")), owners: vec![] },
-  }
+pub async fn team_owners(account: Option<String>) -> TeamOwnersResult {
+  gh::as_account(account, async {
+    match gh::owners().await {
+      Ok(owners) => TeamOwnersResult { ok: true, error: None, owners },
+      Err(e) => TeamOwnersResult { ok: false, error: Some(e.describe("List your GitHub accounts")), owners: vec![] },
+    }
+  })
+  .await
 }
 
 #[tauri::command]
@@ -267,5 +344,50 @@ pub async fn team_capacities() -> FabricCapacitiesResult {
       needs_login: e.needs_login.then_some(true),
       error: Some(e.describe("List your Fabric capacities")),
     },
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  const SCOPES: &str = "repo,read:org,workflow";
+
+  #[test]
+  fn signing_in_keeps_the_active_account_active() {
+    // Refreshing the active account is just a refresh.
+    assert_eq!(
+      signin_command(Some("Octo"), Some("octo"), SCOPES, true),
+      "set \"GH_TOKEN=\" && set \"GITHUB_TOKEN=\" && gh auth refresh --hostname github.com --scopes repo,read:org,workflow"
+    );
+    // Another account: switch to it, refresh, then always switch back.
+    assert_eq!(
+      signin_command(Some("octo_work"), Some("octo"), SCOPES, true),
+      "set \"GH_TOKEN=\" && set \"GITHUB_TOKEN=\" && gh auth switch --hostname github.com --user octo_work && gh auth refresh --hostname github.com --scopes repo,read:org,workflow & gh auth switch --hostname github.com --user octo"
+    );
+    // Adding an account makes it active; the previous one comes back.
+    assert_eq!(
+      signin_command(None, Some("octo"), SCOPES, false),
+      "unset GH_TOKEN GITHUB_TOKEN; gh auth login --web --git-protocol https --hostname github.com --scopes repo,read:org,workflow; gh auth switch --hostname github.com --user octo"
+    );
+    // The first account has nothing to switch back to.
+    assert_eq!(
+      signin_command(None, None, SCOPES, false),
+      "unset GH_TOKEN GITHUB_TOKEN; gh auth login --web --git-protocol https --hostname github.com --scopes repo,read:org,workflow"
+    );
+  }
+
+  #[tokio::test]
+  async fn the_account_scope_reaches_spawned_tasks_only_when_passed_on() {
+    gh::as_account(Some(" octo_work ".into()), async {
+      assert_eq!(gh::current_account().as_deref(), Some("octo_work"));
+      let passed = tokio::spawn(gh::as_account(gh::current_account(), async { gh::current_account() })).await.unwrap();
+      assert_eq!(passed.as_deref(), Some("octo_work"));
+      let plain = tokio::spawn(async { gh::current_account() }).await.unwrap();
+      assert_eq!(plain, None, "spawned tasks don't inherit the scope by themselves");
+    })
+    .await;
+    assert_eq!(gh::current_account(), None);
+    gh::as_account(Some("  ".into()), async { assert_eq!(gh::current_account(), None) }).await;
   }
 }

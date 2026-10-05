@@ -228,6 +228,7 @@ pub fn run() {
       commands::team::team_set_require_review,
       commands::team::team_health,
       commands::team::team_repair,
+      commands::team::team_set_account,
       commands::team::team_map,
       commands::team::team_activity,
       commands::team::team_diff,

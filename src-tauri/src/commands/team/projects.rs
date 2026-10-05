@@ -59,6 +59,11 @@ async fn my_open_session(ws: &TeamWorkspace, login: &str, folder: &str) -> Optio
 /// or starting a new working branch from the published version.
 #[tauri::command]
 pub async fn team_open_project(workspace_id: String, folder: String) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, open_project(workspace_id, folder)).await
+}
+
+async fn open_project(workspace_id: String, folder: String) -> TeamActionResult {
   if let Err(e) = team::require_enabled() {
     return fail(e);
   }
@@ -201,6 +206,11 @@ async fn free_folder(ws: &TeamWorkspace, name: &str) -> Result<String, String> {
 /// and open its pull request (which deploys your preview).
 #[tauri::command]
 pub async fn team_create_project(app: AppHandle, workspace_id: String, input: CreateProjectInput) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, create_project(app, workspace_id, input)).await
+}
+
+async fn create_project(app: AppHandle, workspace_id: String, input: CreateProjectInput) -> TeamActionResult {
   if let Err(e) = team::require_enabled() {
     return fail(e);
   }
@@ -245,6 +255,11 @@ pub async fn team_create_project(app: AppHandle, workspace_id: String, input: Cr
 /// (with the same chat history); the original stays where it is.
 #[tauri::command]
 pub async fn team_move_project(app: AppHandle, workspace_id: String, project_id: String) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, move_project(app, workspace_id, project_id)).await
+}
+
+async fn move_project(app: AppHandle, workspace_id: String, project_id: String) -> TeamActionResult {
   if let Err(e) = team::require_enabled() {
     return fail(e);
   }
@@ -324,6 +339,11 @@ async fn first_save(app: &AppHandle, project_id: &str, message: &str) -> TeamAct
 /// merged pull request and, optionally, its published and preview apps in Fabric.
 #[tauri::command]
 pub async fn team_remove_project(workspace_id: String, folder: String, delete_apps: bool) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, remove_project(workspace_id, folder, delete_apps)).await
+}
+
+async fn remove_project(workspace_id: String, folder: String, delete_apps: bool) -> TeamActionResult {
   if let Err(e) = team::require_enabled() {
     return fail(e);
   }

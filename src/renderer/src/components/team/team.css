@@ -507,6 +507,18 @@
   max-width: 720px;
 }
 
+/* The GitHub account picker: its select and "Add account" side by side. */
+.team-account-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.team-account-row .field-input {
+  flex: 1;
+  min-width: 0;
+}
+
 /* A footer action set apart from Cancel and the main action. */
 .team-footer-start {
   margin-right: auto;
@@ -633,10 +645,13 @@
   gap: 6px;
 }
 
+/* A status row: dot, text, and an action that drops to its own line when the
+   row is too narrow for both (the overview's sidebar). */
 .team-check {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
   padding: 8px 10px;
   font-size: 13px;
   background: var(--bg-elev-2);
@@ -645,8 +660,12 @@
 }
 
 .team-check-text {
-  flex: 1;
+  flex: 1 1 180px;
   min-width: 0;
+}
+
+.team-check > .btn {
+  margin-left: auto;
 }
 
 .team-check-dot {

@@ -19,6 +19,11 @@ interface Props {
   onAbandonSetup: (workspace: TeamWorkspace) => void
 }
 
+/** Whether `repo` (`owner/name`) belongs to `login` (so naming the account adds nothing). */
+function ownedBy(repo: string, login: string): boolean {
+  return repo.split('/')[0]?.toLowerCase() === login.toLowerCase()
+}
+
 /** An app's state on Home: deploying anywhere, else its published status. */
 export function appStatus(app: TeamMapApp, runs: TeamMapRun[]): { health: Health; label: string } {
   const deploying =
@@ -88,6 +93,9 @@ export default function TeamWorkspaceCard({
           <span className="team-card-name">{workspace.name}</span>
           <span className="team-card-sub">
             {workspace.repo || 'Setting up…'} · {workspace.role === 'owner' ? 'Owner' : 'Member'}
+            {workspace.account && !ownedBy(workspace.repo, workspace.account) && (
+              <span title="The GitHub account Fabricator uses for this workspace"> · as {workspace.account}</span>
+            )}
           </span>
         </span>
         {deploying > 0 && (

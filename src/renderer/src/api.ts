@@ -355,10 +355,10 @@ export const api: RayfinStudioApi = {
     subscribe<AdvisorEventEnvelope>(IpcChannels.advisorEvent, cb),
 
   team: {
-    envStatus: () => invoke('team_env_status'),
-    githubSignIn: (signedIn: boolean, deleteRepo?: boolean) =>
-      invoke('team_github_signin', { signedIn, deleteRepo }),
-    owners: () => invoke('team_owners'),
+    envStatus: (account?: string) => invoke('team_env_status', { account }),
+    githubSignIn: (signedIn: boolean, deleteRepo?: boolean, account?: string) =>
+      invoke('team_github_signin', { signedIn, deleteRepo, account }),
+    owners: (account?: string) => invoke('team_owners', { account }),
     capacities: () => invoke('team_capacities'),
     create: (request: TeamCreateRequest, scope: string) => invoke('team_create', { request, scope }),
     resumeSetup: (workspaceId: string, scope: string, existingClientId?: string) =>
@@ -367,10 +367,10 @@ export const api: RayfinStudioApi = {
     abandonSetup: (workspaceId: string, scope: string) =>
       invoke('team_abandon_setup', { workspaceId, scope }),
     cancel: (key: string) => invoke('team_cancel', { key }),
-    joinOptions: () => invoke('team_join_options'),
-    acceptInvitation: (invitationId: number, repo: string) =>
-      invoke('team_accept_invitation', { invitationId, repo }),
-    join: (repo: string) => invoke('team_join', { repo }),
+    joinOptions: (account?: string) => invoke('team_join_options', { account }),
+    acceptInvitation: (invitationId: number, repo: string, account?: string) =>
+      invoke('team_accept_invitation', { invitationId, repo, account }),
+    join: (repo: string, account?: string) => invoke('team_join', { repo, account }),
     detail: (workspaceId: string) => invoke('team_detail', { workspaceId }),
     leave: (workspaceId: string) => invoke('team_leave', { workspaceId }),
     delete: (workspaceId: string, deleteFabric: boolean) =>
@@ -410,6 +410,7 @@ export const api: RayfinStudioApi = {
       invoke('team_set_require_review', { workspaceId, require }),
     health: (workspaceId: string) => invoke('team_health', { workspaceId }),
     repair: (workspaceId: string, scope: string) => invoke('team_repair', { workspaceId, scope }),
+    setAccount: (workspaceId: string, account: string) => invoke('team_set_account', { workspaceId, account }),
     map: (workspaceId: string) => invoke('team_map', { workspaceId }),
     activity: (workspaceId: string) => invoke('team_activity', { workspaceId }),
     diff: (workspaceId: string, folder: string, prNumber?: number) =>

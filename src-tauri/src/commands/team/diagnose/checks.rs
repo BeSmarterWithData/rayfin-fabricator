@@ -357,8 +357,10 @@ impl Runner {
     }
     let label = request.label();
     self.record(TeamDiagnosisCheck { id: id.clone(), label: label.clone(), state: "running".into(), detail: None });
+    // Copilot's tool calls arrive on the SDK's tasks, so the account is set here.
+    let checked = gh::as_account(self.ctx.account.clone(), execute(&self.ctx, request));
     let result = tokio::select! {
-      r = tokio::time::timeout(CHECK_TIMEOUT, execute(&self.ctx, request)) => r.unwrap_or_else(|_| Err("The check timed out.".into())),
+      r = tokio::time::timeout(CHECK_TIMEOUT, checked) => r.unwrap_or_else(|_| Err("The check timed out.".into())),
       _ = self.token.wait_cancelled() => Err("Stopped.".into()),
     };
     let (ok, detail) = match result {

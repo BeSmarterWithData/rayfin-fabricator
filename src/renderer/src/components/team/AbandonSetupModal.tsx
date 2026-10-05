@@ -146,10 +146,10 @@ export default function AbandonSetupModal({ workspace, onClose, onGone, onChange
     void check()
   }, [workspace.id])
 
-  /** Ask GitHub again whether the sign-in may delete repositories. */
+  /** Ask GitHub again whether the workspace's account may delete repositories. */
   async function checkPermission(): Promise<boolean> {
     try {
-      const status = await window.api.team.envStatus()
+      const status = await window.api.team.envStatus(workspace.account)
       setNeedsPermission(hasRepo && status.ghSignedIn && !status.ghCanDeleteRepos)
       return status.ghCanDeleteRepos
     } catch {
@@ -174,7 +174,7 @@ export default function AbandonSetupModal({ workspace, onClose, onGone, onChange
   async function grant(): Promise<void> {
     setGrantError(null)
     try {
-      const result = await window.api.team.githubSignIn(true, true)
+      const result = await window.api.team.githubSignIn(true, true, workspace.account)
       if (!result.ok) {
         setGrantError(result.error ?? 'Could not start GitHub sign-in.')
         return

@@ -857,6 +857,10 @@ pub struct TeamCreateRequest {
   /// Use an existing app registration (client ID) instead of creating one.
   #[serde(default)]
   pub existing_client_id: Option<String>,
+  /// The GitHub account (login) to set the workspace up as; the GitHub CLI's
+  /// active account when absent.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub account: Option<String>,
 }
 
 /// A setup problem, explained in plain language.
@@ -930,6 +934,11 @@ pub struct TeamWorkspace {
   /// Present while (or after) this machine set the workspace up.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub setup: Option<TeamSetupState>,
+  /// The GitHub account (login) Fabricator uses for this workspace, whichever
+  /// account the GitHub CLI has active. Absent for workspaces from before
+  /// accounts were remembered: those use the active account until one is saved.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub account: Option<String>,
   /// Fabric access granted from this machine: GitHub login (lowercase) → Entra
   /// object ID, so removing the member also removes their access.
   #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
@@ -1083,6 +1092,9 @@ pub struct TeamEnvStatus {
   /// The token may delete repositories (`delete_repo`). Only abandoning an
   /// unfinished setup needs it.
   pub gh_can_delete_repos: bool,
+  /// Every account the GitHub CLI is signed in to, active first. The `gh_*`
+  /// fields above describe the account asked about (or the active one).
+  pub gh_accounts: Vec<TeamGhAccount>,
   pub az_signed_in: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub az_user: Option<String>,
@@ -1090,6 +1102,20 @@ pub struct TeamEnvStatus {
   pub az_tenant: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
+}
+
+/// An account the GitHub CLI is signed in to.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamGhAccount {
+  pub login: String,
+  /// The CLI's active account.
+  pub active: bool,
+  /// Its stored sign-in works.
+  pub signed_in: bool,
+  /// Required OAuth scopes it lacks.
+  pub missing_scopes: Vec<String>,
+  pub can_delete_repos: bool,
 }
 
 /// A GitHub account that can own a team repository.
@@ -1123,6 +1149,9 @@ pub struct TeamInvitation {
   pub created_at: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub description: Option<String>,
+  /// The GitHub account the invitation is for.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub account: Option<String>,
 }
 
 /// A repository tagged as a team workspace that this machine hasn't joined.
@@ -1132,6 +1161,9 @@ pub struct TeamDiscovered {
   pub repo: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub description: Option<String>,
+  /// The GitHub account that can see it.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub account: Option<String>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -1573,6 +1605,8 @@ pub struct TeamDiagnoseRequest {
   pub project_id: Option<String>,
   /// The repository a join targeted (`owner/name`).
   pub repo: Option<String>,
+  /// The GitHub account a join used (a workspace's own account otherwise).
+  pub account: Option<String>,
   /// The failed pipeline run.
   pub run_id: Option<u64>,
   /// A run or log URL, when the run id isn't known.

@@ -62,9 +62,20 @@ Select **Manage** to open workspace settings. Owners can use:
 
 - **Members** to invite or remove teammates
 - **App access** to remove Fabric app access
-- **Settings** to change **Require a review**, open Fabric workspaces, check pipeline health, or leave and delete the workspace
+- **Settings** to change the **GitHub account** Fabricator uses or **Require a review**, open Fabric workspaces, check pipeline health, or leave and delete the workspace
 
 When Fabricator ships a newer pipeline template, **Pipeline health** can mark an item repairable. Select **Repair** to update the managed workflow, repository variables, merge settings, branch protection, and Fabric access as needed. If no repair is needed, the button says **Check the pipeline**.
+
+## Change the GitHub account
+
+Fabricator works on each team workspace as the GitHub account it was created or joined with. Home shows that account on the workspace's card when it isn't the repository's owner. To use another account that you're signed in to in the GitHub CLI, for example after signing out of the old one:
+
+1. Open the workspace's **Manage** panel and select **Settings**.
+2. In **GitHub account**, select **Change**.
+3. Choose the account. If it isn't listed, select **Add account**.
+4. Select **Use this account**.
+
+Fabricator first checks that the account can change the workspace's repository. Commits you make from then on are attributed to the new account.
 
 ## Remove an app
 

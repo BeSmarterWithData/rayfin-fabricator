@@ -104,7 +104,8 @@ pub(crate) async fn save_and_share(project_id: &str, message: &str) -> Result<St
 /// (which deploys your preview).
 #[tauri::command]
 pub async fn team_sync(app: AppHandle, project_id: String, message: String) -> TeamActionResult {
-  let task = tokio::spawn(async move {
+  let account = super::project_account(&project_id);
+  let task = tokio::spawn(gh::as_account(account, async move {
     let state = app.state::<AppState>();
     let _lease = match state.mutations.team(&project_id) {
       Ok(lease) => lease,
@@ -118,7 +119,7 @@ pub async fn team_sync(app: AppHandle, project_id: String, message: String) -> T
         result
       }
     }
-  });
+  }));
   task.await.unwrap_or_else(|e| fail(format!("Saving to GitHub failed: {e}")))
 }
 
@@ -184,6 +185,11 @@ pub(crate) async fn run_status_for(full: &str, run: gh::Run, kind: &str, folder:
 /// request, deployment records and the current pipeline run.
 #[tauri::command]
 pub async fn team_status(project_id: String, refresh: bool) -> TeamSessionStatus {
+  let account = super::project_account(&project_id);
+  gh::as_account(account, session_status(project_id, refresh)).await
+}
+
+async fn session_status(project_id: String, refresh: bool) -> TeamSessionStatus {
   let tp = match team::team_project(&project_id) {
     Ok(tp) => tp,
     Err(e) => return TeamSessionStatus { ok: false, error: Some(e), ..Default::default() },
@@ -274,7 +280,8 @@ pub async fn team_status(project_id: String, refresh: bool) -> TeamSessionStatus
 /// `keep_conflicts`, a conflicted merge is left in place for Copilot to resolve.
 #[tauri::command]
 pub async fn team_update(app: AppHandle, project_id: String, keep_conflicts: bool) -> TeamActionResult {
-  let task = tokio::spawn(async move {
+  let account = super::project_account(&project_id);
+  let task = tokio::spawn(gh::as_account(account, async move {
     let state = app.state::<AppState>();
     let _lease = match state.mutations.team(&project_id) {
       Ok(lease) => lease,
@@ -315,7 +322,7 @@ pub async fn team_update(app: AppHandle, project_id: String, keep_conflicts: boo
       },
       Err(e) => fail(e),
     }
-  });
+  }));
   task.await.unwrap_or_else(|e| fail(format!("Updating failed: {e}")))
 }
 
@@ -323,7 +330,8 @@ pub async fn team_update(app: AppHandle, project_id: String, keep_conflicts: boo
 /// working branch and start fresh from the published version.
 #[tauri::command]
 pub async fn team_discard(app: AppHandle, project_id: String) -> TeamActionResult {
-  let task = tokio::spawn(async move {
+  let account = super::project_account(&project_id);
+  let task = tokio::spawn(gh::as_account(account, async move {
     let state = app.state::<AppState>();
     let _lease = match state.mutations.team(&project_id) {
       Ok(lease) => lease,
@@ -365,7 +373,7 @@ pub async fn team_discard(app: AppHandle, project_id: String) -> TeamActionResul
       b.publish = None;
     });
     with_project(team::apply_view(&project_id))
-  });
+  }));
   task.await.unwrap_or_else(|e| fail(format!("Discarding failed: {e}")))
 }
 
@@ -384,7 +392,9 @@ pub fn team_set_view(project_id: String, view: String) -> TeamActionResult {
 #[tauri::command]
 pub async fn team_run_log(project_id: String, run_id: u64) -> Result<String, String> {
   let tp = team::team_project(&project_id)?;
-  gh::run_log(&tp.workspace.repo, run_id, 40_000).await.map_err(|e| e.describe("Read the pipeline log"))
+  gh::as_account(tp.workspace.account.clone(), gh::run_log(&tp.workspace.repo, run_id, 40_000))
+    .await
+    .map_err(|e| e.describe("Read the pipeline log"))
 }
 
 #[cfg(test)]

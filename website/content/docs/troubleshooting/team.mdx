@@ -45,15 +45,16 @@ If it still fails, include the setup step and copied instructions when you [repo
 
 ## GitHub CLI is missing, signed out, or missing scopes
 
-You see "The GitHub CLI (gh) isn't installed. Install it from setup, then try again." You may also see **Sign in to GitHub** or **Grant GitHub access**.
+You see "The GitHub CLI (gh) isn't installed. Install it from setup, then try again." You may also see **Sign in to GitHub** or **Grant GitHub access**, or a message such as "the GitHub CLI's sign-in for `<account>` has expired or was removed. Sign in to GitHub as `<account>` again."
 
-Fabricator needs `gh` on PATH, signed in to `github.com` with `repo`, `read:org`, and `workflow`.
+Fabricator needs `gh` on PATH, signed in to `github.com` with `repo`, `read:org`, and `workflow`. Each team workspace uses the GitHub account it was created or joined with, so that account must stay signed in to the GitHub CLI even when another account is active.
 
 1. Install the GitHub CLI from setup if it is missing.
 2. Select **Sign in to GitHub** if you are signed out.
 3. Select **Grant GitHub access** if Fabricator lists missing scopes.
-4. Finish the terminal sign-in or refresh flow.
-5. Return to Fabricator and select **Check again**.
+4. If the message names an account, sign in to GitHub as that account again: next to **GitHub account**, select **Add account**, or run `gh auth login` and sign in as it. To use another account instead, see [Change the GitHub account](/docs/team/overview#change-the-github-account).
+5. Finish the terminal sign-in or refresh flow.
+6. Return to Fabricator and select **Check again**.
 
 If the terminal cannot open, run the command Fabricator shows, then [report a problem](/docs/troubleshooting/report-a-problem) if the check still fails.
 

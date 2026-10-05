@@ -20,7 +20,7 @@ use crate::services::exec::CancelToken;
 use crate::services::store;
 use crate::services::team::{self, gh, naming, repo};
 use crate::state::AppState;
-use crate::types::{StudioProject, TeamActionResult, TeamDeployRecord, TeamPublishState, TeamReviewRequest};
+use crate::types::{StudioProject, TeamActionResult, TeamDeployRecord, TeamPublishState, TeamReviewRequest, TeamWorkspace};
 
 pub const PUBLISH_STEPS: &[(&str, &str)] = &[
   ("save", "Save your latest changes"),
@@ -45,7 +45,8 @@ fn stage(stage: &str, pr: Option<u64>) -> TeamPublishState {
 
 #[tauri::command]
 pub async fn team_publish(app: AppHandle, project_id: String, confirm_data_loss: bool) -> TeamActionResult {
-  let task = tokio::spawn(async move {
+  let account = super::project_account(&project_id);
+  let task = tokio::spawn(gh::as_account(account, async move {
     let state = app.state::<AppState>();
     let cancel = state.begin_team_op(&project_id);
     let result = if confirm_data_loss {
@@ -55,7 +56,7 @@ pub async fn team_publish(app: AppHandle, project_id: String, confirm_data_loss:
     };
     state.end_team_op(&project_id, &cancel);
     result
-  });
+  }));
   task.await.unwrap_or_else(|e| fail(format!("Publishing failed: {e}")))
 }
 
@@ -413,26 +414,33 @@ async fn publish_with_data_loss(app: &AppHandle, project_id: &str, cancel: &Canc
 }
 
 /// Pull requests waiting for your approval, in workspaces that require reviews.
+/// Each workspace is read as its own GitHub account.
 #[tauri::command]
 pub async fn team_review_requests() -> Vec<TeamReviewRequest> {
   if team::require_enabled().is_err() {
     return vec![];
   }
-  let Ok(me) = viewer().await else { return vec![] };
   let mut requests = Vec::new();
   for ws in store::team_workspaces() {
     if !ws.manifest.as_ref().is_some_and(|m| m.settings.require_review) {
       continue;
     }
-    let Ok(prs) = gh::open_prs(&ws.repo).await else { continue };
-    for (mut pr, head) in prs {
-      if pr.draft || pr.author.eq_ignore_ascii_case(&me.login) || !head.starts_with(naming::BRANCH_ROOT) {
-        continue;
-      }
-      pr.approvals = gh::approvals(&ws.repo, pr.number, &pr.author).await.unwrap_or(0);
-      if pr.approvals == 0 {
-        requests.push(TeamReviewRequest { workspace_id: ws.id.clone(), repo: ws.repo.clone(), pr });
-      }
+    requests.extend(gh::as_account(ws.account.clone(), review_requests_in(&ws)).await);
+  }
+  requests
+}
+
+async fn review_requests_in(ws: &TeamWorkspace) -> Vec<TeamReviewRequest> {
+  let Ok(me) = viewer().await else { return vec![] };
+  let Ok(prs) = gh::open_prs(&ws.repo).await else { return vec![] };
+  let mut requests = Vec::new();
+  for (mut pr, head) in prs {
+    if pr.draft || pr.author.eq_ignore_ascii_case(&me.login) || !head.starts_with(naming::BRANCH_ROOT) {
+      continue;
+    }
+    pr.approvals = gh::approvals(&ws.repo, pr.number, &pr.author).await.unwrap_or(0);
+    if pr.approvals == 0 {
+      requests.push(TeamReviewRequest { workspace_id: ws.id.clone(), repo: ws.repo.clone(), pr });
     }
   }
   requests
@@ -446,7 +454,7 @@ pub async fn team_approve(workspace_id: String, pr_number: u64) -> TeamActionRes
   let Some(ws) = store::find_team_workspace(&workspace_id) else {
     return fail("That team workspace is no longer on this computer.");
   };
-  match gh::approve(&ws.repo, pr_number).await {
+  match gh::as_account(ws.account.clone(), gh::approve(&ws.repo, pr_number)).await {
     Ok(()) => super::with_workspace(ws),
     Err(e) => fail(e.describe("Approve the changes")),
   }

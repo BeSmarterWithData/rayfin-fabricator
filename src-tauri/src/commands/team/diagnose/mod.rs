@@ -108,6 +108,9 @@ struct FabricTarget {
 #[derive(Debug, Default)]
 struct DiagContext {
   kind: Kind,
+  /// The GitHub account the failed operation used (`None`: the CLI's active
+  /// account). Checks run as it.
+  account: Option<String>,
   /// The setup step that failed (`verify` also when Repair's check failed).
   step: Option<String>,
   problem: Option<TeamProblem>,
@@ -167,10 +170,22 @@ fn run_id_from_url(url: &str, repo: Option<&str>) -> Option<u64> {
   caps[2].parse().ok()
 }
 
+/// The GitHub account the failed operation used: its project's or workspace's,
+/// the one setup was asked to use, or the one a join used.
+fn request_account(req: &TeamDiagnoseRequest) -> Option<String> {
+  clean(req.project_id.as_ref())
+    .and_then(|id| super::project_account(&id))
+    .or_else(|| clean(req.workspace_id.as_ref()).and_then(|id| super::workspace_account(&id)))
+    .or_else(|| req.request.as_ref().and_then(|r| clean(r.account.as_ref())))
+    .or_else(|| clean(req.account.as_ref()))
+    .filter(|a| team::gh::is_login(a))
+}
+
 async fn resolve(req: &TeamDiagnoseRequest) -> Result<DiagContext, String> {
   let kind = Kind::parse(&req.kind).ok_or("Fabricator doesn't know how to diagnose that.")?;
   let mut ctx = DiagContext {
     kind,
+    account: request_account(req),
     step: clean(req.step.as_ref()).or_else(|| req.problem.as_ref().and_then(|p| clean(Some(&p.step)))),
     problem: req.problem.clone(),
     error: clean(req.error.as_ref()),
@@ -324,7 +339,7 @@ pub async fn team_diagnose(
       let _ = app.emit(DIAGNOSIS_EVENT, TeamDiagnosisEnvelope { diagnosis_id: id.clone(), event });
     })
   };
-  let result = diagnose(&state.copilot, &request, emit.clone(), &token).await;
+  let result = team::gh::as_account(request_account(&request), diagnose(&state.copilot, &request, emit.clone(), &token)).await;
   state.end_team_op(&id, &token);
   emit(TeamDiagnosisEvent::Done { ok: result.ok, error: result.error.clone() });
   crate::services::telemetry::track_team(crate::commands::auth::get_cached_identity().as_ref(), "diagnose", result.ok);

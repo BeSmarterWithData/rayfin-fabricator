@@ -2,20 +2,24 @@ import { useEffect, useId, useState } from 'react'
 import type { TeamJoinOptions, TeamWorkspace } from '@shared/ipc'
 import { useSuppressPreview } from '../../overlay'
 import { useModalFocus } from '../../modalFocus'
-import { teamError } from './common'
+import { GithubAccountField, teamError } from './common'
 import TeamDiagnosis from './diagnosis/TeamDiagnosis'
 import './team.css'
 
 interface Props {
+  /** Start with this GitHub account (an invitation's). */
+  initialAccount?: string
   onClose: () => void
   onJoined: (workspace: TeamWorkspace) => void
 }
 
-/** Join a team workspace: accept an invitation, or pick one you can access. */
-export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JSX.Element {
+/** Join a team workspace as one of your GitHub accounts: accept an invitation, or pick one it can access. */
+export default function JoinTeamWorkspaceModal({ initialAccount, onClose, onJoined }: Props): JSX.Element {
   useSuppressPreview()
   const titleId = useId()
   const dialogRef = useModalFocus<HTMLDivElement>()
+  const [account, setAccount] = useState(initialAccount ?? '')
+  const [accountReady, setAccountReady] = useState(false)
   const [options, setOptions] = useState<TeamJoinOptions | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [repo, setRepo] = useState('')
@@ -24,13 +28,24 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
   const [failedRepo, setFailedRepo] = useState<string | null>(null)
 
   useEffect(() => {
-    void window.api.team
-      .joinOptions()
-      .then(setOptions)
-      .catch((reason) =>
-        setOptions({ ok: false, error: teamError(reason, 'Could not load invitations.'), invitations: [], discovered: [] })
-      )
-  }, [])
+    if (!account || !accountReady) return
+    let current = true
+    setOptions(null)
+    setError(null)
+    window.api.team
+      .joinOptions(account)
+      .then((next) => {
+        if (current) setOptions(next)
+      })
+      .catch((reason) => {
+        if (current) {
+          setOptions({ ok: false, error: teamError(reason, 'Could not load invitations.'), invitations: [], discovered: [] })
+        }
+      })
+    return () => {
+      current = false
+    }
+  }, [account, accountReady])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
@@ -78,9 +93,15 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
           <h2 id={titleId}>Join a team workspace</h2>
         </div>
         <div className="modal-body team-form">
-          {!options ? (
+          <GithubAccountField
+            value={account}
+            onChange={setAccount}
+            onReady={setAccountReady}
+            hint="Fabricator joins and always works on the workspace as this account."
+          />
+          {!accountReady ? null : !options ? (
             <span className="team-muted">
-              <span className="ws-spinner" /> Looking for your invitations…
+              <span className="ws-spinner" /> Looking for {account}&apos;s invitations…
             </span>
           ) : (
             <>
@@ -89,7 +110,7 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
                 <span className="team-menu-title">Invitations</span>
                 {options.invitations.length === 0 ? (
                   <span className="team-muted">
-                    No pending invitations. Ask the workspace&apos;s owner to invite your GitHub
+                    No pending invitations for {account}. Ask the workspace&apos;s owner to invite this GitHub
                     username.
                   </span>
                 ) : (
@@ -105,7 +126,7 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
                         disabled={Boolean(busy)}
                         onClick={() =>
                           void join(`i${invite.id}`, invite.repo, () =>
-                            window.api.team.acceptInvitation(invite.id, invite.repo)
+                            window.api.team.acceptInvitation(invite.id, invite.repo, account)
                           )
                         }
                       >
@@ -127,7 +148,7 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
                         type="button"
                         className="btn btn--sm"
                         disabled={Boolean(busy)}
-                        onClick={() => void join(d.repo, d.repo, () => window.api.team.join(d.repo))}
+                        onClick={() => void join(d.repo, d.repo, () => window.api.team.join(d.repo, account))}
                       >
                         {busy === d.repo ? 'Joining…' : 'Join'}
                       </button>
@@ -149,7 +170,7 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
                     type="button"
                     className="btn btn--sm"
                     disabled={!manualValid || Boolean(busy)}
-                    onClick={() => void join('manual', repo.trim(), () => window.api.team.join(repo.trim()))}
+                    onClick={() => void join('manual', repo.trim(), () => window.api.team.join(repo.trim(), account))}
                   >
                     {busy === 'manual' ? 'Joining…' : 'Join'}
                   </button>
@@ -160,11 +181,16 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
           {error && <div className="alert alert--error">{error}</div>}
           {error ? (
             <TeamDiagnosis
-              input={{ kind: 'join', repo: failedRepo ?? undefined, error }}
+              input={{ kind: 'join', repo: failedRepo ?? undefined, error, account: account || undefined }}
               resetKey={`${failedRepo ?? ''}|${error}`}
             />
           ) : (
-            options?.error && <TeamDiagnosis input={{ kind: 'join', error: options.error }} resetKey={options.error} />
+            options?.error && (
+              <TeamDiagnosis
+                input={{ kind: 'join', error: options.error, account: account || undefined }}
+                resetKey={options.error}
+              />
+            )
           )}
         </div>
         <div className="modal-footer">

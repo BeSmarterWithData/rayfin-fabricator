@@ -25,6 +25,7 @@ Fabricator wraps the tools you would otherwise run by hand. You describe the app
 | GitHub Copilot engine | Bundled with Fabricator, connected to GitHub Copilot | The agent that reads and edits your app when you chat. |
 | Project Rayfin CLI | Your project, through `npx rayfin` | Deploys the app and manages Fabric sign-in through the project's pinned Rayfin version. |
 | git | Your project folder | Tracks local history, diffs, restores, and team workspace branches. |
+| GitHub CLI | Your computer, through `gh` | Team workspace repositories, pull requests and pipeline runs. Each team workspace's `gh` calls and git pushes and fetches use the stored token of the workspace's own GitHub account (`gh auth token --user`), so the CLI's active account doesn't matter. |
 | Local Vite preview | Your computer | Shows frontend edits during chat turns when the project has Vite installed. It uses the existing Fabric backend configuration. |
 | Microsoft Fabric | Your tenant | Hosts deployed app runtimes, data, Fabric workspaces, capacities, and Fabric app items. |
 

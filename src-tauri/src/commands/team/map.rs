@@ -72,6 +72,11 @@ fn app_index(apps: &mut Vec<TeamMapApp>, folder: &str, name: impl FnOnce() -> St
 /// Apps, working copies, deployments, pipeline runs and members of a workspace.
 #[tauri::command]
 pub async fn team_map(workspace_id: String) -> TeamMap {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, read_map(workspace_id)).await
+}
+
+async fn read_map(workspace_id: String) -> TeamMap {
   let fail = |error: String| TeamMap { ok: false, error: Some(error), fetched_at: now_iso(), ..Default::default() };
   if let Err(e) = team::require_enabled() {
     return fail(e);
@@ -93,6 +98,9 @@ pub async fn team_map(workspace_id: String) -> TeamMap {
     tokio::join!(published, gh::open_pr_summaries(&full), runs_with_jobs(&full), gh::collaborators(&full), viewer());
   let login = me.ok().map(|v| v.login);
   let ok = published.is_ok();
+  if ok {
+    super::pin_account(&ws).await;
+  }
   let published = published.unwrap_or_else(|e| {
     problems.push(e);
     Vec::new()
@@ -234,6 +242,11 @@ pub async fn team_map(workspace_id: String) -> TeamMap {
 /// the ones in progress.
 #[tauri::command]
 pub async fn team_activity(workspace_id: String) -> TeamActivity {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, read_activity(workspace_id)).await
+}
+
+async fn read_activity(workspace_id: String) -> TeamActivity {
   let fail = |error: String| TeamActivity { ok: false, error: Some(error), fetched_at: now_iso(), ..Default::default() };
   if let Err(e) = team::require_enabled() {
     return fail(e);
@@ -254,6 +267,11 @@ pub async fn team_activity(workspace_id: String) -> TeamActivity {
 /// on this computer including edits not saved to GitHub yet.
 #[tauri::command]
 pub async fn team_diff(workspace_id: String, folder: String, pr_number: Option<u64>) -> TeamDiff {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, read_diff(workspace_id, folder, pr_number)).await
+}
+
+async fn read_diff(workspace_id: String, folder: String, pr_number: Option<u64>) -> TeamDiff {
   let fail = |error: String| TeamDiff { ok: false, error: Some(error), ..Default::default() };
   if let Err(e) = team::require_enabled() {
     return fail(e);

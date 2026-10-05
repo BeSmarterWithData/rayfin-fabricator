@@ -135,6 +135,11 @@ pub async fn team_create(app: AppHandle, request: TeamCreateRequest, scope: Stri
     return fail("Choose a Fabric capacity for the workspace's apps.");
   }
   request.existing_client_id = request.existing_client_id.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
+  request.account = request.account.map(|a| a.trim().to_string()).filter(|a| !a.is_empty());
+  if request.account.as_deref().is_some_and(|a| !gh::is_login(a)) {
+    return fail("Choose one of the GitHub accounts you're signed in to.");
+  }
+  let account = request.account.clone();
   let dir = unique_dir(&naming::slug(&request.name));
   let ws = TeamWorkspace {
     id: uuid::Uuid::new_v4().to_string(),
@@ -146,9 +151,10 @@ pub async fn team_create(app: AppHandle, request: TeamCreateRequest, scope: Stri
     added_at: now_iso(),
     manifest: None,
     setup: Some(TeamSetupState { request, ..Default::default() }),
+    account: None,
     fabric_members: Default::default(),
   };
-  run_setup(&app, ws, &scope).await
+  gh::as_account(account, run_setup(&app, ws, &scope)).await
 }
 
 /// Continue an interrupted or failed setup. A new `existing_client_id` lets the
@@ -179,7 +185,8 @@ pub async fn team_resume_setup(
     setup.preview_sp_object_id = None;
     setup.completed.retain(|s| !matches!(s.as_str(), "identity" | "trust" | "access" | "files" | "verify"));
   }
-  run_setup(&app, ws, &scope).await
+  let account = ws.account.clone().or_else(|| setup.request.account.clone());
+  gh::as_account(account, run_setup(&app, ws, &scope)).await
 }
 
 /// Stop waiting on a long team operation (setup verification or publish).
@@ -257,6 +264,8 @@ async fn provision(app: &AppHandle, ws: TeamWorkspace, scope: &str, cancel: &Can
     }
   };
   s.ws.repo = info.full_name.clone();
+  // The account that reached the repository is the one the workspace uses.
+  s.ws.account.get_or_insert_with(|| me.login.clone());
   if let Err(e) = gh::set_topics(&info.full_name, &[naming::REPO_TOPIC]).await {
     log::warn!("couldn't tag {} as a team workspace: {}", info.full_name, e.message);
   }

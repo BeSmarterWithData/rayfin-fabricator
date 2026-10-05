@@ -485,11 +485,16 @@ pub async fn secrets_list(project_id: String) -> SecretsState {
   // preview), so show both, read-only.
   if let Some(binding) = &project.team {
     state.status = "team".into();
-    let repo = store::find_team_workspace(&binding.workspace_id).map(|workspace| workspace.repo);
-    let (published, preview) = tokio::join!(
-      team_environment("published", binding.production.as_ref(), repo.as_deref(), &config.declared),
-      team_environment("preview", binding.preview.as_ref(), repo.as_deref(), &config.declared),
-    );
+    let workspace = store::find_team_workspace(&binding.workspace_id);
+    let repo = workspace.as_ref().map(|w| w.repo.clone());
+    let both = async {
+      tokio::join!(
+        team_environment("published", binding.production.as_ref(), repo.as_deref(), &config.declared),
+        team_environment("preview", binding.preview.as_ref(), repo.as_deref(), &config.declared),
+      )
+    };
+    let (published, preview) =
+      crate::services::team::gh::as_account(workspace.and_then(|w| w.account), both).await;
     state.environments = vec![published, preview];
     return state;
   }

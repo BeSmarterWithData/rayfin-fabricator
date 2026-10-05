@@ -99,7 +99,7 @@ If a published deploy would delete data, it emits:
 
 ## Permissions and settings needed
 
-The person setting up the workspace needs the GitHub CLI signed in to `github.com` with `repo`, `read:org`, and `workflow`. Fabricator uses those scopes to create and use the repository and its workflow. Abandoning an unfinished setup also needs `delete_repo` to delete the repository; Fabricator asks for it only then.
+The person setting up the workspace needs the GitHub CLI signed in to `github.com` with `repo`, `read:org`, and `workflow`. Fabricator uses those scopes to create and use the repository and its workflow. Abandoning an unfinished setup also needs `delete_repo` to delete the repository; Fabricator asks for it only then. When the GitHub CLI is signed in to several accounts, each workspace uses the account chosen when it was created or joined, with that account's stored sign-in.
 
 The Azure CLI sign-in must be in the target tenant. To create identities, the user must be allowed to create and update app registrations and service principals, or must have an administrator-provided app registration.
 

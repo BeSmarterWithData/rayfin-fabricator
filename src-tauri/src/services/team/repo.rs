@@ -41,22 +41,59 @@ pub fn remote_url(full_name: &str) -> String {
   format!("https://github.com/{full_name}.git")
 }
 
-/// Run git in `dir` with gh-backed credentials and no interactive prompts.
+/// The git subcommand in `args`, after options such as `-c name=value`.
+fn subcommand<'a>(args: &[&'a str]) -> Option<&'a str> {
+  let mut iter = args.iter();
+  while let Some(arg) = iter.next() {
+    if matches!(*arg, "-c" | "-C") {
+      iter.next();
+    } else if !arg.starts_with('-') {
+      return Some(arg);
+    }
+  }
+  None
+}
+
+/// Whether git talks to GitHub (and so asks the credential helper) for `args`.
+fn reaches_github(args: &[&str]) -> bool {
+  matches!(subcommand(args), Some("clone" | "fetch" | "push" | "pull" | "ls-remote"))
+}
+
+/// Run git in `dir` with gh-backed credentials (for the account the current
+/// task acts as) and no interactive prompts.
 async fn git_in(dir: &Path, args: &[&str], timeout_ms: u64, on: Option<OnData>) -> RunResult {
   let mut full: Vec<String> = gh::git_credential_args();
   full.extend(args.iter().map(|s| s.to_string()));
   let refs: Vec<&str> = full.iter().map(String::as_str).collect();
+  let mut env = vec![
+    ("GIT_TERMINAL_PROMPT".into(), "0".into()),
+    ("GCM_INTERACTIVE".into(), "Never".into()),
+    ("GH_HOST".into(), "github.com".into()),
+    ("GH_PROMPT_DISABLED".into(), "1".into()),
+  ];
+  // Local commands never ask for credentials, so they work even when the
+  // workspace's account isn't signed in.
+  if reaches_github(args) {
+    match gh::account_token().await {
+      Ok(Some(token)) => env.push(("GH_TOKEN".into(), token)),
+      Ok(None) => {}
+      Err(e) => {
+        return RunResult {
+          ok: false,
+          exit_code: None,
+          stdout: String::new(),
+          stderr: format!("Authentication failed: {}", e.message),
+          not_found: false,
+        }
+      }
+    }
+  }
   exec::run(
     "git",
     &refs,
     RunOptions {
       cwd: Some(dir.to_path_buf()),
-      env: vec![
-        ("GIT_TERMINAL_PROMPT".into(), "0".into()),
-        ("GCM_INTERACTIVE".into(), "Never".into()),
-        ("GH_HOST".into(), "github.com".into()),
-        ("GH_PROMPT_DISABLED".into(), "1".into()),
-      ],
+      env,
       env_remove: vec!["GH_TOKEN".into(), "GITHUB_TOKEN".into()],
       on_data: on,
       timeout_ms: Some(timeout_ms),
@@ -80,7 +117,10 @@ fn failure(action: &str, res: &RunResult) -> String {
     .collect::<Vec<_>>()
     .join(" ");
   if detail.to_ascii_lowercase().contains("authentication failed") || detail.contains("could not read Username") {
-    return format!("{action}: GitHub sign-in is required. Sign in to GitHub again, then retry.");
+    return match gh::current_account() {
+      Some(login) => format!("{action}: GitHub didn't accept the GitHub CLI's sign-in for {login}. Sign in to GitHub as {login} again, then retry."),
+      None => format!("{action}: GitHub sign-in is required. Sign in to GitHub again, then retry."),
+    };
   }
   if detail.is_empty() {
     format!("{action} failed.")
@@ -664,6 +704,17 @@ mod tests {
   use super::*;
 
   #[test]
+  fn only_commands_that_reach_github_need_the_accounts_token() {
+    assert!(reaches_github(&["fetch", "--prune", "--quiet", "origin"]));
+    assert!(reaches_github(&["-c", "user.name=A", "push", "-u", "origin", "b"]));
+    assert!(reaches_github(&["clone", "--no-checkout", "u", "t"]));
+    assert!(!reaches_github(&["-c", "user.name=push", "commit", "-m", "push the button"]));
+    assert!(!reaches_github(&["worktree", "add", "x"]));
+    assert!(!reaches_github(&["-C", "fetch", "status"]), "-C takes a value");
+    assert_eq!(subcommand(&["--no-pager", "diff"]), Some("diff"));
+  }
+
+  #[test]
   fn project_folders_are_top_level_rayfin_projects() {
     let listing = "README.md\nfabricator.workspace.json\napp/rayfin/rayfin.yml\napp/src/main.ts\nnested/deep/rayfin/rayfin.yml\nzeta/rayfin/rayfin.yml\n.github/workflows/fabricator.yml\n";
     assert_eq!(project_folders(listing), vec!["app".to_string(), "zeta".to_string()]);
@@ -834,6 +885,7 @@ mod tests {
       added_at: String::new(),
       manifest: None,
       setup: None,
+      account: None,
       fabric_members: Default::default(),
     };
     std::fs::create_dir_all(&ws.dir).unwrap();
@@ -880,6 +932,7 @@ mod tests {
       added_at: String::new(),
       manifest: None,
       setup: None,
+      account: None,
       fabric_members: Default::default(),
     };
     std::fs::create_dir_all(&ws.dir).unwrap();

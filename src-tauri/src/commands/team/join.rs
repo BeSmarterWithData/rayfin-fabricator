@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+use futures::future::join_all;
 use tauri::AppHandle;
 
 use super::{fail, git_identity, unique_dir, viewer, with_workspace};
@@ -10,7 +11,8 @@ use crate::services::store;
 use crate::services::team::{self, entra, fabric, gh, naming, repo, templates};
 use crate::services::history;
 use crate::types::{
-  ProjectsState, TeamActionResult, TeamDiscovered, TeamJoinOptions, TeamRepoProject, TeamWorkspace, TeamWorkspaceDetail,
+  ProjectsState, TeamActionResult, TeamDiscovered, TeamInvitation, TeamJoinOptions, TeamRepoProject, TeamWorkspace,
+  TeamWorkspaceDetail,
 };
 
 fn joined(full_name: &str) -> Option<TeamWorkspace> {
@@ -29,14 +31,40 @@ async fn accept_pending_invitation(full_name: &str) -> Result<bool, gh::GhError>
   Ok(true)
 }
 
-/// Invitations to team workspaces waiting for the user, and team workspaces
-/// they can join. Other repository invitations and deleted (archived)
-/// workspaces aren't listed.
+/// Invitations to team workspaces waiting for `account`, and team workspaces
+/// it can join. Without `account`, those of every account the GitHub CLI is
+/// signed in to (Home's inbox), each marked with its account. Other repository
+/// invitations and deleted (archived) workspaces aren't listed.
 #[tauri::command]
-pub async fn team_join_options() -> TeamJoinOptions {
+pub async fn team_join_options(account: Option<String>) -> TeamJoinOptions {
   if let Err(e) = team::require_enabled() {
     return TeamJoinOptions { ok: false, error: Some(e), invitations: vec![], discovered: vec![] };
   }
+  let accounts: Vec<Option<String>> = match account.map(|a| a.trim().to_string()).filter(|a| !a.is_empty()) {
+    Some(login) => vec![Some(login)],
+    None => match gh::accounts().await {
+      Ok(list) if list.iter().any(|a| a.signed_in) => list.into_iter().filter(|a| a.signed_in).map(|a| Some(a.login)).collect(),
+      // The active account, as before accounts were listed.
+      _ => vec![None],
+    },
+  };
+  let each = join_all(accounts.into_iter().map(|login| gh::as_account(login.clone(), join_options_for(login)))).await;
+  let mut all = TeamJoinOptions { ok: true, error: None, invitations: vec![], discovered: vec![] };
+  for options in each {
+    all.error = all.error.or(options.error);
+    all.invitations.extend(options.invitations);
+    for found in options.discovered {
+      if !all.discovered.iter().any(|d| d.repo.eq_ignore_ascii_case(&found.repo)) {
+        all.discovered.push(found);
+      }
+    }
+  }
+  all.ok = all.error.is_none();
+  all
+}
+
+/// Join options for one account (`None`: the GitHub CLI's active account).
+async fn join_options_for(account: Option<String>) -> TeamJoinOptions {
   let (invitations, repos) = tokio::join!(gh::user_invitations(), gh::workspace_repos());
   let mut error = None;
   let invitations = invitations
@@ -44,6 +72,7 @@ pub async fn team_join_options() -> TeamJoinOptions {
       list
         .into_iter()
         .filter(|i| naming::is_workspace_description(i.description.as_deref()) && joined(&i.repo).is_none())
+        .map(|i| TeamInvitation { account: account.clone(), ..i })
         .collect()
     })
     .unwrap_or_else(|e| {
@@ -55,7 +84,7 @@ pub async fn team_join_options() -> TeamJoinOptions {
       repos
         .into_iter()
         .filter(|r| r.push && !r.archived && joined(&r.full_name).is_none())
-        .map(|r| TeamDiscovered { repo: r.full_name, description: r.description })
+        .map(|r| TeamDiscovered { repo: r.full_name, description: r.description, account: account.clone() })
         .collect()
     })
     .unwrap_or_else(|e| {
@@ -65,25 +94,28 @@ pub async fn team_join_options() -> TeamJoinOptions {
   TeamJoinOptions { ok: error.is_none(), error, invitations, discovered }
 }
 
-/// Accept a repository invitation, then join it as a team workspace.
+/// Accept a repository invitation as `account`, then join it as a team workspace.
 #[tauri::command]
-pub async fn team_accept_invitation(invitation_id: u64, repo: String) -> TeamActionResult {
+pub async fn team_accept_invitation(invitation_id: u64, repo: String, account: Option<String>) -> TeamActionResult {
   if let Err(e) = team::require_enabled() {
     return fail(e);
   }
-  if let Err(e) = gh::accept_invitation(invitation_id).await {
-    return fail(e.describe("Accept the invitation"));
-  }
-  join_repo(&repo).await
+  gh::as_account(account, async move {
+    if let Err(e) = gh::accept_invitation(invitation_id).await {
+      return fail(e.describe("Accept the invitation"));
+    }
+    join_repo(&repo).await
+  })
+  .await
 }
 
-/// Join a team workspace you already have access to (`owner/name`).
+/// Join a team workspace `account` already has access to (`owner/name`).
 #[tauri::command]
-pub async fn team_join(repo: String) -> TeamActionResult {
+pub async fn team_join(repo: String, account: Option<String>) -> TeamActionResult {
   if let Err(e) = team::require_enabled() {
     return fail(e);
   }
-  join_repo(repo.trim()).await
+  gh::as_account(account, async move { join_repo(repo.trim()).await }).await
 }
 
 async fn join_repo(full_name: &str) -> TeamActionResult {
@@ -131,6 +163,7 @@ async fn join_repo_inner(full_name: &str) -> TeamActionResult {
     added_at: now_iso(),
     manifest: None,
     setup: None,
+    account: Some(me.login.clone()),
     fabric_members: Default::default(),
   };
   let cleanup = |dir: &Path| {
@@ -165,6 +198,11 @@ async fn join_repo_inner(full_name: &str) -> TeamActionResult {
 /// from GitHub.
 #[tauri::command]
 pub async fn team_detail(workspace_id: String) -> TeamWorkspaceDetail {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, detail(workspace_id)).await
+}
+
+async fn detail(workspace_id: String) -> TeamWorkspaceDetail {
   let empty = |error: String| TeamWorkspaceDetail { ok: false, error: Some(error), workspace: None, projects: vec![] };
   if let Err(e) = team::require_enabled() {
     return empty(e);
@@ -181,6 +219,9 @@ pub async fn team_detail(workspace_id: String) -> TeamWorkspaceDetail {
     _ => None,
   };
   let info = gh::repo(&ws.repo).await.ok();
+  if info.is_some() {
+    super::pin_account(&ws).await;
+  }
   if info.as_ref().is_some_and(|r| r.archived) {
     error = Some(format!("{DELETED} Leave it to remove it from this computer."));
   }
@@ -254,6 +295,11 @@ pub(crate) async fn forget_workspace(ws: &TeamWorkspace) {
 /// and forget it here. Problems are reported but don't stop the rest.
 #[tauri::command]
 pub async fn team_delete(workspace_id: String, delete_fabric: bool) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, delete(workspace_id, delete_fabric)).await
+}
+
+async fn delete(workspace_id: String, delete_fabric: bool) -> TeamActionResult {
   if let Err(e) = team::require_enabled() {
     return fail(e);
   }
