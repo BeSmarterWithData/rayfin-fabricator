@@ -35,6 +35,14 @@ export interface IAuthService {
    * any UI. Returns `null` when not running inside a Fabric iframe.
    */
   initEmbeddedAuth(): Promise<AuthUser | null>;
+
+  /**
+   * Local development only: sign in without UI as the developer's
+   * `rayfin login` account, through the `rayfinLocalDev` plugin in
+   * `vite.config.ts`. Returns `null` in production builds and whenever
+   * automatic local sign-in is off.
+   */
+  initLocalDevAuth(): Promise<AuthUser | null>;
 }
 
 /** Map the raw session user shape to the trimmed view used in the UI. */

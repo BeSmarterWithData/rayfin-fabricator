@@ -577,15 +577,23 @@ describe('Rayfin 1.36 rules', () => {
     expect(embedded.finding('config/embedded-public-conflict')!.severity).toBe('high')
   })
 
-  it('flags direct Entra sign-in without the exchange enabled', async () => {
-    const source = "import { signInWithEntraToken } from '@microsoft/rayfin-auth-provider-fabric';\nawait signInWithEntraToken(client.auth, { entraToken })\n"
-    const off = await check({ 'src/services/entra.ts': source })
-    expect(off.ids).toContain('access/entra-exchange-not-enabled')
-    const on = await check({
-      'src/services/entra.ts': source,
-      'rayfin/rayfin.yml': YML.replace('    fabric:\n      enabled: true', '    fabric:\n      enabled: true\n      externalEntraExchange: true')
-    })
-    expect(on.ids).not.toContain('access/entra-exchange-not-enabled')
+  it('flags Entra token sign-in without the exchange enabled', async () => {
+    const direct = "import { signInWithEntraToken } from '@microsoft/rayfin-auth-provider-fabric';\nawait signInWithEntraToken(client.auth, { entraToken })\n"
+    const local =
+      "if (import.meta.env.DEV) {\n  const localDev = await import('@microsoft/rayfin-local-dev');\n  const token = await localDev.fetchRayfinLocalSessionToken();\n}\n"
+    const enabled = YML.replace(
+      '    fabric:\n      enabled: true',
+      '    fabric:\n      enabled: true\n      externalEntraExchange: true'
+    )
+    for (const [call, source] of [
+      ['signInWithEntraToken()', direct],
+      ['fetchRayfinLocalSessionToken()', local]
+    ]) {
+      const off = await check({ 'src/services/auth.ts': source })
+      expect(off.finding('access/entra-exchange-not-enabled')?.detail).toContain(call)
+      const on = await check({ 'src/services/auth.ts': source, 'rayfin/rayfin.yml': enabled })
+      expect(on.ids).not.toContain('access/entra-exchange-not-enabled')
+    }
   })
 })
 

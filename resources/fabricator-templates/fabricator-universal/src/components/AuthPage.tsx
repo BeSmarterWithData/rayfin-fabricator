@@ -18,9 +18,10 @@ const msLogo = (
 );
 
 export function AuthPage() {
-  const { signIn, fabricAuthEnabled } = useAuth();
+  const { signIn, fabricAuthEnabled, error: authError } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const shownError = error ?? authError;
 
   const handleSignIn = async () => {
     setError(null);
@@ -67,8 +68,10 @@ export function AuthPage() {
               {buttonLabel}
             </button>
 
-            {error && (
-              <p className="mt-3 text-center text-sm text-red-600">{error}</p>
+            {shownError && (
+              <p className="mt-3 text-center text-sm text-red-600">
+                {shownError}
+              </p>
             )}
           </div>
         </div>

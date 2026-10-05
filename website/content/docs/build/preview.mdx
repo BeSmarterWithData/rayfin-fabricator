@@ -42,7 +42,15 @@ In Design mode, device widths account for Fabricator's UI scale, so **Tablet** a
 
 ## Sign in inside the preview
 
-Signing in inside the preview is separate from Fabricator's Fabric CLI session. The app preview has its own browser session and cookies. If the app opens a Fabric or Microsoft Entra sign-in popup, Fabricator lets the preview browser handle that popup.
+Signing in to the deployed app is separate from Fabricator's Fabric CLI session. The app preview has its own browser session and cookies. If the app opens a Fabric or Microsoft Entra sign-in popup, Fabricator lets the preview browser handle that popup.
+
+In apps created from the Universal App starter, the local preview signs you in automatically once the app has sign-in. It uses the Fabric account that Fabricator deploys with, so a chat turn doesn't stop at the app's sign-in page. The deployed app doesn't include this and still asks you to sign in. Rayfin describes how it works in [Local automatic sign-in](https://rayfin.ai/docs/start/develop-locally#local-automatic-sign-in).
+
+Older apps need Rayfin 1.36 or newer for this. See [Rayfin versions](/docs/ship/rayfin-versions). To add it to an older app, paste this prompt:
+
+```prompt title="Sign in automatically in the local preview"
+Make the local preview sign me in automatically with my Rayfin CLI account. Add @microsoft/rayfin-local-dev at the same version as the app's other Rayfin packages, register rayfinLocalDev({ autoLogin: true }) in vite.config.ts, and set externalEntraExchange: true under services.auth.fabric in rayfin/rayfin.yml. When the app starts in development without a saved session, get the local session token and sign in with signInWithBrokeredToken(). Keep that code behind import.meta.env.DEV with a dynamic import so production builds don't include it.
+```
 
 Refreshing Fabricator's Fabric authentication affects Rayfin CLI deployment credentials. It does not sign the preview browser in or out.
 

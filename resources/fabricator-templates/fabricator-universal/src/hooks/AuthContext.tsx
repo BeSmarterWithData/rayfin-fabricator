@@ -34,14 +34,26 @@ export function AuthProvider({ children, authService }: AuthProviderProps) {
 
   useEffect(() => {
     let cancelled = false;
-    authService
-      .initEmbeddedAuth()
-      .then((embedded) => embedded ?? authService.getCurrentUser())
+    const restoreSession = async (): Promise<AuthUser | null> => {
+      const existing = await authService
+        .initEmbeddedAuth()
+        .then((embedded) => embedded ?? authService.getCurrentUser())
+        .catch(() => null);
+      if (existing) return existing;
+      try {
+        return await authService.initLocalDevAuth();
+      } catch (err) {
+        // Dev only: keep the reason visible, and leave interactive sign-in
+        // available as the fallback.
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`Automatic local sign-in failed. ${message}`);
+        if (!cancelled) setError(`Automatic local sign-in failed. ${message}`);
+        return null;
+      }
+    };
+    restoreSession()
       .then((current) => {
-        if (!cancelled && current) setUser(current);
-      })
-      .catch(() => {
-        if (!cancelled) setUser(null);
+        if (!cancelled) setUser(current);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

@@ -965,7 +965,7 @@ export default function Workbench({
       'Set these exact versions in package.json, then run `npm install`:\n' +
       `${lines}\n\n` +
       'Keep every Rayfin SDK package (`@microsoft/rayfin-core`, `-client`, `-data`, `-auth`, ' +
-      '`-auth-provider-fabric`, `-lib`, `-functions`) on the same version — they ship in lockstep. ' +
+      '`-auth-provider-fabric`, `-lib`, `-functions`, `-local-dev`) on the same version — they ship in lockstep. ' +
       'If the app uses Rayfin connector packages (`@microsoft/rayfin-connector*`), pin them to the ' +
       "new CLI version exactly (they ship in lockstep with the CLI; npm's `latest` tag lags).\n\n" +
       'After installing, check `node_modules/@microsoft/rayfin-guide/assets/docs/deprecations.md` ' +

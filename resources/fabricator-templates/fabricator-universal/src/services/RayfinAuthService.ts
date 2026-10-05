@@ -1,6 +1,7 @@
 import {
   ensureSignedInWithFabric,
   initEmbeddedAuth as sdkInitEmbeddedAuth,
+  signInWithBrokeredToken,
   type FabricAuthOptions,
 } from '@microsoft/rayfin-auth-provider-fabric';
 import type { RayfinClient } from '@microsoft/rayfin-client';
@@ -55,5 +56,28 @@ export class RayfinAuthService implements IAuthService {
     );
     if (!session?.isAuthenticated || !session.user) return null;
     return toAuthUser(session.user);
+  }
+
+  async initLocalDevAuth(): Promise<AuthUser | null> {
+    // The DEV guard plus the dynamic import keep this package, and its local
+    // sign-in endpoint, out of production builds.
+    if (import.meta.env.DEV) {
+      const localDev = await import('@microsoft/rayfin-local-dev');
+      if (localDev.isRayfinLocalAutoLoginEnabled()) {
+        // The dev server exchanged your Rayfin CLI sign-in for a Rayfin
+        // session; the Entra token itself never reaches the browser.
+        const token = await localDev.fetchRayfinLocalSessionToken();
+        if (token) {
+          const session = await signInWithBrokeredToken(
+            this.client.auth,
+            token
+          );
+          if (session.isAuthenticated && session.user) {
+            return toAuthUser(session.user);
+          }
+        }
+      }
+    }
+    return null;
   }
 }

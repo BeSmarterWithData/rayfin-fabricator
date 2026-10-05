@@ -84,6 +84,11 @@ or features that need sign-in. A static page over public data can stay no-auth.
 See the [authentication skill](.agents/skills/authentication/SKILL.md) for the
 template's wiring and backend requirements.
 
+Once sign-in is wired, local development signs you in automatically: Fabricator's
+live local preview and `npm run dev` use your `rayfin login` account through the
+`rayfinLocalDev` plugin in `vite.config.ts`. Production builds don't include it,
+so the deployed app keeps its normal Fabric sign-in.
+
 ## Scripts
 
 | Command | Description |

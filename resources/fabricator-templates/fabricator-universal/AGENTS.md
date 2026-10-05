@@ -66,6 +66,11 @@ A minimal React 19 + Vite app, Fabric-ready but deliberately bare:
 - **Fabric auth scaffolding, wired OFF** under `src/services/` +
   `src/hooks/AuthContext.tsx` — the base is a static, public page, so it needs no
   auth. **Wire auth for the default authenticated data workflow** (see Rules).
+- **Local development sign-in**: `vite.config.ts` registers
+  `rayfinLocalDev({ autoLogin: true })` and `rayfin/rayfin.yml` enables
+  `externalEntraExchange`, so once auth is wired, Fabricator's live local preview
+  and `npm run dev` sign in with the developer's `rayfin login` account. Keep
+  both; the `authentication` skill explains the wiring.
 - **Graphein** wired in for charts: `src/components/Chart.tsx` (+ `useChart.ts`)
   renders a declarative `<Chart spec={…} />`. The `graphein-visuals` pack covers
   authoring specs.

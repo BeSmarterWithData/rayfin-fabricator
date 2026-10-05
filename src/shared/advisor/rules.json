@@ -1,5 +1,5 @@
 {
-  "catalogVersion": "2026-10-03",
+  "catalogVersion": "2026-10-04",
   "rayfinBaseline": "1.36.2",
   "categories": [
     {
@@ -190,12 +190,13 @@
       "engine": "quick",
       "severity": "medium",
       "appliesWhen": ["auth"],
-      "title": "Direct Entra sign-in isn't enabled in rayfin.yml",
-      "summary": "Apps that call `signInWithEntraToken` enable `externalEntraExchange`",
-      "why": "`signInWithEntraToken()` exchanges an Entra token the caller already holds for a Rayfin session. Unless `services.auth.fabric.externalEntraExchange` is `true`, the backend rejects it with \"External Entra exchange is not enabled.\"",
+      "title": "Entra token sign-in isn't enabled in rayfin.yml",
+      "summary": "Apps that sign in with an Entra token, including local automatic sign-in, enable `externalEntraExchange`",
+      "why": "`signInWithEntraToken()` and local automatic sign-in (`fetchRayfinLocalSessionToken()`) exchange a delegated Entra token for a Rayfin session. Unless `services.auth.fabric.externalEntraExchange` is `true`, the backend rejects it with \"External Entra exchange is not enabled.\"",
       "fix": "Set `externalEntraExchange: true` under `services.auth.fabric` in rayfin.yml.",
       "docs": [
-        { "title": "Direct Entra token sign-in", "url": "https://rayfin.ai/docs/auth/entra-token" }
+        { "title": "Direct Entra token sign-in", "url": "https://rayfin.ai/docs/auth/entra-token" },
+        { "title": "Local automatic sign-in", "url": "https://rayfin.ai/docs/start/develop-locally#local-automatic-sign-in" }
       ]
     },
     {

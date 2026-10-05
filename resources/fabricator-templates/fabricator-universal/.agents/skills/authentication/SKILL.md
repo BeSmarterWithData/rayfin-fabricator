@@ -43,6 +43,7 @@ with a second client or auth context.
 | `src/services/bootstrap.ts` | Reads env, builds the auth service |
 | `src/hooks/AuthContext.tsx` | `AuthProvider` + `useAuth()` |
 | `src/components/AuthPage.tsx` | Sign-in UI |
+| `vite.config.ts` | `rayfinLocalDev({ autoLogin: true })` for local development sign-in |
 
 ## Wire authentication into this template
 
@@ -78,3 +79,26 @@ supports a local frontend whose origin is registered in `allowedRedirectUris`.
 Only the embedded flow requires the Fabric portal iframe. That platform
 capability does not change Fabricator's workflow or authorize starting a dev
 server during an agent turn.
+
+## Local development sign-in
+
+Local development signs in without the popup. When `AuthProvider` finds no
+embedded or saved session, it calls `initLocalDevAuth()`: the
+`rayfinLocalDev({ autoLogin: true })` plugin in `vite.config.ts` uses the
+developer's `rayfin login` account to get a Rayfin session from the deployed
+backend, and the browser installs it with `signInWithBrokeredToken()`. This
+covers Fabricator's live local preview and `npm run dev`. If it fails, the sign-in
+page shows the reason and the popup sign-in still works.
+
+- Keep the plugin, `externalEntraExchange: true` under `services.auth.fabric` in
+  `rayfin/rayfin.yml` (the backend rejects the exchange without it), and the
+  `import.meta.env.DEV` guard with the dynamic
+  `import('@microsoft/rayfin-local-dev')` in `RayfinAuthService`, which keeps the
+  local sign-in code out of production builds.
+- Don't add Azure CLI sign-in, another MSAL token cache, or a mock user for local
+  development.
+- Keep route guards and the sign-in page. Local sign-in skips the signed-out
+  screen, so it doesn't show what signed-out users see; the deployed app does.
+
+See [Local automatic sign-in](https://rayfin.ai/docs/start/develop-locally#local-automatic-sign-in)
+for the platform details.

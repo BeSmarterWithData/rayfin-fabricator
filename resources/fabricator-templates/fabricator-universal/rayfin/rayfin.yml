@@ -6,6 +6,7 @@ services:
     enabled: true
     fabric:
       enabled: true
+      externalEntraExchange: true
     password:
       enabled: true
     allowedRedirectUris:

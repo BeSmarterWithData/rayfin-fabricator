@@ -95,9 +95,9 @@ export const accessRules: QuickRuleImpl[] = [
       if (fabric?.externalEntraExchange === true) return []
       return regexHits(
         ctx.sources((p) => (p.startsWith('src/') || p.startsWith('scripts/')) && CODE_FILE.test(p)),
-        /\bsignInWithEntraToken\s*\(/,
-        (src) =>
-          `${code(src.path)} calls ${code('signInWithEntraToken()')}, but rayfin.yml doesn't set ${code('services.auth.fabric.externalEntraExchange: true')}.`
+        /\b(signInWithEntraToken|fetchRayfinLocalSessionToken)\s*\(/,
+        (src, m) =>
+          `${code(src.path)} calls ${code(`${m[1]}()`)}, but rayfin.yml doesn't set ${code('services.auth.fabric.externalEntraExchange: true')}.`
       )
     }
   }
