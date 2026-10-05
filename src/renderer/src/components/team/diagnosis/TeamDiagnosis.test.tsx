@@ -37,7 +37,7 @@ function mockApi(): {
 } {
   let listener: ((envelope: TeamDiagnosisEnvelope) => void) | null = null
   const results: Deferred<TeamDiagnosisResult>[] = []
-  const diagnose = vi.fn(() => {
+  const diagnose = vi.fn<(request: TeamDiagnoseRequest) => Promise<TeamDiagnosisResult>>(() => {
     const next = deferred<TeamDiagnosisResult>()
     results.push(next)
     return next.promise
@@ -60,7 +60,7 @@ function mockApi(): {
     cancel,
     results,
     emit: (envelope) => act(() => listener?.(envelope)),
-    request: (n) => diagnose.mock.calls[n][0] as TeamDiagnoseRequest
+    request: (n) => diagnose.mock.calls[n][0]
   }
 }
 
