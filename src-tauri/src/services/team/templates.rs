@@ -11,7 +11,7 @@ use crate::types::TeamManifest;
 use super::MIN_RAYFIN;
 
 /// Bump when [`WORKFLOW`] changes so existing workspaces are offered an update.
-pub const TEMPLATE_VERSION: u32 = 3;
+pub const TEMPLATE_VERSION: u32 = 4;
 
 const WORKFLOW: &str = r##"# Managed by Fabricator (team workspace template v{{VERSION}}).
 # Fabricator replaces this file when its template changes, so edits here may be lost.
@@ -102,7 +102,15 @@ jobs:
             fi
           else
             base="$BEFORE"
-            if [ "$EVENT" = "pull_request" ]; then base="$PR_BASE"; fi
+            if [ "$EVENT" = "pull_request" ]; then
+              # The checkout is GitHub's test merge of the pull request into main, and its
+              # first parent is that main. The event's base can be where the branch
+              # started, which would count apps published since then as changed here.
+              base="$PR_BASE"
+              if git rev-parse --quiet --verify "$GITHUB_SHA^2" >/dev/null; then
+                base="$(git rev-parse "$GITHUB_SHA^1")"
+              fi
+            fi
             if [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
               list="$(all_projects)"
             else
@@ -452,6 +460,21 @@ mod tests {
     assert!(text.contains("environment=production/$PROJECT"));
     assert_eq!(naming::preview_environment("app", "amy"), "preview/app/amy");
     assert_eq!(naming::preview_item("app", "Amy"), "app-pv-amy");
+  }
+
+  #[test]
+  fn pull_requests_plan_only_the_apps_they_change() {
+    let doc = yaml();
+    let steps = doc["jobs"]["plan"]["steps"].as_sequence().unwrap();
+    let plan = steps.iter().find(|s| s["id"].as_str() == Some("plan")).unwrap();
+    let run = plan["run"].as_str().unwrap();
+    // `pull_request.base.sha` can be where the branch started, so apps published
+    // since then would count as changed. Diff against the test merge's first parent.
+    assert!(run.contains(r#"if git rev-parse --quiet --verify "$GITHUB_SHA^2" >/dev/null; then"#));
+    assert!(run.contains(r#"base="$(git rev-parse "$GITHUB_SHA^1")""#));
+    assert!(run.contains(r#"git diff --name-only "$base" "$GITHUB_SHA""#));
+    // Pushes to main still compare with the commit before the push.
+    assert!(run.contains(r#"base="$BEFORE""#));
   }
 
   #[test]

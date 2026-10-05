@@ -1,30 +1,73 @@
 ---
 title: "Skills"
-description: "Browse Fabricator skills, understand the bundled Rayfin app-building skills, and add custom skills for your own project guidance."
+description: "Choose the skills Copilot follows while it builds your Rayfin app, see what each one teaches, and add custom skills for your own guidance."
 ---
 
-Skills are `SKILL.md` instructions Copilot can read while it builds your Rayfin app. They teach the agent app-building patterns, design preferences, data-model rules, analytics workflows, and your own team conventions.
+Skills are `SKILL.md` instructions GitHub Copilot can read while it builds your Rayfin app. They teach the agent app-building patterns, design preferences, data-model rules, analytics workflows, and your own team conventions.
 
-Fabricator keeps core Rayfin guidance always on for projects that have managed Rayfin skills. New Universal App projects also include app-building skills in the project. Optional catalog and custom skills can be added from the **Skills** tab.
+Rayfin keeps its core skills always on. New Universal App projects also include app-building skills in the project. You can turn on Fabricator's built-in skills and your own custom skills from the **Skills** tab.
 
-![The Skills view with always-on Rayfin skills, optional skills grouped into Data & forms, Look & feel, Performance and Quality, and the skills added in this app.](/screenshots/skills.webp)
+![The Skills view: always-on Rayfin skills, built-in skills grouped into Look & feel, Experience, Data and Quality with on and off switches, and the details of the selected Secure by default skill, including when Copilot uses it and what it teaches.](/screenshots/skills.webp)
 
 ## Open the Skills tab
 
 1. Open a project.
 2. In the app bar, select **Code**.
 3. In the code view's segmented control, select **Skills**.
-4. Review the grouped skill cards.
 
-A skill can show:
+Skills are grouped into sections:
 
-- **Always on** for managed core skills;
-- **Active** when it is enabled for this project;
-- **Preview** to inspect the raw `SKILL.md`;
-- **Add** or **Remove** to change whether the skill is copied into this app;
-- **Save to library**, **Edit** or **Delete** for custom skills, depending on where the skill lives.
+| Section | What's in it |
+| --- | --- |
+| **Always on** | Core guidance managed by Rayfin. The Rayfin CLI installs and updates these skills, and you can't turn them off. |
+| **Look & feel**, **Experience**, **Data**, **Quality** | Fabricator's built-in skills. Turn on the ones you want for this app. |
+| **Your skill library** | Custom skills you saved to reuse in any app. |
+| **Added in this app** | Skills that live only in this app, such as the ones its template came with. |
 
-Turning a skill on or off writes the project's `.agents/skills/<skill id>/SKILL.md` folder and saves that change to git history.
+To find a skill, type in **Search skills**. To see only the skills this app uses, or only the ones it doesn't, select **On** or **Off**.
+
+## Turn a skill on or off
+
+On a skill's card, select its switch. Fabricator adds the skill's `SKILL.md` to the app's `.agents/skills/<skill id>/` folder, or removes it, and saves the change to git history. Copilot follows the skill from your next message.
+
+Skills in **Added in this app** don't have a switch, because removing one deletes it from the app. Select the skill, then select **Remove**. If you want to keep using it in other apps, select **Save to library** first, when the skill offers it.
+
+## See what a skill teaches
+
+Select a skill's card to open its details next to the grid:
+
+- **When Copilot uses it** describes the requests the skill is meant for, and lists its trigger words.
+- **What it teaches** shows the skill's guidance.
+- **File** shows where the skill lives in the app.
+- **View SKILL.md** opens the raw file, including its frontmatter.
+
+When nothing is selected, the side panel explains **How skills work** and counts the skills in this app. To close a skill's details, press Esc or select the close button.
+
+## Built-in skills
+
+| Skill | What it helps Copilot do |
+| --- | --- |
+| **Polished, modern UI** | Keep spacing, type, color and components consistent, in light and dark themes. |
+| **Buttery animations** | Add short, purposeful motion that respects reduced-motion settings. |
+| **Responsive on every screen** | Build layouts that work from phones to wide desktops. |
+| **Easy navigation** | Give the app clear menus, page titles and URLs you can share. |
+| **Clear, friendly wording** | Write plain, consistent labels, buttons, messages and empty states. |
+| **Loading & empty states** | Handle loading, empty, error and success states for every view that loads or saves data. |
+| **Friendly forms & validation** | Build forms that check input early, explain how to fix it and never lose what people typed. |
+| **Solid data modeling** | Shape Rayfin entities, relationships and queries, and page through long lists. |
+| **Search, sort & filter** | Help people find records in long lists, with filtering done in the query. |
+| **Beautiful charts & dashboards** | Pick the right chart for each question and lead with the key numbers. |
+| **Accessible to everyone** | Make the app work with a keyboard and screen readers, with readable contrast. |
+| **Secure by default** | Protect data with row-level rules, require sign-in for personal data and keep secrets out of the browser. |
+| **Fast & snappy** | Keep the app quick to load and smooth to use as data grows. |
+
+If the app or your skill library already has its own skill with the same name as a built-in skill, such as the Universal App's `data-modeling`, the Skills tab shows that skill instead of the built-in one. A skill in **Added in this app** that shares a built-in skill's name can't be saved to your library.
+
+## Update a built-in skill
+
+When a newer version of a built-in skill is available, its card shows **Update available**. To update it, select the skill, then select **Update**. To update every built-in skill that has a newer version, clear the selection and use the **Updates** section of the side panel.
+
+Updating replaces the app's copy of the skill and saves the change to git history.
 
 ## Built-in project skills at a glance
 
@@ -45,25 +88,14 @@ The Universal App starter ships with skills that route common Rayfin app request
 | `headless-preview` | Validate visuals with `npm run preview` and a PNG/report loop. |
 | `app-design` | Make dashboard layout, typography, tokens, states and visual polish cohesive. |
 
-These skills are project files, so they travel with the app. Fabricator also injects Fabricator-specific operating instructions during chat, such as not running `rayfin up` because Fabricator deploys after a turn.
-
-## Add a catalog skill
-
-Fabricator's skill catalog includes optional app-building guidance such as **Polished, modern UI**, **Buttery animations**, **Responsive on every screen**, **Accessible to everyone**, **Loading & empty states**, **Solid data modeling**, **Beautiful charts & dashboards**, **Friendly forms & validation**, and **Fast & snappy**.
-
-1. Open **Skills**.
-2. Find the skill card.
-3. Select **Preview** if you want to inspect the `SKILL.md` first.
-4. Select **Add**.
-
-Fabricator copies the skill into this project. Select **Remove** to delete that project copy. Managed core skills cannot be removed.
+These skills are project files, so they travel with the app. They appear in **Added in this app**. Fabricator also injects Fabricator-specific operating instructions during chat, such as not running `rayfin up` because Fabricator deploys after a turn.
 
 ## Add a custom skill
 
 Use a custom skill for guidance that is specific to your organization, brand, data vocabulary, or review checklist.
 
 1. Open **Skills**.
-2. Select **+ Add custom skill**.
+2. Select **New skill**.
 3. Choose **Write** to author one in Fabricator, or **Upload** to bring in an existing skill.
 4. Give it a **Title**, optional **Icon**, and **Short description**.
 5. Write the **Skill instructions (SKILL.md)**. The file must start with YAML frontmatter that includes `name` and `description`.
@@ -85,13 +117,13 @@ Custom skills have two scopes:
 - The app copy lives in the project under `.agents/skills/<id>/`. Apps that already use a skill keep their copy.
 - Reusable skills are listed under **Your skill library** and stored once in Fabricator's app data under `custom-skills/<id>/`. Turn a library skill on to copy it into the current app.
 
-Use **Save to library** on a project-only custom skill to make it reusable in other apps.
+To make a skill from **Added in this app** reusable in other apps, select it, then select **Save to library**.
 
 ## Edit or delete a library skill
 
-Library skills show **Edit** and **Delete**.
+Select a library skill to see **Edit** and **Delete** in its details.
 
 - **Edit** opens **Edit custom skill**, where you can change the card details and `SKILL.md`.
 - **Delete** removes the skill from your reusable library.
 
-Deleting a library skill does not remove copies that are already active in apps. Remove those from each app's **Skills** tab if you no longer want Copilot to use them there.
+Deleting a library skill does not remove copies that are already active in apps. Turn the skill off in each app's **Skills** tab if you no longer want Copilot to use it there.

@@ -10,6 +10,7 @@ enum Owner {
   Chat,
   Deploy,
   Team,
+  Secrets,
 }
 
 impl Owner {
@@ -18,6 +19,7 @@ impl Owner {
       Owner::Chat => "Copilot is still working on this project. Wait for the turn to finish (or stop it), then try again.",
       Owner::Deploy => "This project is deploying. Wait for the deployment to finish, then try again.",
       Owner::Team => "Fabricator is saving or publishing this project. Wait for it to finish, then try again.",
+      Owner::Secrets => "Fabricator is updating this app's secrets. Wait for it to finish, then try again.",
     }
   }
 }
@@ -75,6 +77,12 @@ impl ProjectMutations {
     self.acquire(project_id, Owner::Team)
   }
 
+  /// Lease the project while the Rayfin CLI sets or deletes a secret: it
+  /// rewrites `rayfin/rayfin.yml`, which a turn or a deploy may be using.
+  pub fn secrets(&self, project_id: &str) -> Result<MutationGuard, String> {
+    self.acquire(project_id, Owner::Secrets)
+  }
+
   #[cfg(test)]
   pub fn busy(&self, project_id: &str) -> bool {
     self.inner.lock().unwrap().contains_key(project_id)
@@ -120,5 +128,17 @@ mod tests {
     let chat = state.chat("p").unwrap();
     assert!(state.team("p").err().unwrap().contains("Copilot is still working"));
     drop(chat);
+  }
+
+  #[test]
+  fn secret_changes_exclude_turns_and_deploys() {
+    let state = ProjectMutations::default();
+    let secrets = state.secrets("p").unwrap();
+    assert!(state.deploy("p").err().unwrap().contains("secrets"));
+    assert!(state.chat("p").err().unwrap().contains("secrets"));
+    drop(secrets);
+    let deploy = state.deploy("p").unwrap();
+    assert!(state.secrets("p").err().unwrap().contains("deploying"));
+    drop(deploy);
   }
 }

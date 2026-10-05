@@ -77,6 +77,12 @@ fn is_safe_id(id: &str) -> bool {
       .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// True when a skill that lives only in an app can be saved to the library under
+/// its own name: a plain slug that no built-in or Rayfin skill uses.
+pub(crate) fn can_save_to_library(id: &str) -> bool {
+  is_safe_id(id) && !crate::commands::skills::is_reserved_id(id)
+}
+
 // ── Pure helpers ─────────────────────────────────────────────────────────────
 
 /// Turn a human title/name into a filesystem-safe slug (`My Skill!` → `my-skill`).
@@ -267,16 +273,8 @@ fn read_entry(root: &Path, id: &str) -> Option<CustomSkillInfo> {
     Some(m) => (m.title, m.description, m.icon),
     None => {
       let raw = std::fs::read_to_string(dir.join("SKILL.md")).unwrap_or_default();
-      let desc = extract_frontmatter(&raw)
-        .and_then(|fm| serde_yaml::from_str::<Frontmatter>(&fm).ok())
-        .and_then(|p| p.description)
-        .map(|s| truncate(&s, 140))
-        .unwrap_or_else(|| "A custom skill.".to_string());
-      (
-        crate::commands::skills::title_case(id),
-        desc,
-        "🧩".to_string(),
-      )
+      let (title, summary) = crate::commands::skills::derived_presentation(&raw, id);
+      (title, summary.unwrap_or_else(|| "A custom skill.".to_string()), "🧩".to_string())
     }
   };
   Some(CustomSkillInfo {
@@ -661,13 +659,10 @@ fn promote_at(root: &Path, project_dir: &str, id: &str) -> Result<String, String
   let content = std::fs::read_to_string(src.join("SKILL.md"))
     .map_err(|_| "That skill isn't in this app.".to_string())?;
   let meta = read_meta_file(&src).unwrap_or_else(|| {
-    let fm_desc = extract_frontmatter(&content)
-      .and_then(|fm| serde_yaml::from_str::<Frontmatter>(&fm).ok())
-      .and_then(|p| p.description)
-      .unwrap_or_default();
+    let (title, summary) = crate::commands::skills::derived_presentation(&content, id);
     Meta {
-      title: crate::commands::skills::title_case(id),
-      description: truncate(&fm_desc, 140),
+      title,
+      description: summary.unwrap_or_default(),
       icon: "🧩".to_string(),
     }
   });

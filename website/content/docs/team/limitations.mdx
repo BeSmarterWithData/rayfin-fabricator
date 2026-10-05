@@ -1,6 +1,6 @@
 ---
 title: "Team workspace limitations"
-description: "Understand current team workspace limits for GitHub plans, github.com, Rayfin versions, and the experiment toggle."
+description: "Understand current team workspace limits for GitHub plans, github.com, Rayfin versions, secrets, and the experiment toggle."
 ---
 
 > [!WARNING]
@@ -29,6 +29,10 @@ Turning off **Settings → Experiments → Team workspaces** hides team workspac
 ## Previews are deployed by GitHub Actions
 
 Team apps do not deploy from your computer. Your local preview is temporary while Copilot works and while the pipeline catches up. The deployed preview appears only after the GitHub Actions workflow finishes.
+
+## Fabricator can't change a team app's secrets yet
+
+For a team app, the **Secrets** tab lists the secrets of the published app and of your preview, but it can't add, replace or delete them, because the team pipeline, not your computer, deploys team apps. Change them in the Fabric portal: select **Open in Fabric** next to each deployment. See [Secrets in a team app](/docs/build/secrets#secrets-in-a-team-app).
 
 ## One repository holds all apps in the workspace
 

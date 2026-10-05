@@ -62,7 +62,12 @@ pub fn failure_message(res: &exec::RunResult) -> String {
       res.exit_code.map(|code| code.to_string()).unwrap_or_else(|| "unknown".into())
     )
   };
-  JWT.replace_all(&BEARER.replace_all(&message, "Bearer [redacted]"), "[redacted]").into_owned()
+  redact(&message)
+}
+
+/// `text` with bearer tokens and JWTs masked, for errors shown in the app.
+pub fn redact(text: &str) -> String {
+  JWT.replace_all(&BEARER.replace_all(text, "Bearer [redacted]"), "[redacted]").into_owned()
 }
 
 pub fn parse_helper_output<T: DeserializeOwned>(res: &exec::RunResult) -> Result<T, String> {

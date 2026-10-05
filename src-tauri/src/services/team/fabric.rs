@@ -211,6 +211,17 @@ pub async fn delete_item(workspace_id: &str, item_id: &str) -> Result<(), Fabric
   }
 }
 
+/// A Rayfin app's secrets: names, descriptions and dates, never values. The
+/// same Fabric passthrough `rayfin secret list` reads.
+pub async fn app_secrets(workspace_id: &str, item_id: &str) -> Result<Value, FabricError> {
+  request(
+    reqwest::Method::GET,
+    &format!("workspaces/{workspace_id}/appBackends/{item_id}/__private/secrets"),
+    None,
+  )
+  .await
+}
+
 /// (item id, display name) for every item in the workspace.
 pub async fn items(workspace_id: &str) -> Result<Vec<(String, String)>, FabricError> {
   let v = request(reqwest::Method::GET, &format!("workspaces/{workspace_id}/items"), None).await?;

@@ -4,6 +4,7 @@ import type { FileContent, FileNode, StudioProject } from '@shared/ipc'
 import { monacoLanguage } from '../monaco'
 import { Codicon, EditorIcon } from './icons'
 import HistoryView from './HistoryView'
+import SecretsView from './SecretsView'
 import SkillsView from './SkillsView'
 
 interface Props {
@@ -18,6 +19,8 @@ interface Props {
   openRequest?: { path: string; line?: number; nonce: number }
   /** Called after a skill is toggled in the Skills sub-view (parent refreshes). */
   onSkillsChanged?: () => void
+  /** Called after a secret is added or deleted in the Secrets sub-view (parent refreshes). */
+  onSecretsChanged?: () => void
 }
 
 function formatBytes(n: number): string {
@@ -29,7 +32,7 @@ function formatBytes(n: number): string {
 /** Project-relative paths (lowercased) opened by default on first entry to Files. */
 const DEFAULT_FILES = ['rayfin/rayfin.yml', 'rayfin/rayfin.yaml']
 
-type CodeTab = 'files' | 'history' | 'skills'
+type CodeTab = 'files' | 'history' | 'skills' | 'secrets'
 
 const codeTabKey = (projectId: string): string => `rayfin.code.tab.${projectId}`
 const codeFileKey = (projectId: string): string => `rayfin.code.file.${projectId}`
@@ -37,7 +40,7 @@ const codeFileKey = (projectId: string): string => `rayfin.code.file.${projectId
 function readCodeTab(projectId: string): CodeTab {
   try {
     const value = localStorage.getItem(codeTabKey(projectId))
-    return value === 'history' || value === 'skills' ? value : 'files'
+    return value === 'history' || value === 'skills' || value === 'secrets' ? value : 'files'
   } catch {
     return 'files'
   }
@@ -399,7 +402,8 @@ export default function CodeViewer({
   onRequestDeploy,
   onSendToChat,
   openRequest,
-  onSkillsChanged
+  onSkillsChanged,
+  onSecretsChanged
 }: Props): JSX.Element {
   const [tabState, setTabState] = useState(() => ({
     projectId: project.id,
@@ -459,6 +463,14 @@ export default function CodeViewer({
           >
             Skills
           </button>
+          <button
+            className={`code-seg-btn${tab === 'secrets' ? ' code-seg-btn--on' : ''}`}
+            role="tab"
+            aria-selected={tab === 'secrets'}
+            onClick={() => setTabState({ projectId: project.id, tab: 'secrets' })}
+          >
+            Secrets
+          </button>
         </div>
         {tab === 'history' && (
           <span className="code-toolbar-hint">
@@ -511,8 +523,10 @@ export default function CodeViewer({
           onRequestDeploy={onRequestDeploy}
           onSendToChat={onSendToChat}
         />
-      ) : (
+      ) : tab === 'skills' ? (
         <SkillsView project={project} onChanged={() => onSkillsChanged?.()} />
+      ) : (
+        <SecretsView project={project} onChanged={() => onSecretsChanged?.()} onSendToChat={onSendToChat} />
       )}
     </div>
   )

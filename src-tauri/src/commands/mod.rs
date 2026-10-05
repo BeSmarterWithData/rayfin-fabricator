@@ -20,6 +20,7 @@ pub mod projects;
 pub mod projects_impl;
 pub mod rayfin_version;
 pub mod screenshot;
+pub mod secrets;
 pub mod settings;
 pub mod skills;
 pub mod suggest;

@@ -1084,6 +1084,28 @@ pub async fn latest_deployment(full_name: &str, environment: &str) -> Result<Opt
   Ok(Some(deploy_record(environment, &deployment, status.as_ref())))
 }
 
+/// The newest of `deployments` (newest first) that recorded its Fabric app. A
+/// run that fails records none, while the app an earlier run deployed stays
+/// live. Its status isn't read, so its `state` is "pending".
+pub fn newest_deployed(environment: &str, deployments: &Value) -> Option<TeamDeployRecord> {
+  deployments
+    .as_array()?
+    .iter()
+    .map(|deployment| deploy_record(environment, deployment, None))
+    .find(|record| record.item_id.is_some() && record.workspace_id.is_some())
+}
+
+/// [`newest_deployed`] among the recent deployments of `environment`.
+pub async fn last_deployed(full_name: &str, environment: &str) -> Result<Option<TeamDeployRecord>, GhError> {
+  let list = api(
+    "GET",
+    &format!("repos/{full_name}/deployments?environment={}&per_page=50", encode(environment)),
+    None,
+  )
+  .await?;
+  Ok(newest_deployed(environment, &list))
+}
+
 /* ------------------------------- git helpers ------------------------------ */
 
 /// Standard base64 (RFC 4648) for the contents API.
@@ -1227,6 +1249,24 @@ mod tests {
     assert_eq!(deploy_record("production/app", &deployment, Some(&failed)).reason.as_deref(), Some("data-loss"));
     assert_eq!(deploy_record("production/app", &deployment, None).state, "pending");
     assert!(record.public_env.is_empty());
+  }
+
+  #[test]
+  fn the_newest_deployment_that_recorded_its_app_is_the_live_one() {
+    // Newest first: two failed runs (no app recorded) after one that deployed.
+    let deployments = json!([
+      {"id": 9, "payload": {"headSha": "c", "itemId": null, "workspaceId": null, "portalUrl": null, "reason": "failed"}},
+      {"id": 8, "payload": {"headSha": "b", "itemId": "", "workspaceId": "ws"}},
+      {"id": 7, "payload": {"headSha": "a", "itemId": "item", "workspaceId": "ws", "portalUrl": "https://portal"}},
+      {"id": 6, "payload": {"headSha": "z", "itemId": "older", "workspaceId": "ws"}}
+    ]);
+    let live = newest_deployed("preview/app/amy", &deployments).unwrap();
+    assert_eq!(live.environment, "preview/app/amy");
+    assert_eq!(live.sha.as_deref(), Some("a"));
+    assert_eq!(live.item_id.as_deref(), Some("item"));
+    assert_eq!(live.portal_url.as_deref(), Some("https://portal"));
+    assert_eq!(newest_deployed("preview/app/amy", &json!([deployments[0].clone()])), None);
+    assert_eq!(newest_deployed("preview/app/amy", &json!({"message": "Not Found"})), None);
   }
 
   #[test]

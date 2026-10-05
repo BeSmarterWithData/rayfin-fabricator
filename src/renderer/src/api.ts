@@ -189,6 +189,13 @@ export const api: RayfinStudioApi = {
     remove: (id: string) => invoke('custom_skills_remove', { id })
   },
 
+  secrets: {
+    list: (projectId: string) => invoke('secrets_list', { projectId }),
+    set: (projectId: string, name: string, value: string, description?: string) =>
+      invoke('secrets_set', { projectId, name, value, description }),
+    remove: (projectId: string, name: string) => invoke('secrets_delete', { projectId, name })
+  },
+
   advisor: {
     collect: (projectId: string) => invoke('advisor_collect', { projectId }),
     run: (projectId: string, request: AdvisorRunRequest) =>

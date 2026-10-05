@@ -1569,6 +1569,10 @@ pub struct GitHistory {
   pub working_changes: u32,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub head: Option<String>,
+  /// True when the code at HEAD differs from the deployed commit in anything that
+  /// ships with the app. Absent without a deployment to compare, and for team apps.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub live_differs: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -2103,6 +2107,12 @@ pub struct SkillInfo {
   /// library (as opposed to a project-local, agent-authored skill).
   #[serde(skip_serializing_if = "Option::is_none")]
   pub library: Option<bool>,
+  /// True when the app has an older copy of this catalog skill than Fabricator ships.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub outdated: Option<bool>,
+  /// True when a skill that lives only in this app can be saved to the library.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub promotable: Option<bool>,
 }
 
 #[derive(Serialize, Clone)]
@@ -2177,6 +2187,78 @@ pub struct CustomSkillPreview {
   pub icon: Option<String>,
   /// How many `references/*.md` files would come along.
   pub reference_count: u32,
+}
+
+/* ----------------------------- secrets ----------------------------- */
+
+/// One function secret: its name and description from `rayfin/rayfin.yml`, and
+/// whether (and when) the deployed app has a value. Values never leave the CLI.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretInfo {
+  pub name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<String>,
+  /// Listed in `rayfin.yml`, so functions can reference it by name.
+  pub declared: bool,
+  /// The deployed app has a value for it.
+  pub stored: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub created_at: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub updated_at: Option<String>,
+}
+
+/// A project's secrets, or why they can't be managed here.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretsState {
+  /// `"ready"` | `"not-deployed"` | `"team"` | `"update-rayfin"` | `"error"`.
+  pub status: String,
+  /// With `"ready"`, every secret; otherwise the ones `rayfin.yml` lists.
+  pub secrets: Vec<SecretInfo>,
+  /// With `"team"`, each deployment's secrets (read-only): the published app, then your preview.
+  #[serde(skip_serializing_if = "Vec::is_empty")]
+  pub environments: Vec<SecretEnvironment>,
+  /// `services.functions.enabled` in `rayfin.yml`.
+  pub functions_enabled: bool,
+  /// The app's Rayfin CLI version, when it's installed.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub rayfin_version: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  /// The error looks like an expired Fabric sign-in.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub sign_in: Option<bool>,
+}
+
+/// One deployment of a team app and its secrets.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretEnvironment {
+  /// `"published"` | `"preview"`.
+  pub kind: String,
+  /// There's a deployed app to hold secrets.
+  pub deployed: bool,
+  pub secrets: Vec<SecretInfo>,
+  /// The app in the Fabric portal, where its secrets can be changed.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub portal_url: Option<String>,
+  /// Why the secrets couldn't be read.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+}
+
+/// Result of setting or deleting a secret.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SecretActionResult {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  /// The error looks like an expired Fabric sign-in.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub sign_in: Option<bool>,
 }
 
 /* ----------------------------- advisor ----------------------------- */

@@ -1378,8 +1378,14 @@ export interface GitHistory {
   commits: GitCommitSummary[]
   /** Number of files with uncommitted (working-tree) changes. */
   workingChanges: number
-  /** Current HEAD commit sha (used to flag the deployed commit + drift). */
+  /** Current HEAD commit sha (used to flag the deployed commit). */
   head?: string
+  /**
+   * True when the code at HEAD differs from the deployed commit in anything that
+   * ships with the app (agent guidance such as skills is ignored). Absent without
+   * a deployment to compare, and for team apps, whose pipeline controls follow it.
+   */
+  liveDiffers?: boolean
 }
 
 /** Outcome of restoring a project to a past commit (never throws across IPC). */
@@ -1678,6 +1684,16 @@ export interface SkillInfo {
    * edited or deleted from the library, and toggled into any project.
    */
   library?: boolean
+  /**
+   * True when the app has an older copy of this catalog skill than Fabricator
+   * ships. Turning the skill on again writes the latest version.
+   */
+  outdated?: boolean
+  /**
+   * True when a skill that lives only in this app can be saved to the library
+   * (its name is a plain slug no built-in or Rayfin skill uses).
+   */
+  promotable?: boolean
 }
 
 /** Result of toggling a skill: ok plus the refreshed skill list. */
@@ -1760,6 +1776,65 @@ export interface CustomSkillPreview {
   icon?: string
   /** How many `references/*.md` files would come along. */
   referenceCount: number
+}
+
+/* ------------------------------------------------------------------ *
+ * Function secrets
+ * ------------------------------------------------------------------ */
+
+/**
+ * One function secret: its name and description from `rayfin/rayfin.yml`, and
+ * whether the deployed app has a value. Values are write-only and never returned.
+ */
+export interface SecretInfo {
+  name: string
+  /** What it's for, as recorded in `rayfin.yml`. */
+  description?: string
+  /** Listed in `rayfin.yml`, so functions can reference it by name. */
+  declared: boolean
+  /** The deployed app has a value for it. */
+  stored: boolean
+  createdAt?: string
+  updatedAt?: string
+}
+
+/** Why secrets can't be managed, or `ready`. */
+export type SecretsStatus = 'ready' | 'not-deployed' | 'team' | 'update-rayfin' | 'error'
+
+/** A project's secrets (from the Rayfin CLI), or why they can't be managed here. */
+export interface SecretsState {
+  status: SecretsStatus
+  /** With `ready`, every secret; otherwise only the ones `rayfin.yml` lists. */
+  secrets: SecretInfo[]
+  /** With `team`, each deployment's secrets (read-only): the published app, then your preview. */
+  environments?: SecretEnvironment[]
+  /** `services.functions.enabled` in `rayfin.yml`: only functions read secrets. */
+  functionsEnabled: boolean
+  /** The app's Rayfin CLI version, when it's installed. */
+  rayfinVersion?: string
+  error?: string
+  /** The error looks like an expired Fabric sign-in. */
+  signIn?: boolean
+}
+
+/** One deployment of a team app and its secrets. */
+export interface SecretEnvironment {
+  kind: 'published' | 'preview'
+  /** There's a deployed app to hold secrets. */
+  deployed: boolean
+  secrets: SecretInfo[]
+  /** The app in the Fabric portal, where its secrets can be changed. */
+  portalUrl?: string
+  /** Why the secrets couldn't be read. */
+  error?: string
+}
+
+/** Result of setting or deleting a secret. */
+export interface SecretActionResult {
+  ok: boolean
+  error?: string
+  /** The error looks like an expired Fabric sign-in. */
+  signIn?: boolean
 }
 
 /* ------------------------------------------------------------------ *
@@ -2344,6 +2419,23 @@ export interface RayfinStudioApi {
     promote: (projectId: string, id: string) => Promise<CustomSkillActionResult>
     /** Remove a skill from the library (installed app copies are kept). */
     remove: (id: string) => Promise<CustomSkillActionResult>
+  }
+
+  /**
+   * Function secrets on the project's deployed app, through its Rayfin CLI
+   * (`rayfin secret`). Values are write-only: they go to the CLI and are never
+   * returned, stored or logged by Fabricator.
+   */
+  secrets: {
+    /** Every secret's name, description and when its value last changed. */
+    list: (projectId: string) => Promise<SecretsState>
+    /**
+     * Add a secret or replace its value. A new name is recorded in `rayfin.yml`
+     * (with `description`) and the change is committed.
+     */
+    set: (projectId: string, name: string, value: string, description?: string) => Promise<SecretActionResult>
+    /** Delete a secret from the deployed app and `rayfin.yml`. */
+    remove: (projectId: string, name: string) => Promise<SecretActionResult>
   }
 
   /**

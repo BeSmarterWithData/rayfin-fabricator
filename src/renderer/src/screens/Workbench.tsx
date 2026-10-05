@@ -1502,6 +1502,7 @@ export default function Workbench({
                         onSendToChat={sendHistoryToChat}
                         openRequest={codeOpen ?? undefined}
                         onSkillsChanged={() => setGitRefresh((n) => n + 1)}
+                        onSecretsChanged={() => setGitRefresh((n) => n + 1)}
                       />
                     </Suspense>
                   ) : viewMode === 'model' ? (

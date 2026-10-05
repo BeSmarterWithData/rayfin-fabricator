@@ -7,7 +7,15 @@ import '@vscode/codicons/dist/codicon.css'
 import './assets/main.css'
 import { useEffect, type ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
-import type { ChatPlanArtifact, RayfinVersionInfo, StudioProject, TeamResourceRequest, TeamSessionStatus } from '@shared/ipc'
+import type {
+  ChatPlanArtifact,
+  RayfinVersionInfo,
+  SecretsState,
+  SkillInfo,
+  StudioProject,
+  TeamResourceRequest,
+  TeamSessionStatus
+} from '@shared/ipc'
 import { OverlayProvider } from './overlay'
 import { applyTheme } from './theme'
 import TeamMapView from './components/team/map/TeamMapView'
@@ -16,14 +24,149 @@ import TeamPublishControl from './components/team/TeamPublishControl'
 import RayfinVersionControl from './components/RayfinVersionControl'
 import PortConflictModal from './components/PortConflictModal'
 import PlanCard from './components/PlanCard'
+import SkillsView from './components/SkillsView'
+import SecretsView from './components/SecretsView'
 import './components/chat/chat.css'
 
 const ok = <T,>(value: T) => (): Promise<T> => Promise.resolve(value)
+
+const builtIn = (id: string, title: string, description: string, category: string, active = false): SkillInfo => ({
+  id,
+  title,
+  description,
+  icon: '',
+  base: false,
+  active,
+  category
+})
+const inApp = (id: string, title: string, description: string, promotable = true): SkillInfo => ({
+  id,
+  title,
+  description,
+  icon: '🧩',
+  base: false,
+  active: true,
+  custom: true,
+  ...(promotable ? { promotable: true } : {})
+})
+
+/** The Skills tab of the sample app (a Universal App project). */
+const skills: SkillInfo[] = [
+  { id: 'rayfin', title: 'Rayfin essentials', description: 'Core Rayfin knowledge: data models, sign-in, deploys and the CLI.', icon: '◆', base: true, active: true },
+  { id: 'rayfin-functions', title: 'Rayfin Functions', description: 'Server-side functions your app can call.', icon: 'λ', base: true, active: true },
+  { id: 'rayfin-connectors', title: 'Rayfin Connectors', description: 'Use existing Fabric data: lakehouses, warehouses, SQL databases, semantic models and KQL.', icon: '⇄', base: true, active: true },
+  builtIn('polished-ui', 'Polished, modern UI', 'A clean, consistent look: spacing, type, color and components that match.', 'Look & feel', true),
+  builtIn('buttery-animations', 'Buttery animations', 'Quick, purposeful motion that never gets in the way.', 'Look & feel'),
+  builtIn('responsive-layout', 'Responsive on every screen', 'Layouts that work on phones, tablets and wide desktops.', 'Look & feel', true),
+  builtIn('easy-navigation', 'Easy navigation', 'Clear menus and page titles, and links you can share.', 'Experience'),
+  builtIn('clear-copy', 'Clear, friendly wording', 'Plain-language labels, buttons, messages and empty states.', 'Experience'),
+  builtIn('loading-empty-states', 'Loading & empty states', 'Every screen handles loading, empty, error and success.', 'Experience'),
+  builtIn('friendly-forms', 'Friendly forms & validation', 'Forms that guide people, check input early and never lose it.', 'Experience', true),
+  builtIn('search-and-filter', 'Search, sort & filter', 'Find records fast in long lists, with filtering done in the query.', 'Data'),
+  builtIn('data-viz', 'Beautiful charts & dashboards', 'The right chart for each question, with the key numbers first.', 'Data'),
+  builtIn('accessibility', 'Accessible to everyone', 'Works with a keyboard and screen readers, with readable contrast.', 'Quality'),
+  builtIn('secure-by-default', 'Secure by default', 'Per-user data rules, signed-in pages and no secrets in the browser.', 'Quality', true),
+  builtIn('performance', 'Fast & snappy', 'Quick to load and smooth to use as the app grows.', 'Quality'),
+  { id: 'contoso-brand', title: 'Contoso brand', description: 'Our colors, logo use and tone of voice.', icon: '🎨', base: false, active: true, custom: true, library: true },
+  inApp('capability-router', 'Capability router', 'START HERE at the beginning of essentially every build request in this universal Rayfin app.'),
+  inApp('data-modeling', 'Data modeling', 'Use when the app needs to store or read data: records, a database, entities, lists, or per-user data with row-level security.', false),
+  inApp('authentication', 'Enabling authentication', 'Wire the existing Fabric auth into the template’s default authenticated data workflow.'),
+  inApp('graphein-visuals', 'Graphein visuals', 'Use when adding a chart, graph, plot, KPI, table, or any data visualization to this app.'),
+  inApp('app-design', 'App Design', 'Use when building or modifying the app layout, UI components, or making any visual design decisions.'),
+  inApp('rayfin-web-docs', 'Rayfin web documentation', 'Use before implementing or troubleshooting Rayfin-specific behavior.')
+]
+
+const secureSkill = `---
+name: secure-by-default
+description: "Keep the app's data and users safe by default. Use when adding sign-in, entities, permissions, sharing or admin features, or anything that reads or writes people's data. Triggers: security, secure, permissions, access control, row-level security, RLS, policy, private data, owner, sign in, authentication, authorization, secrets, API key, admin, sharing, roles"
+metadata:
+  author: Fabricator
+  version: 1.0.0
+---
+# Secure by default
+
+Assume any request can come from anyone. The browser can't enforce security; Rayfin's data rules can.
+
+## Data access
+- Give every entity explicit role rules. Start closed: grant \`@authenticated()\` access with a row-level policy, and add \`@anonymous()\` access only for data that's meant to be public.
+- For per-user data, store the owner (such as \`user_id\`) and scope reads and writes with a policy like \`claims.sub.eq(item.user_id)\`.
+- Hiding a button or a page isn't protection. Anything the UI prevents must also be prevented by a policy.
+
+## Sign-in
+- Pages that show or change personal data require sign-in.
+`
+
+/** Selects the skill card whose name starts with `title` once the list has loaded. */
+function SelectSkill({ title, children }: { title: string; children: ReactNode }): JSX.Element {
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const cards = [...document.querySelectorAll<HTMLButtonElement>('.skl-card-main')]
+      cards.find((card) => card.textContent?.startsWith(title))?.click()
+    }, 500)
+    return () => window.clearTimeout(id)
+  }, [title])
+  return <>{children}</>
+}
+
+/** The sample app's function secrets (names and dates only: values are never shown). */
+const secrets: SecretsState = {
+  status: 'ready',
+  functionsEnabled: true,
+  rayfinVersion: '1.36.2',
+  secrets: [
+    {
+      name: 'OPENAI_API_KEY',
+      description: 'Summarizes expense notes',
+      declared: true,
+      stored: true,
+      createdAt: new Date(Date.now() - 9 * 86_400_000).toISOString(),
+      updatedAt: new Date(Date.now() - 2 * 86_400_000).toISOString()
+    },
+    {
+      name: 'SLACK_WEBHOOK_URL',
+      description: 'Posts approved expenses to #finance',
+      declared: true,
+      stored: false
+    },
+    {
+      name: 'STRIPE_SECRET_KEY',
+      description: 'Reimburses approved expenses',
+      declared: true,
+      stored: true,
+      createdAt: new Date(Date.now() - 30 * 86_400_000).toISOString(),
+      updatedAt: new Date(Date.now() - 30 * 86_400_000).toISOString()
+    }
+  ]
+}
+
+/** Selects the secret row named `name` once the list has loaded. */
+function SelectSecret({ name, children }: { name: string; children: ReactNode }): JSX.Element {
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      const rows = [...document.querySelectorAll<HTMLButtonElement>('.sec-row')]
+      rows.find((row) => row.textContent?.startsWith(name))?.click()
+    }, 500)
+    return () => window.clearTimeout(id)
+  }, [name])
+  return <>{children}</>
+}
 
 /** `window.api` with sample responses; anything not listed resolves to undefined. */
 function installApi(): void {
   const api = {
     openExternal: ok(undefined),
+    skills: {
+      list: ok(skills),
+      source: (_project: string, id: string) =>
+        Promise.resolve({
+          ok: true,
+          installed: true,
+          content: id === 'secure-by-default' ? secureSkill : `---\nname: ${id}\ndescription: "Sample."\n---\n# ${id}\n`
+        })
+    },
+    secrets: {
+      list: ok(secrets)
+    },
     team: {
       map: ok(sampleMap()),
       resources: (_id: string, requests: TeamResourceRequest[]) =>
@@ -240,6 +383,22 @@ function Shot({ id }: { id: string | null }): JSX.Element {
             </div>
           </div>
         </main>
+      )
+    case 'skills':
+      return (
+        <SelectSkill title="Secure by default">
+          <SkillsView project={{ ...project, id: 'p2', name: 'Contoso Expenses', team: undefined }} onChanged={noop} />
+        </SelectSkill>
+      )
+    case 'secrets':
+      return (
+        <SelectSecret name="OPENAI_API_KEY">
+          <SecretsView
+            project={{ ...project, id: 'p2', name: 'Contoso Expenses', team: undefined }}
+            onChanged={noop}
+            onSendToChat={noop}
+          />
+        </SelectSecret>
       )
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>

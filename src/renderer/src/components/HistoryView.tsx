@@ -212,6 +212,8 @@ export default function HistoryView({
   const preferredPathRef = useRef<string | null>(null)
 
   // Load (and refresh) the timeline; default the selection to the newest entry.
+  // A new deployment changes whether the live app lags the code, so reload then too.
+  const liveCommit = project.lastDeploy?.commit
   useEffect(() => {
     let live = true
     void window.api.projects.git.log(project.id).then((h) => {
@@ -226,7 +228,7 @@ export default function HistoryView({
     return () => {
       live = false
     }
-  }, [project.id, refreshKey])
+  }, [project.id, refreshKey, liveCommit])
 
   const commits = useMemo(() => history?.commits ?? [], [history])
 
@@ -386,12 +388,11 @@ export default function HistoryView({
 
   const working = history?.workingChanges ?? 0
   const head = history?.head
-  const deployedCommit = project.lastDeploy?.commit
   const selectedCommit = ref && ref !== GIT_WORKING_REF ? commits.find((c) => c.hash === ref) : null
   const baseCommit = base ? commits.find((c) => c.hash === base) ?? null : null
   const targetCommit = target ? commits.find((c) => c.hash === target) ?? null : null
   const canRestore = Boolean(selectedCommit) && ref !== head
-  const drift = Boolean(deployedCommit) && Boolean(head) && head !== deployedCommit
+  const drift = history?.liveDiffers === true
   const showWorking = working > 0 && query.trim() === ''
 
   // Filter + group the timeline by friendly time buckets.
@@ -650,7 +651,7 @@ export default function HistoryView({
                             </span>
                             {isBase && <span className="hist-cmp-tag">Base</span>}
                             {isTarget && <span className="hist-cmp-tag hist-cmp-tag--target">Target</span>}
-                            {c.hash === deployedCommit && (
+                            {c.hash === liveCommit && (
                               <span className="hist-live" title="This is the version that's live right now">
                                 Live
                               </span>

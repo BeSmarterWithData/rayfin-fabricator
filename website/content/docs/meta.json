@@ -16,6 +16,7 @@
     "build/code-and-history",
     "build/data-model",
     "build/skills",
+    "build/secrets",
     "---Ship---",
     "ship/deploy",
     "ship/share",

@@ -6,6 +6,8 @@ import Editor from '@monaco-editor/react'
 // this in too, but a user can open this preview before ever visiting that tab.
 import '../monaco'
 import type { SkillInfo, SkillSource } from '@shared/ipc'
+import { SkillMark } from './skills/presentation'
+import './skills/skills.css'
 
 interface Props {
   projectId: string
@@ -64,14 +66,12 @@ export default function SkillPreviewModal({ projectId, skill, onClose }: Props):
       >
         <div className="modal-header skill-preview-header">
           <div className="skill-preview-title">
-            <span className="skill-preview-icon" aria-hidden="true">
-              {skill.icon}
-            </span>
+            <SkillMark skill={skill} size="lg" />
             <div>
               <h2 id={titleId}>{skill.title}</h2>
               <p className="modal-sub">
                 <code>.agents/skills/{skill.id}/SKILL.md</code>
-                {source && !source.installed && ' · sample (not yet added)'}
+                {source && !source.installed && ' · not in this app yet'}
               </p>
             </div>
           </div>

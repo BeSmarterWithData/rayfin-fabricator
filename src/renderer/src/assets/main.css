@@ -2939,67 +2939,6 @@ code {
   background: var(--pending);
 }
 
-/* Skills tab: curated app-building guidance the user can switch on per project. */
-.skills {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 24px 28px 32px;
-}
-
-.skills-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.skills-title {
-  margin: 0;
-  font-size: 19px;
-  font-weight: 650;
-  letter-spacing: -0.01em;
-}
-
-.skills-sub {
-  margin: 6px 0 0;
-  max-width: 580px;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-dim);
-}
-
-.skills-count {
-  flex: none;
-  white-space: nowrap;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-dim);
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 5px 12px;
-}
-
-.skills-head-actions {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.skills-notice {
-  margin-bottom: 14px;
-  padding: 10px 14px;
-  font-size: 13px;
-  color: var(--text);
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev));
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border));
-  border-radius: var(--radius);
-  animation: turnIn 0.18s ease;
-}
-
 /* Gentle rise-in used by chat turns and inline notices. */
 @keyframes turnIn {
   from {
@@ -3010,163 +2949,6 @@ code {
     opacity: 1;
     transform: none;
   }
-}
-
-.skills-error {
-  margin-bottom: 14px;
-}
-
-.skills-loading {
-  margin: 40px auto;
-  color: var(--text-dim);
-  font-size: 13px;
-  text-align: center;
-}
-
-.skills-grid {
-  overflow: hidden;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
-
-/* Each skill is a dense single-line row: icon · name+desc · flag+actions.
-   Rows share one panel border and are split by hairline dividers. */
-.skill-row {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  padding: 9px 12px;
-  transition: background 0.12s ease;
-}
-
-.skill-row + .skill-row {
-  border-top: 1px solid var(--border-soft);
-}
-
-.skill-row--active {
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.skill-icon {
-  flex: none;
-  width: 22px;
-  font-size: 17px;
-  line-height: 1;
-  text-align: center;
-}
-
-.skill-row-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.skill-name {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  line-height: 1.3;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.skill-desc {
-  margin: 1px 0 0;
-  font-size: 11.5px;
-  line-height: 1.35;
-  color: var(--text-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.skill-row-actions {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* Separate the primary Add/Remove toggle from the secondary manage actions. */
-.skill-row-toggle {
-  margin-left: 6px;
-}
-
-.skill-flag {
-  font-size: 9.5px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  padding: 2px 7px;
-  border-radius: 6px;
-}
-
-.skill-flag--base {
-  color: var(--text-dim);
-  background: color-mix(in srgb, var(--text) 9%, transparent);
-}
-
-.skill-flag--on {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-.skill-locked {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-
-/* Skills: grouped sections (always-on, categories, custom).
-   A responsive masonry of group-columns so wide windows pack several groups
-   side by side instead of stacking sparse full-width bands. Each group's
-   skills render as a compact divided list panel. */
-.skills-groups {
-  columns: 24rem;
-  column-gap: 20px;
-}
-
-.skills-group {
-  break-inside: avoid;
-  margin: 0 0 18px;
-}
-
-.skills-group-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.skills-group-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-dim);
-}
-
-.skills-group-hint {
-  margin: 0 0 10px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--text-faint);
-}
-
-/* The reusable custom-skill library gets a subtly distinct, accented panel so it
-   reads as its own section (the home for skills you reuse across apps). */
-.skills-group--library {
-  padding: 14px 14px 4px;
-  border: 1px solid color-mix(in srgb, var(--accent) 26%, var(--border));
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 5%, transparent);
 }
 
 /* Skill preview modal (raw SKILL.md in Monaco) */
@@ -3181,15 +2963,9 @@ code {
 
 .skill-preview-title {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   min-width: 0;
-}
-
-.skill-preview-icon {
-  font-size: 24px;
-  line-height: 1.1;
-  flex: none;
 }
 
 .skill-preview-title h2 {
@@ -3221,11 +2997,6 @@ code {
 }
 
 /* Custom-skill authoring / upload modal (scoped names to avoid cascade clashes). */
-.skill-delete:hover:not(:disabled) {
-  color: var(--danger, #d9534f);
-  border-color: color-mix(in srgb, var(--danger, #d9534f) 45%, transparent);
-}
-
 .custom-skill-modal {
   display: flex;
   flex-direction: column;

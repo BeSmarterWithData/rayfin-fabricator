@@ -157,6 +157,7 @@ in `.md`.
 | `history` | The History tab with a version selected | `/docs/build/code-and-history` |
 | `model` | Model view with the entity diagram | `/docs/build/data-model` |
 | `skills` | The Skills view | `/docs/build/skills` |
+| `secrets` | The Secrets view with a secret selected | `/docs/build/secrets` |
 | `deployments` | The deployments panel | `/docs/ship/deploy` |
 | `share` | The share dialog | `/docs/ship/share` |
 | `advisor` | The Advisor: grade, check strip, summary and issues | `/docs/ship/advisor` |

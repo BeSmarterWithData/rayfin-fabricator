@@ -231,7 +231,14 @@ fn parse_log(stdout: &str) -> Vec<GitCommitSummary> {
 }
 
 pub async fn git_log(id: String) -> GitHistory {
-  let none = || GitHistory { is_repo: false, no_commits: None, commits: vec![], working_changes: 0, head: None };
+  let none = || GitHistory {
+    is_repo: false,
+    no_commits: None,
+    commits: vec![],
+    working_changes: 0,
+    head: None,
+    live_differs: None,
+  };
   let Some(project) = find_project(&id) else {
     return none();
   };
@@ -261,6 +268,14 @@ pub async fn git_log(id: String) -> GitHistory {
   } else {
     None
   };
+  // Team apps are deployed by their pipeline (a preview and the published app),
+  // which the team controls follow, so History doesn't compare them.
+  let live_differs = if project.team.is_some() {
+    None
+  } else {
+    let deployed = project.last_deploy.as_ref().and_then(|d| d.commit.as_deref());
+    live_differs(&cwd, deployed, head.as_deref()).await
+  };
 
   let fmt = format!("{RECORD}%H{FIELD}%h{FIELD}%an{FIELD}%ar{FIELD}%aI{FIELD}%s");
   let n = MAX_COMMITS.to_string();
@@ -269,9 +284,32 @@ pub async fn git_log(id: String) -> GitHistory {
   log_args.extend_from_slice(scope);
   let log = git(&cwd, &log_args).await;
   if !log.ok {
-    return GitHistory { is_repo: true, no_commits: Some(true), commits: vec![], working_changes, head };
+    return GitHistory { is_repo: true, no_commits: Some(true), commits: vec![], working_changes, head, live_differs };
   }
-  GitHistory { is_repo: true, no_commits: None, commits: parse_log(&log.stdout), working_changes, head }
+  GitHistory { is_repo: true, no_commits: None, commits: parse_log(&log.stdout), working_changes, head, live_differs }
+}
+
+/// Files that only guide the coding agent (skills, Copilot instructions, MCP
+/// settings). They never ship, so changing them doesn't make the live app stale.
+const AGENT_ONLY: &[&str] = &[":(exclude).agents", ":(exclude).github", ":(exclude)AGENTS.md", ":(exclude).mcp.json"];
+
+/// Whether HEAD differs from the deployed commit in anything that ships with the
+/// app. `None` without both commits to compare.
+async fn live_differs(cwd: &str, deployed: Option<&str>, head: Option<&str>) -> Option<bool> {
+  let deployed = deployed.map(str::trim).filter(|s| !s.is_empty())?;
+  let head = head?;
+  if deployed == head {
+    return Some(false);
+  }
+  let mut args = vec!["diff", "--quiet", "--no-ext-diff", deployed, "HEAD", "--", "."];
+  args.extend_from_slice(AGENT_ONLY);
+  let res = run("git", &args, opts(cwd)).await;
+  match res.exit_code {
+    Some(0) if res.ok => Some(false),
+    // Exit 1 means they differ. Anything else (say, the deployed commit is gone)
+    // can't be compared: the code has moved on from it.
+    _ => Some(true),
+  }
 }
 
 /* -------------------------------- changes --------------------------------- */
@@ -817,6 +855,44 @@ mod tests {
     let again = revert_folder(&app, &old, "first").await;
     assert_eq!(again.no_changes, Some(true));
     let _ = std::fs::remove_dir_all(&root);
+  }
+
+  #[tokio::test]
+  async fn the_live_app_lags_only_when_shipped_files_change() {
+    let repo = TestRepo::new();
+    let cwd = repo.dir.to_str().unwrap();
+    std::fs::create_dir_all(repo.dir.join("src")).unwrap();
+    std::fs::write(repo.dir.join("src/app.ts"), "v1\n").unwrap();
+    run_git(&repo.dir, &["add", "-A"]);
+    run_git(&repo.dir, &["commit", "-qm", "Deploy"]);
+    let deployed = run_git(&repo.dir, &["rev-parse", "HEAD"]);
+    assert_eq!(live_differs(cwd, None, Some(&deployed)).await, None);
+    assert_eq!(live_differs(cwd, Some(&deployed), Some(&deployed)).await, Some(false));
+
+    // Turning on a skill (or editing other agent guidance) commits, but ships nothing.
+    for (path, text) in [
+      (".agents/skills/polished-ui/SKILL.md", "skill\n"),
+      (".github/copilot-instructions.md", "rules\n"),
+      ("AGENTS.md", "agents\n"),
+      (".mcp.json", "{}\n"),
+    ] {
+      let file = repo.dir.join(path);
+      std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+      std::fs::write(file, text).unwrap();
+    }
+    run_git(&repo.dir, &["add", "-A"]);
+    run_git(&repo.dir, &["commit", "-qm", "Add skill: Polished, modern UI"]);
+    let head = run_git(&repo.dir, &["rev-parse", "HEAD"]);
+    assert_eq!(live_differs(cwd, Some(&deployed), Some(&head)).await, Some(false));
+
+    std::fs::write(repo.dir.join("src/app.ts"), "v2\n").unwrap();
+    run_git(&repo.dir, &["commit", "-qam", "Change the app"]);
+    let head = run_git(&repo.dir, &["rev-parse", "HEAD"]);
+    assert_eq!(live_differs(cwd, Some(&deployed), Some(&head)).await, Some(true));
+
+    // A deployed commit that no longer exists can't match.
+    let gone = "0123456789abcdef0123456789abcdef01234567";
+    assert_eq!(live_differs(cwd, Some(gone), Some(&head)).await, Some(true));
   }
 
   #[test]

@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{Mutex, Notify};
 
 /// Serialize recovery installs per project. Fabric can request workspaces and
@@ -99,6 +99,10 @@ pub struct RunOptions {
   pub on_data: Option<OnData>,
   pub timeout_ms: Option<u64>,
   pub cancel: Option<CancelToken>,
+  /// Text written to the child's stdin, which is then closed. Use it for
+  /// sensitive input (a secret's value) that must not appear in the arguments,
+  /// which other processes on the machine can read. Without it stdin is empty.
+  pub stdin: Option<String>,
 }
 
 impl RunOptions {
@@ -505,7 +509,7 @@ async fn spawn_and_run(resolved: Resolved, args: &[&str], opts: RunOptions) -> R
   for (k, v) in &opts.env {
     cmd.env(k, v);
   }
-  cmd.stdin(Stdio::null());
+  cmd.stdin(if opts.stdin.is_some() { Stdio::piped() } else { Stdio::null() });
   cmd.stdout(Stdio::piped());
   cmd.stderr(Stdio::piped());
   #[cfg(windows)]
@@ -530,6 +534,14 @@ async fn spawn_and_run(resolved: Resolved, args: &[&str], opts: RunOptions) -> R
 
   let out_buf = Arc::new(Mutex::new(String::new()));
   let err_buf = Arc::new(Mutex::new(String::new()));
+  // Write the input, then close stdin so the child sees the end of it. A child
+  // that exits without reading it makes the write fail, which is fine.
+  if let (Some(input), Some(mut pipe)) = (opts.stdin, child.stdin.take()) {
+    tokio::spawn(async move {
+      let _ = pipe.write_all(input.as_bytes()).await;
+      let _ = pipe.shutdown().await;
+    });
+  }
   let out_handle = child
     .stdout
     .take()
@@ -618,6 +630,29 @@ fn version_from(res: RunResult) -> Option<String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[tokio::test]
+  async fn stdin_reaches_the_child_but_not_its_arguments() {
+    if which::which("node").is_err() {
+      return;
+    }
+    let script = "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.stringify({input:s,args:process.argv})))";
+    let res = run(
+      "node",
+      &["-e", script],
+      RunOptions { stdin: Some("s3cret & value\n".into()), timeout_ms: Some(30_000), ..Default::default() },
+    )
+    .await;
+    assert!(res.ok, "{}", res.stderr);
+    let out: serde_json::Value = serde_json::from_str(res.stdout.trim()).unwrap();
+    assert_eq!(out["input"], "s3cret & value\n");
+    assert!(!out["args"].to_string().contains("s3cret"));
+    // Without input, stdin is empty: the child never waits on the terminal.
+    let res = run("node", &["-e", script], RunOptions::timeout(30_000)).await;
+    assert!(res.ok, "{}", res.stderr);
+    let out: serde_json::Value = serde_json::from_str(res.stdout.trim()).unwrap();
+    assert_eq!(out["input"], "");
+  }
 
   #[test]
   fn project_rayfin_auth_module_prefers_local_then_falls_back() {

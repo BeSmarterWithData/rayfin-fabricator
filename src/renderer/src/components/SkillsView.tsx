@@ -1,5 +1,10 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CustomSkillActionResult, SkillInfo, StudioProject } from '@shared/ipc'
+import { Codicon } from './icons'
+import Skeleton from './Skeleton'
+import SkillInspector, { SkillsOverview, type SkillCounts } from './skills/SkillInspector'
+import { SkillMark, SkillSwitch, sourceOf } from './skills/presentation'
+import './skills/skills.css'
 
 // Lazy so Monaco (pulled in by the preview / author modals) stays out of the main bundle.
 const SkillPreviewModal = lazy(() => import('./SkillPreviewModal'))
@@ -12,35 +17,32 @@ interface Props {
   onChanged: () => void
 }
 
+type Filter = 'all' | 'on' | 'off'
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'on', label: 'On' },
+  { id: 'off', label: 'Off' }
+]
+
 interface SkillGroup {
-  /** Stable key for the group. */
   key: string
   title: string
-  /** Optional explanatory line under the group title. */
   hint?: string
-  /** The reusable custom-skill library section (rendered even when empty). */
-  library?: boolean
   skills: SkillInfo[]
 }
 
 /**
- * Bucket the flat skill list into display groups: always-on, catalog categories,
- * the reusable custom-skill **library** (its own always-visible section), then any
- * skills the builder authored directly in this app.
+ * Bucket skills into display groups: Rayfin's always-on skills, the catalog by
+ * category, the reusable library, then skills that live only in this app.
  */
 function groupSkills(skills: SkillInfo[]): SkillGroup[] {
-  const base = skills.filter((s) => s.base)
-  const library = skills.filter((s) => s.library)
-  const localCustom = skills.filter((s) => s.custom && !s.library)
-  const catalog = skills.filter((s) => !s.base && !s.custom)
-
   const groups: SkillGroup[] = []
+  const base = skills.filter((s) => s.base)
   if (base.length) {
-    groups.push({ key: '__base', title: 'Always on', skills: base })
+    groups.push({ key: '__base', title: 'Always on', hint: 'Core guidance managed by Rayfin.', skills: base })
   }
-
-  // Catalog skills grouped by category, preserving first-seen order.
-  for (const skill of catalog) {
+  for (const skill of skills.filter((s) => sourceOf(s) === 'catalog')) {
     const name = skill.category ?? 'More'
     let group = groups.find((g) => g.key === `cat:${name}`)
     if (!group) {
@@ -49,48 +51,117 @@ function groupSkills(skills: SkillInfo[]): SkillGroup[] {
     }
     group.skills.push(skill)
   }
-
-  // Your reusable library — a dedicated section for skills you've saved to reuse.
+  const library = skills.filter((s) => s.library)
   if (library.length) {
     groups.push({
       key: '__library',
       title: 'Your skill library',
-      hint: 'Custom skills you saved to reuse across apps. Turn one on to use it in this app.',
-      library: true,
+      hint: 'Your reusable skills. Turning one on copies it into this app.',
       skills: library
     })
   }
-
-  if (localCustom.length) {
+  const app = skills.filter((s) => sourceOf(s) === 'app')
+  if (app.length) {
     groups.push({
-      key: '__custom',
+      key: '__app',
       title: 'Added in this app',
-      hint: 'Skills the builder created directly in this app.',
-      skills: localCustom
+      hint: 'Skills that live only in this app, such as the ones its template came with.',
+      skills: app
     })
   }
   return groups
 }
 
+/** Every word of the query appears in the skill's name, description, id or category. */
+function matches(skill: SkillInfo, query: string): boolean {
+  if (!query) return true
+  const text = `${skill.title} ${skill.description} ${skill.id} ${skill.category ?? ''}`.toLowerCase()
+  return query
+    .toLowerCase()
+    .split(/\s+/)
+    .every((word) => text.includes(word))
+}
+
+function countSkills(skills: SkillInfo[]): SkillCounts {
+  const builtIn = skills.filter((s) => sourceOf(s) === 'catalog')
+  const library = skills.filter((s) => s.library)
+  return {
+    on: skills.filter((s) => s.active).length,
+    always: skills.filter((s) => s.base).length,
+    builtIn: builtIn.length,
+    builtInOn: builtIn.filter((s) => s.active).length,
+    library: library.length,
+    libraryOn: library.filter((s) => s.active).length,
+    appOnly: skills.filter((s) => sourceOf(s) === 'app').length
+  }
+}
+
+function SkillCard({
+  skill,
+  selected,
+  busy,
+  onSelect,
+  onToggle
+}: {
+  skill: SkillInfo
+  selected: boolean
+  busy: boolean
+  onSelect: (skill: SkillInfo) => void
+  onToggle: (skill: SkillInfo) => void
+}): JSX.Element {
+  const source = sourceOf(skill)
+  return (
+    <div className={`skl-card${selected ? ' skl-card--selected' : ''}`}>
+      <button type="button" className="skl-card-main" aria-pressed={selected} onClick={() => onSelect(skill)}>
+        <SkillMark skill={skill} />
+        <span className="skl-card-text">
+          <span className="skl-card-title">{skill.title}</span>
+          <span className="skl-card-desc">{skill.description}</span>
+          {skill.outdated && skill.active && <span className="skl-card-flag">Update available</span>}
+        </span>
+      </button>
+      {source === 'rayfin' ? (
+        <span className="skl-card-side skl-lock" title="Managed by Rayfin. Always on.">
+          <Codicon name="lock" />
+          <span className="sr-only">Always on</span>
+        </span>
+      ) : source !== 'app' ? (
+        <span className="skl-card-side">
+          <SkillSwitch
+            on={skill.active}
+            busy={busy}
+            label={`Use ${skill.title} in this app`}
+            onChange={() => onToggle(skill)}
+          />
+        </span>
+      ) : null}
+    </div>
+  )
+}
+
 /**
- * The Skills tab: a friendly, grouped catalog of app-building "skills" the user can
- * switch on per project. Each skill is guidance the AI builder applies to everything
- * it builds next; toggling one writes the project's agent instructions and commits.
- * The base Rayfin skill is always on and can't be removed. Any skill can be previewed
- * (its raw SKILL.md) before turning it on.
+ * The Skills tab: the guidance Copilot follows while it builds this app. Rayfin's
+ * own skills are always on; built-in and library skills switch on and off; skills
+ * that came with the app can be saved to the library or removed. Turning a skill
+ * on writes its SKILL.md into the app and commits it, so it shows in History.
+ * Selecting a skill shows what it teaches beside the grid.
  */
 export default function SkillsView({ project, onChanged }: Props): JSX.Element {
   const [skills, setSkills] = useState<SkillInfo[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
+  const [updatingAll, setUpdatingAll] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<Filter>('all')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [preview, setPreview] = useState<SkillInfo | null>(null)
-  /** null = closed; new (with a library default) = create; edit = edit a skill. */
-  const [authoring, setAuthoring] = useState<
-    { kind: 'new'; toLibrary: boolean } | { kind: 'edit'; skill: SkillInfo } | null
-  >(null)
+  /** null = closed; new = create; edit = edit a library skill. */
+  const [authoring, setAuthoring] = useState<{ kind: 'new' } | { kind: 'edit'; skill: SkillInfo } | null>(null)
   const [deleting, setDeleting] = useState<SkillInfo | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [removing, setRemoving] = useState<SkillInfo | null>(null)
+  const [removeBusy, setRemoveBusy] = useState(false)
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const load = useCallback(async () => {
@@ -105,6 +176,7 @@ export default function SkillsView({ project, onChanged }: Props): JSX.Element {
 
   useEffect(() => {
     setSkills(null)
+    setSelectedId(null)
     void load()
   }, [load])
 
@@ -120,36 +192,82 @@ export default function SkillsView({ project, onChanged }: Props): JSX.Element {
     noticeTimer.current = setTimeout(() => setNotice(null), 3500)
   }, [])
 
-  const toggle = useCallback(
-    async (skill: SkillInfo) => {
-      if (skill.base || busy) return
-      const next = !skill.active
+  /** Turn a built-in or library skill on or off, or (on) write its latest version. */
+  const setSkill = useCallback(
+    async (skill: SkillInfo, active: boolean, done: string): Promise<boolean> => {
       setBusy(skill.id)
       setError(null)
       try {
-        const result = await window.api.skills.set(project.id, skill.id, next)
+        const result = await window.api.skills.set(project.id, skill.id, active)
         setSkills(result.skills)
         if (result.ok) {
-          flash(
-            next
-              ? `Added “${skill.title}” — saved to your app.`
-              : `Removed “${skill.title}” — saved to your app.`
-          )
+          flash(done)
           onChanged()
-        } else if (result.error) {
-          setError(result.error)
+          return true
         }
+        if (result.error) setError(result.error)
       } catch (err) {
         setError(String(err))
       } finally {
         setBusy(null)
       }
+      return false
     },
-    [project.id, busy, flash, onChanged]
+    [project.id, flash, onChanged]
   )
 
-  const groups = useMemo(() => (skills ? groupSkills(skills) : []), [skills])
-  const activeCount = skills?.filter((s) => s.active).length ?? 0
+  const toggle = useCallback(
+    (skill: SkillInfo) => {
+      if (skill.base || busy || updatingAll) return
+      const next = !skill.active
+      void setSkill(
+        skill,
+        next,
+        next ? `Turned on “${skill.title}”. Saved to this app.` : `Turned off “${skill.title}”. Saved to this app.`
+      )
+    },
+    [busy, updatingAll, setSkill]
+  )
+
+  const update = useCallback(
+    (skill: SkillInfo) => {
+      if (busy || updatingAll) return
+      void setSkill(skill, true, `Updated “${skill.title}”.`)
+    },
+    [busy, updatingAll, setSkill]
+  )
+
+  const outdated = useMemo(() => (skills ?? []).filter((s) => s.outdated && s.active), [skills])
+
+  const updateAll = useCallback(async () => {
+    if (!outdated.length || busy || updatingAll) return
+    setUpdatingAll(true)
+    setError(null)
+    let latest: SkillInfo[] | null = null
+    let updated = 0
+    try {
+      for (const skill of outdated) {
+        setBusy(skill.id)
+        const result = await window.api.skills.set(project.id, skill.id, true)
+        latest = result.skills
+        if (!result.ok) {
+          setError(result.error ?? `Couldn’t update “${skill.title}”.`)
+          break
+        }
+        updated += 1
+      }
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      if (latest) setSkills(latest)
+      setBusy(null)
+      setUpdatingAll(false)
+      if (updated > 0) {
+        flash(updated === 1 ? 'Updated 1 skill.' : `Updated ${updated} skills.`)
+        onChanged()
+      }
+    }
+  }, [outdated, busy, updatingAll, project.id, flash, onChanged])
 
   // After a save/import/promote, refresh this project's list. When editing a skill
   // that's already active here, re-copy it so the project's copy picks up the edit.
@@ -200,7 +318,7 @@ export default function SkillsView({ project, onChanged }: Props): JSX.Element {
     try {
       const result = await window.api.customSkills.remove(deleting.id)
       if (result.ok) {
-        flash(`Deleted “${deleting.title}” from your custom skills.`)
+        flash(`Deleted “${deleting.title}” from your skill library.`)
         setDeleting(null)
         await load()
       } else if (result.error) {
@@ -213,139 +331,178 @@ export default function SkillsView({ project, onChanged }: Props): JSX.Element {
     }
   }, [deleting, load, flash])
 
+  const confirmRemove = useCallback(async () => {
+    if (!removing) return
+    setRemoveBusy(true)
+    const removed = await setSkill(removing, false, `Removed “${removing.title}” from this app.`)
+    setRemoveBusy(false)
+    setRemoving(null)
+    if (removed) setSelectedId(null)
+  }, [removing, setSkill])
+
+  // Esc closes the details, unless a dialog is open (it handles Esc itself).
+  const dialogOpen = Boolean(preview || authoring || deleting || removing)
+  useEffect(() => {
+    if (!selectedId || dialogOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape' && !e.defaultPrevented) setSelectedId(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [selectedId, dialogOpen])
+
+  const trimmed = query.trim()
+  const counts = useMemo(() => countSkills(skills ?? []), [skills])
+  const total = skills?.length ?? 0
+  const filterCount: Record<Filter, number> = { all: total, on: counts.on, off: total - counts.on }
+  const groups = useMemo(
+    () =>
+      groupSkills(
+        (skills ?? []).filter((s) => (filter === 'all' || (filter === 'on') === s.active) && matches(s, trimmed))
+      ),
+    [skills, filter, trimmed]
+  )
+  const selected = skills?.find((s) => s.id === selectedId) ?? null
+
   return (
-    <div className="skills">
-      <div className="skills-head">
-        <div>
-          <h2 className="skills-title">Skills</h2>
-          <p className="skills-sub">
-            Skills teach your app builder good habits. Turn one on and it applies to everything you
-            build next — no code required.
-          </p>
+    <div className="skl">
+      <header className="skl-head">
+        <div className="skl-head-title">
+          <span className="skl-head-glyph" aria-hidden="true">
+            <Codicon name="mortar-board" />
+          </span>
+          <h2 className="skl-title">Skills</h2>
+          <span className="skl-subtitle">Guidance Copilot follows while it builds this app</span>
         </div>
-        <div className="skills-head-actions">
-          {skills && <span className="skills-count">{activeCount} active</span>}
+        <div className="skl-tools">
+          <div className="skl-search">
+            <Codicon name="search" className="skl-search-ico" />
+            <input
+              className="skl-search-input"
+              value={query}
+              placeholder="Search skills"
+              aria-label="Search skills"
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape' && query) {
+                  e.preventDefault()
+                  setQuery('')
+                }
+              }}
+            />
+            {query && (
+              <button type="button" className="skl-search-clear" aria-label="Clear search" onClick={() => setQuery('')}>
+                <Codicon name="close" />
+              </button>
+            )}
+          </div>
+          <div className="skl-tabs" role="radiogroup" aria-label="Show">
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                role="radio"
+                aria-checked={filter === f.id}
+                className={`skl-tab${filter === f.id ? ' skl-tab--on' : ''}`}
+                onClick={() => setFilter(f.id)}
+              >
+                {f.label}
+                {skills && <span className="skl-tab-count">{filterCount[f.id]}</span>}
+              </button>
+            ))}
+          </div>
           <button
-            className="btn btn--sm"
-            onClick={() => setAuthoring({ kind: 'new', toLibrary: false })}
-            title="Add or upload your own custom skill"
+            type="button"
+            className="model-tool-btn"
+            onClick={() => setAuthoring({ kind: 'new' })}
+            title="Write or upload your own skill"
           >
-            + Add custom skill
+            <Codicon name="add" /> New skill
           </button>
         </div>
-      </div>
+      </header>
 
-      {notice && <div className="skills-notice">{notice}</div>}
-      {error && <div className="alert alert--error skills-error">{error}</div>}
+      <div className="skl-body">
+        <div className="skl-main" aria-busy={!skills}>
+          {notice && (
+            <div className="skl-notice" role="status">
+              <Codicon name="check" /> {notice}
+            </div>
+          )}
+          {error && <div className="alert alert--error skl-error">{error}</div>}
 
-      {!skills ? (
-        <div className="skills-loading">Loading skills…</div>
-      ) : (
-        <div className="skills-groups">
-          {groups.map((group) => (
-            <section
-              className={`skills-group${group.library ? ' skills-group--library' : ''}`}
-              key={group.key}
-            >
-              <div className="skills-group-head">
-                <h3 className="skills-group-title">{group.title}</h3>
-              </div>
-              {group.hint && <p className="skills-group-hint">{group.hint}</p>}
-              <div className="skills-grid">
-                {group.skills.map((skill) => {
-                  const isBusy = busy === skill.id
-                  return (
-                    <div
+          {!skills ? (
+            <div className="skl-loading">
+              <Skeleton rows={6} avatar />
+            </div>
+          ) : groups.length === 0 ? (
+            <div className="skl-empty">
+              <strong>
+                {trimmed ? `No skills match “${trimmed}”` : filter === 'on' ? 'No skills are on' : 'Every skill is on'}
+              </strong>
+              {trimmed ? (
+                <button type="button" className="skl-link" onClick={() => setQuery('')}>
+                  Clear search
+                </button>
+              ) : (
+                <button type="button" className="skl-link" onClick={() => setFilter('all')}>
+                  Show all skills
+                </button>
+              )}
+            </div>
+          ) : (
+            groups.map((group) => (
+              <section className="skl-group" key={group.key} aria-label={group.title}>
+                <div className="skl-lane">
+                  <h3>{group.title}</h3>
+                  <span className="skl-lane-count">{group.skills.length}</span>
+                  {group.hint && <span className="skl-lane-hint">{group.hint}</span>}
+                </div>
+                <div className="skl-grid">
+                  {group.skills.map((skill) => (
+                    <SkillCard
                       key={skill.id}
-                      className={`skill-row${skill.active ? ' skill-row--active' : ''}`}
-                    >
-                      <span className="skill-icon" aria-hidden="true">
-                        {skill.icon}
-                      </span>
-                      <div className="skill-row-body">
-                        <h3 className="skill-name">{skill.title}</h3>
-                        <p className="skill-desc" title={skill.description}>
-                          {skill.description}
-                        </p>
-                      </div>
-                      <div className="skill-row-actions">
-                        {skill.base ? (
-                          <span className="skill-flag skill-flag--base">Always on</span>
-                        ) : skill.active ? (
-                          <span className="skill-flag skill-flag--on">Active</span>
-                        ) : null}
-                        {!skill.library && (
-                          <button
-                            className="btn btn--xs btn--ghost"
-                            onClick={() => setPreview(skill)}
-                            title="View the raw SKILL.md"
-                          >
-                            Preview
-                          </button>
-                        )}
-                        {skill.library && (
-                          <>
-                            <button
-                              className="btn btn--xs btn--ghost"
-                              onClick={() => setAuthoring({ kind: 'edit', skill })}
-                              title="View or edit this skill's SKILL.md"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              className="btn btn--xs btn--ghost skill-delete"
-                              onClick={() => setDeleting(skill)}
-                              title="Delete this skill from your library"
-                            >
-                              Delete
-                            </button>
-                          </>
-                        )}
-                        {skill.custom && !skill.library && (
-                          <button
-                            className="btn btn--xs btn--ghost"
-                            onClick={() => void promote(skill)}
-                            disabled={isBusy}
-                            title="Save this skill to your library so you can use it in other apps"
-                          >
-                            Save to library
-                          </button>
-                        )}
-                        {skill.base ? (
-                          <span
-                            className="skill-locked"
-                            title="The core Rayfin skill is always on."
-                          >
-                            🔒 Built-in
-                          </span>
-                        ) : (
-                          <button
-                            className={`btn btn--xs skill-row-toggle${
-                              skill.active ? '' : ' btn--primary'
-                            }`}
-                            onClick={() => void toggle(skill)}
-                            disabled={isBusy}
-                          >
-                            {isBusy ? 'Saving…' : skill.active ? 'Remove' : 'Add'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </section>
-          ))}
+                      skill={skill}
+                      selected={skill.id === selectedId}
+                      busy={busy === skill.id}
+                      onSelect={(s) => setSelectedId((id) => (id === s.id ? null : s.id))}
+                      onToggle={toggle}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))
+          )}
         </div>
-      )}
+
+        {selected ? (
+          <SkillInspector
+            key={selected.id}
+            projectId={project.id}
+            skill={selected}
+            busy={busy === selected.id}
+            onClose={() => setSelectedId(null)}
+            onToggle={toggle}
+            onUpdate={update}
+            onRemove={setRemoving}
+            onViewSource={setPreview}
+            onEdit={(skill) => setAuthoring({ kind: 'edit', skill })}
+            onDelete={setDeleting}
+            onSaveToLibrary={(skill) => void promote(skill)}
+          />
+        ) : skills ? (
+          <SkillsOverview
+            counts={counts}
+            updates={outdated.length}
+            updating={updatingAll}
+            onUpdateAll={() => void updateAll()}
+          />
+        ) : null}
+      </div>
 
       {preview && (
         <Suspense fallback={null}>
-          <SkillPreviewModal
-            projectId={project.id}
-            skill={preview}
-            onClose={() => setPreview(null)}
-          />
+          <SkillPreviewModal projectId={project.id} skill={preview} onClose={() => setPreview(null)} />
         </Suspense>
       )}
 
@@ -363,7 +520,7 @@ export default function SkillsView({ project, onChanged }: Props): JSX.Element {
                   }
                 : null
             }
-            defaultToLibrary={authoring.kind === 'new' ? authoring.toLibrary : false}
+            defaultToLibrary={false}
             onClose={() => setAuthoring(null)}
             onSaved={handleSaved}
           />
@@ -376,8 +533,8 @@ export default function SkillsView({ project, onChanged }: Props): JSX.Element {
             title="Delete custom skill?"
             message={
               <>
-                Delete “{deleting.title}” from your skill library? Apps that already use it keep
-                their copy — this only removes it from your reusable library.
+                Delete “{deleting.title}” from your skill library? Apps that already use it keep their copy. This only
+                removes it from your reusable library.
               </>
             }
             confirmLabel="Delete"
@@ -386,6 +543,27 @@ export default function SkillsView({ project, onChanged }: Props): JSX.Element {
             busyLabel="Deleting…"
             onConfirm={() => void confirmDelete()}
             onCancel={() => (deleteBusy ? undefined : setDeleting(null))}
+          />
+        </Suspense>
+      )}
+
+      {removing && (
+        <Suspense fallback={null}>
+          <ConfirmModal
+            title="Remove skill from this app?"
+            message={
+              <>
+                Copilot stops using “{removing.title}” in this app. It isn’t in your skill library, so to get it back
+                you’d restore it from History.
+                {removing.promotable && ' Save it to your library first if you want to reuse it.'}
+              </>
+            }
+            confirmLabel="Remove"
+            danger
+            busy={removeBusy}
+            busyLabel="Removing…"
+            onConfirm={() => void confirmRemove()}
+            onCancel={() => (removeBusy ? undefined : setRemoving(null))}
           />
         </Suspense>
       )}

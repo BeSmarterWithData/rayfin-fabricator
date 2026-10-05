@@ -286,6 +286,10 @@ pub fn run() {
       commands::custom_skills::custom_skills_add_from_path,
       commands::custom_skills::custom_skills_promote,
       commands::custom_skills::custom_skills_remove,
+      // function secrets
+      commands::secrets::secrets_list,
+      commands::secrets::secrets_set,
+      commands::secrets::secrets_delete,
       // advisor
       commands::advisor::advisor_collect,
       commands::advisor::advisor_run,

@@ -46,9 +46,9 @@ const history: GitHistory = {
   ]
 }
 
-function installApi(overrides: Partial<GitFileDiff> = {}) {
+function installApi(overrides: Partial<GitFileDiff> = {}, log: GitHistory = history) {
   const git = {
-    log: vi.fn<RayfinStudioApi['projects']['git']['log']>().mockResolvedValue(history),
+    log: vi.fn<RayfinStudioApi['projects']['git']['log']>().mockResolvedValue(log),
     changes: vi.fn<RayfinStudioApi['projects']['git']['changes']>().mockResolvedValue([change]),
     fileDiff: vi.fn<RayfinStudioApi['projects']['git']['fileDiff']>().mockResolvedValue({
       path: change.path,
@@ -116,5 +116,31 @@ describe('HistoryView uncommitted diffs', () => {
     mount()
     expect(await screen.findByText(/This is an image or binary file/)).toBeTruthy()
     expect(screen.queryByTestId('diff-editor')).toBeNull()
+  })
+})
+
+describe('HistoryView live-version banner', () => {
+  // HEAD (abc123) is not the deployed commit in either case.
+  const project = makeProject('p1', {
+    lastDeploy: { url: 'https://p1.example.app/', status: 'success', commit: 'old456' }
+  })
+
+  it('offers to publish when the live app lags the code', async () => {
+    installApi({}, { ...history, liveDiffers: true })
+    const onRequestDeploy = vi.fn()
+    render(<HistoryView project={project} refreshKey={0} theme="vs-dark" onRequestDeploy={onRequestDeploy} />)
+    expect(
+      await screen.findByText('Your live app is showing an earlier version than your current code.')
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Publish current version' }))
+    expect(onRequestDeploy).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays quiet when only files that never ship changed since the deploy', async () => {
+    installApi({}, { ...history, liveDiffers: false })
+    render(<HistoryView project={project} refreshKey={0} theme="vs-dark" onRequestDeploy={vi.fn()} />)
+    await waitFor(() => expect(screen.getAllByText('Create app').length).toBeGreaterThan(0))
+    expect(screen.queryByText(/earlier version than your current code/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Publish current version' })).toBeNull()
   })
 })
