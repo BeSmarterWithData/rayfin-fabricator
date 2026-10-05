@@ -20,6 +20,8 @@ interface Props {
   onDiscard: () => void
   onSetView: (view: 'preview' | 'production') => void
   onViewLogs: (runId: number) => void
+  /** Diagnose a failed run or publish with Copilot. */
+  onDiagnose?: (run: { runId?: number; runUrl?: string; error?: string }) => void
   onRefresh: () => void
   /** Open the workspace overview (every app, copy and deployment). */
   onOpenMap?: () => void
@@ -73,6 +75,7 @@ export default function TeamPublishControl({
   onDiscard,
   onSetView,
   onViewLogs,
+  onDiagnose,
   onRefresh,
   onOpenMap
 }: Props): JSX.Element {
@@ -231,6 +234,18 @@ export default function TeamPublishControl({
                   <button type="button" className="btn btn--sm" onClick={() => onViewLogs(status.run?.id ?? 0)}>
                     View logs
                   </button>
+                  {onDiagnose && status.run.conclusion !== 'cancelled' && (
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => {
+                        setOpen(false)
+                        onDiagnose({ runId: status.run?.id })
+                      }}
+                    >
+                      <span className="codicon codicon-sparkle" aria-hidden="true" /> Diagnose with Copilot
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -268,11 +283,25 @@ export default function TeamPublishControl({
             <div className="team-menu-section">
               <span className="team-menu-title">Last publish</span>
               <span className="team-muted">{failedPublish.error ?? 'The last publish didn’t finish.'}</span>
-              {failedPublish.runUrl && (
+              {(failedPublish.runUrl || onDiagnose) && (
                 <div className="team-menu-actions">
-                  <button type="button" className="btn btn--sm" onClick={() => void window.api.openExternal(failedPublish.runUrl ?? '')}>
-                    View on GitHub
-                  </button>
+                  {failedPublish.runUrl && (
+                    <button type="button" className="btn btn--sm" onClick={() => void window.api.openExternal(failedPublish.runUrl ?? '')}>
+                      View on GitHub
+                    </button>
+                  )}
+                  {onDiagnose && (
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      onClick={() => {
+                        setOpen(false)
+                        onDiagnose({ runId: failedPublish.runId, runUrl: failedPublish.runUrl, error: failedPublish.error })
+                      }}
+                    >
+                      <span className="codicon codicon-sparkle" aria-hidden="true" /> Diagnose with Copilot
+                    </button>
+                  )}
                 </div>
               )}
             </div>

@@ -8,16 +8,38 @@ description: "Fix team workspace setup, GitHub CLI, pipeline, publish, preview, 
 
 Use this page when a team workspace setup, preview deploy, publish, invitation, or pipeline repair does not finish.
 
+## A team step failed and the message doesn't explain it
+
+You see setup stop on a step, **Pipeline health** shows a problem, joining a workspace fails, or a preview or publish run fails, and Fabricator's message doesn't say what to change.
+
+Team workspaces depend on Microsoft Entra ID, Fabric, and GitHub settings that your organization controls, so the same step can fail for different reasons. **Diagnose with Copilot** checks those settings and explains the most likely cause.
+
+1. Select **Diagnose with Copilot** where the problem is shown:
+   - in the setup window, under the problem
+   - in **Join a team workspace**, under the error
+   - in the workspace overview, in **Manage** → **Settings** → **Pipeline health**
+   - in the app's team menu next to **View logs**, in the **Publish** window, or in **Pipeline log**
+   - in the workspace overview, on a failed preview or published app, or next to a failed run under **Deployments**
+2. Wait while Fabricator runs read-only checks with your GitHub and Azure sign-ins and Copilot reviews what they found. Select **Stop** to cancel.
+3. Read **Most likely cause**, then follow **What you can do**.
+4. If an administrator has to change a setting, copy the message under **What to ask your administrator** and send it to them.
+5. When the change is made, select **Retry** or **Repair**, or publish again.
+
+The diagnosis doesn't change anything in Microsoft Entra ID, Fabric, GitHub, or your files, and each one uses Copilot requests. Copilot can be wrong, so check its answer before you change settings. Select **Details sent to Copilot** to see everything it received.
+
+If it still fails, include the diagnosis when you [report a problem](/docs/troubleshooting/report-a-problem).
+
 ## Setup needs an administrator
 
 You see setup stop on an identity, trust, access, or verification step. Fabricator may show "Your organization doesn't let you create or change app registrations in Microsoft Entra ID." It may also say "The pipeline signed in, but Fabric refused it."
 
 This happens when your organization blocks app registration changes, or when Fabric service principal API access is not enabled.
 
-1. Select **Copy instructions for your admin** if Fabricator shows it.
-2. Send the copied text to the right Microsoft Entra ID or Fabric administrator.
-3. If the administrator gives you an application client ID, paste it into **App registration from your administrator** or **Existing app registration (optional)**.
-4. Select **Retry**.
+1. Select **Diagnose with Copilot** to find out which setting stopped the step and which administrator can change it.
+2. Select **Copy instructions for your admin** if Fabricator shows it.
+3. Send the copied text, or the message from the diagnosis, to the right Microsoft Entra ID or Fabric administrator.
+4. If the administrator gives you an application client ID, paste it into **App registration from your administrator** or **Existing app registration (optional)**.
+5. Select **Retry**.
 
 If it still fails, include the setup step and copied instructions when you [report a problem](/docs/troubleshooting/report-a-problem).
 
@@ -42,9 +64,10 @@ You see **Deploying your preview** or **Publishing for everyone** fail, or the t
 The GitHub Actions workflow builds and deploys team apps. Common verified causes include an old Rayfin version and destructive data changes.
 
 1. Open the team menu and select **View logs**, **View on GitHub**, or **View logs on GitHub**.
-2. If the log says "Team workspaces need Rayfin 1.36.2 or newer", open the app, select Rayfin in the status bar, choose **Update with Copilot**, then save another change.
-3. If the log says "This change would delete data in the published app. Publish it again from Fabricator and confirm to allow it.", return to the app and publish again.
-4. If Fabricator offers **Deploy anyway (deletes data)**, select it only if you accept the data deletion.
+2. Select **Diagnose with Copilot** next to **View logs**, or in the **Publish** window, to find the likely cause. If the cause is in the app's code, select **Fix with Copilot** to hand the diagnosis to the app's chat.
+3. If the log says "Team workspaces need Rayfin 1.36.2 or newer", open the app, select Rayfin in the status bar, choose **Update with Copilot**, then save another change.
+4. If the log says "This change would delete data in the published app. Publish it again from Fabricator and confirm to allow it.", return to the app and publish again.
+5. If Fabricator offers **Deploy anyway (deletes data)**, select it only if you accept the data deletion.
 
 If the log does not explain the failure, attach the GitHub run URL when you [report a problem](/docs/troubleshooting/report-a-problem).
 
@@ -70,7 +93,7 @@ Team previews are deployed by the repository's GitHub Actions workflow. They do 
 
 1. Open the workspace overview.
 2. Select your working copy.
-3. In **Preview**, use **Watch on GitHub** or **See why it failed** if shown.
+3. In **Preview**, use **Watch on GitHub**, **See why it failed**, or **Diagnose with Copilot** if shown.
 4. Open **Manage → Settings** and check **Pipeline health** if runs are not starting.
 5. Select **Repair** if Fabricator says the pipeline needs repair.
 
@@ -86,6 +109,7 @@ Fabricator lists pending invitations only for repositories that look like Fabric
 2. Ask the owner to resend the invitation from **Members** with **Send invitation**.
 3. Make sure you are signed in to `gh` as that GitHub user on `github.com`.
 4. In **Join a team workspace**, use **Or enter its GitHub repository** and enter `owner/repository` if you already have access.
+5. If joining shows an error, select **Diagnose with Copilot** under it.
 
 If you still cannot join, include the repository name when you [report a problem](/docs/troubleshooting/report-a-problem).
 
@@ -102,5 +126,5 @@ Fabricator updates the managed workflow over time. Existing workspaces can need 
 5. Wait for the repair checklist to finish.
 6. Save a change or publish again.
 
-If repair fails, copy the shown problem and [report a problem](/docs/troubleshooting/report-a-problem).
+If repair fails, select **Diagnose with Copilot** in **Pipeline health**. If it still fails, copy the shown problem and [report a problem](/docs/troubleshooting/report-a-problem).
 

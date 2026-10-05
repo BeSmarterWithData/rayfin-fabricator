@@ -634,6 +634,104 @@
   align-items: center;
 }
 
+/* "Diagnose with Copilot": a flat panel with a neutral border, no tints or glows. */
+.team-diagnosis-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 12.5px;
+}
+
+.team-diagnosis {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.team-diagnosis-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.team-diagnosis-head .link-btn {
+  align-self: auto;
+}
+
+.team-diagnosis-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.team-diagnosis-checks > summary,
+.team-diagnosis-sent > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--text-dim);
+}
+
+.team-diagnosis-checks[open] > summary,
+.team-diagnosis-sent[open] > summary {
+  margin-bottom: 8px;
+}
+
+.team-diagnosis-thinking {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.team-diagnosis-answer .md > :first-child {
+  margin-top: 0;
+}
+
+.team-diagnosis-answer .md > :last-child {
+  margin-bottom: 0;
+}
+
+/* Messages for administrators are prose: wrap them instead of scrolling sideways. */
+.team-diagnosis-answer .md-codeblock-pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.team-diagnosis-error {
+  color: var(--danger);
+}
+
+.team-diagnosis-by {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.team-diagnosis-sent-text {
+  max-height: 240px;
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: var(--radius-sm);
+}
+
 .team-row > .field-input {
   flex: 1;
 }

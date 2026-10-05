@@ -230,6 +230,7 @@ pub fn run() {
       commands::team::team_activity,
       commands::team::team_diff,
       commands::team::team_resources,
+      commands::team::team_diagnose,
       // fabric
       commands::fabric::fabric_workspaces,
       commands::fabric::fabric_capacities,

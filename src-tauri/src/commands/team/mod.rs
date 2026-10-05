@@ -1,6 +1,7 @@
 //! Team workspace commands (experimental; Settings → Experiments). The flows
 //! live here; GitHub, Entra ID, Fabric and git access live in `services::team`.
 
+mod diagnose;
 mod join;
 mod map;
 mod members;
@@ -10,6 +11,7 @@ mod session;
 mod setup;
 mod workspace;
 
+pub use diagnose::*;
 pub use join::*;
 pub use map::*;
 pub use members::*;

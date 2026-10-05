@@ -146,6 +146,58 @@ describe('TeamPublishControl', () => {
     expect(onViewLogs).toHaveBeenCalledWith(9)
   })
 
+  it('offers a Copilot diagnosis for a failed run or publish, not a cancelled run', () => {
+    const project: StudioProject = {
+      id: 'p1',
+      name: 'Trips',
+      path: 'C:/team/trips/trips',
+      addedAt: '',
+      team: { workspaceId: 'w1', folder: 'trips', worktree: 'C:/team/trips' }
+    }
+    const ended = (conclusion: string): NonNullable<TeamSessionStatus['run']> => ({
+      id: 9,
+      kind: 'preview',
+      status: 'completed',
+      conclusion,
+      url: '',
+      sha: '',
+      steps: []
+    })
+    const onDiagnose = vi.fn()
+    const view = (s: TeamSessionStatus): JSX.Element => (
+      <OverlayProvider>
+        <TeamPublishControl
+          project={project}
+          status={s}
+          syncing={false}
+          onPublish={() => {}}
+          onUpdate={() => {}}
+          onCombine={() => {}}
+          onDiscard={() => {}}
+          onSetView={() => {}}
+          onViewLogs={() => {}}
+          onDiagnose={onDiagnose}
+          onRefresh={() => {}}
+        />
+      </OverlayProvider>
+    )
+    const { rerender } = render(view(status({ unpublished: 1, run: ended('cancelled') })))
+    fireEvent.click(screen.getByRole('button', { name: /1 unpublished/ }))
+    expect(screen.getByRole('button', { name: 'View logs' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Diagnose with Copilot/ })).toBeNull()
+
+    rerender(view(status({ unpublished: 1, run: ended('failure') })))
+    fireEvent.click(screen.getByRole('button', { name: /Diagnose with Copilot/ }))
+    expect(onDiagnose).toHaveBeenCalledWith({ runId: 9 })
+    expect(screen.queryByRole('dialog', { name: 'Team app' })).toBeNull()
+
+    const runUrl = 'https://github.com/o/r/actions/runs/12'
+    rerender(view(status({ unpublished: 1, publish: { stage: 'failed', error: 'The deploy failed.', runUrl, runId: 12, at: '' } })))
+    fireEvent.click(screen.getByRole('button', { name: /1 unpublished/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Diagnose with Copilot/ }))
+    expect(onDiagnose).toHaveBeenLastCalledWith({ runId: 12, runUrl, error: 'The deploy failed.' })
+  })
+
   it('reads the app’s status again when the workspace sees its deploy start or finish', () => {
     const project: StudioProject = {
       id: 'p1',
@@ -254,7 +306,10 @@ describe('CreateTeamWorkspaceModal', () => {
         ),
         owners: vi.fn(() => owners.promise),
         capacities,
-        onProgress: vi.fn(() => () => {})
+        onProgress: vi.fn(() => () => {}),
+        onDiagnosis: vi.fn(() => () => {}),
+        diagnose: vi.fn(() => new Promise(() => {})),
+        cancel: vi.fn(() => Promise.resolve(true))
       }
     }
     await act(async () => {
@@ -287,6 +342,47 @@ describe('CreateTeamWorkspaceModal', () => {
     expect((screen.getByLabelText('Fabric capacity') as HTMLSelectElement).value).toBe('cap1')
     fireEvent.change(screen.getByPlaceholderText('Sales team apps'), { target: { value: 'Sales apps' } })
     expect(create.disabled).toBe(false)
+  })
+
+  it('offers a Copilot diagnosis when a picker can’t load, with what was entered so far', async () => {
+    const diagnose = vi.fn(() => new Promise(() => {}))
+    ;(window as unknown as { api: unknown }).api = {
+      team: {
+        envStatus: vi.fn(() =>
+          Promise.resolve({ ghInstalled: true, ghSignedIn: true, ghUser: 'octo', ghMissingScopes: [], azSignedIn: true })
+        ),
+        owners: vi.fn(() => Promise.resolve({ ok: true, owners: [{ login: 'contoso', isOrg: true }] })),
+        capacities: vi.fn(() =>
+          Promise.resolve({
+            ok: false,
+            error: 'List your Fabric capacities: AADSTS53003: Access has been blocked by Conditional Access policies.',
+            capacities: []
+          })
+        ),
+        onProgress: vi.fn(() => () => {}),
+        onDiagnosis: vi.fn(() => () => {}),
+        diagnose,
+        cancel: vi.fn(() => Promise.resolve(true))
+      }
+    }
+    await act(async () => {
+      render(
+        <OverlayProvider>
+          <CreateTeamWorkspaceModal onClose={() => {}} onChanged={() => {}} />
+        </OverlayProvider>
+      )
+    })
+    const button = await screen.findByRole('button', { name: /Diagnose with Copilot/ })
+    fireEvent.change(screen.getByPlaceholderText('Sales team apps'), { target: { value: 'Sales apps' } })
+    fireEvent.click(button)
+    expect(diagnose).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'setup',
+        step: 'fabric',
+        error: expect.stringContaining('AADSTS53003'),
+        request: expect.objectContaining({ name: 'Sales apps', owner: 'contoso', ownerIsOrg: true })
+      })
+    )
   })
 })
 

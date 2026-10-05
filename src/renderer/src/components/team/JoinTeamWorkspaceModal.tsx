@@ -3,6 +3,7 @@ import type { TeamJoinOptions, TeamWorkspace } from '@shared/ipc'
 import { useSuppressPreview } from '../../overlay'
 import { useModalFocus } from '../../modalFocus'
 import { teamError } from './common'
+import TeamDiagnosis from './diagnosis/TeamDiagnosis'
 import './team.css'
 
 interface Props {
@@ -19,6 +20,8 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
   const [busy, setBusy] = useState<string | null>(null)
   const [repo, setRepo] = useState('')
   const [error, setError] = useState<string | null>(null)
+  /** The repository the failed join was for. */
+  const [failedRepo, setFailedRepo] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.team
@@ -37,9 +40,14 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
     return () => window.removeEventListener('keydown', onKey)
   }, [busy, onClose])
 
-  async function join(key: string, action: () => Promise<{ ok: boolean; error?: string; workspace?: TeamWorkspace }>): Promise<void> {
+  async function join(
+    key: string,
+    target: string,
+    action: () => Promise<{ ok: boolean; error?: string; workspace?: TeamWorkspace }>
+  ): Promise<void> {
     setBusy(key)
     setError(null)
+    setFailedRepo(target)
     try {
       const result = await action()
       if (result.ok && result.workspace) {
@@ -96,7 +104,7 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
                         className="btn btn--sm btn--primary"
                         disabled={Boolean(busy)}
                         onClick={() =>
-                          void join(`i${invite.id}`, () =>
+                          void join(`i${invite.id}`, invite.repo, () =>
                             window.api.team.acceptInvitation(invite.id, invite.repo)
                           )
                         }
@@ -119,7 +127,7 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
                         type="button"
                         className="btn btn--sm"
                         disabled={Boolean(busy)}
-                        onClick={() => void join(d.repo, () => window.api.team.join(d.repo))}
+                        onClick={() => void join(d.repo, d.repo, () => window.api.team.join(d.repo))}
                       >
                         {busy === d.repo ? 'Joining…' : 'Join'}
                       </button>
@@ -141,7 +149,7 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
                     type="button"
                     className="btn btn--sm"
                     disabled={!manualValid || Boolean(busy)}
-                    onClick={() => void join('manual', () => window.api.team.join(repo.trim()))}
+                    onClick={() => void join('manual', repo.trim(), () => window.api.team.join(repo.trim()))}
                   >
                     {busy === 'manual' ? 'Joining…' : 'Join'}
                   </button>
@@ -150,6 +158,14 @@ export default function JoinTeamWorkspaceModal({ onClose, onJoined }: Props): JS
             </>
           )}
           {error && <div className="alert alert--error">{error}</div>}
+          {error ? (
+            <TeamDiagnosis
+              input={{ kind: 'join', repo: failedRepo ?? undefined, error }}
+              resetKey={`${failedRepo ?? ''}|${error}`}
+            />
+          ) : (
+            options?.error && <TeamDiagnosis input={{ kind: 'join', error: options.error }} resetKey={options.error} />
+          )}
         </div>
         <div className="modal-footer">
           <button type="button" className="btn btn--ghost" disabled={Boolean(busy)} onClick={onClose}>

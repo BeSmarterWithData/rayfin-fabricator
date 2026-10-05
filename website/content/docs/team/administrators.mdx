@@ -121,6 +121,16 @@ The instructions include `az ad app create --display-name "Fabricator deploy - <
 
 > "Then send me the application (client) ID so I can finish setup in Fabricator."
 
+## What Diagnose with Copilot reads
+
+When setup, Repair, joining, or a pipeline run fails, users can select **Diagnose with Copilot**. Fabricator then runs read-only checks with the user's own GitHub CLI and Azure CLI sign-ins and sends the results to GitHub Copilot, which explains the likely cause and drafts a message for the right administrator. The checks don't change anything. Depending on what failed, they read:
+
+- **GitHub:** the signed-in account and its token scopes, the repository and the user's permission, the user's organization membership and the organization settings the user can see, the repository's Actions permissions and allowed actions, rulesets and branch protection on `main`, OIDC subject claim customization for the repository and organization, the five Actions variables, the workflow file, recent runs, and the end of a failed run's log.
+- **Microsoft Entra ID**, through Microsoft Graph: whether users can register applications, the user's user type and active directory roles, and, for the workspace's own deploy identities only, the app registration, its owners, its service principal and that service principal's groups, and its federated identity credentials.
+- **Fabric:** the capacities the user can see, the workspace's two Fabric workspaces and their role assignments, and tenant settings about service principals and workspace creation. Only Fabric administrators can read tenant settings, so for other users that check reports that the settings aren't visible.
+
+Values that look like secrets or tokens are masked before they're sent. Users can see everything that was sent under **Details sent to Copilot**.
+
 ## Cleanup
 
 Owners can select **Delete workspace…** in **Manage → Settings**. Fabricator deletes deploy identities it created, archives the GitHub repository, removes the workspace from this computer, and can also delete both Fabric workspaces and every app in them if the owner selects **Also delete both Fabric workspaces and every app in them, with their data**.

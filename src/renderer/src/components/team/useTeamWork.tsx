@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { StudioProject, TeamActionResult, TeamProgressEvent, TeamSessionStatus } from '@shared/ipc'
 import ConfirmModal from '../ConfirmModal'
 import { StepList, teamError, type StepRow } from './common'
+import TeamDiagnosis from './diagnosis/TeamDiagnosis'
+import TeamDiagnosisModal from './diagnosis/TeamDiagnosisModal'
+import { fixInChatPrompt, type DiagnosisInput } from './diagnosis/useTeamDiagnosis'
 import { useSuppressPreview } from '../../overlay'
 import { useModalFocus } from '../../modalFocus'
 import './team.css'
@@ -60,6 +63,8 @@ export interface TeamWork {
   discard: (projectId: string) => void
   setView: (projectId: string, view: 'preview' | 'production') => void
   viewLogs: (projectId: string, runId: number) => void
+  /** Diagnose a failed run or publish with Copilot (read-only), in a dialog. */
+  diagnose: (projectId: string, run: { runId?: number; runUrl?: string; error?: string }) => void
   overlays: JSX.Element
 }
 
@@ -81,7 +86,8 @@ export function useTeamWork(activeProject: StudioProject | null, options: Option
   const [conflicts, setConflicts] = useState<{ projectId: string; files: string[] } | null>(null)
   const [confirmDiscard, setConfirmDiscard] = useState<string | null>(null)
   const [discarding, setDiscarding] = useState(false)
-  const [logs, setLogs] = useState<{ text: string | null; error?: string } | null>(null)
+  const [logs, setLogs] = useState<{ projectId?: string; runId?: number; text: string | null; error?: string } | null>(null)
+  const [diagnosis, setDiagnosis] = useState<{ projectId: string; input: DiagnosisInput } | null>(null)
   const optionsRef = useRef(options)
   optionsRef.current = options
   const statusesRef = useRef(statuses)
@@ -261,11 +267,23 @@ export function useTeamWork(activeProject: StudioProject | null, options: Option
   )
 
   const viewLogs = useCallback((projectId: string, runId: number): void => {
-    setLogs({ text: null })
+    setLogs({ projectId, runId, text: null })
     void window.api.team
       .runLog(projectId, runId)
-      .then((text) => setLogs({ text }))
-      .catch((reason) => setLogs({ text: '', error: teamError(reason, 'Could not read the log.') }))
+      .then((text) => setLogs({ projectId, runId, text }))
+      .catch((reason) => setLogs({ projectId, runId, text: '', error: teamError(reason, 'Could not read the log.') }))
+  }, [])
+
+  const diagnose = useCallback(
+    (projectId: string, run: { runId?: number; runUrl?: string; error?: string }): void => {
+      setDiagnosis({ projectId, input: { kind: 'pipeline', projectId, ...run } })
+    },
+    []
+  )
+
+  /** Hand a diagnosed failure in the app's code to its Build chat. */
+  const fixInChat = useCallback((projectId: string, answer: string): void => {
+    optionsRef.current.sendToChat(projectId, 'Fix what broke the pipeline', fixInChatPrompt(answer))
   }, [])
 
   async function runDiscard(): Promise<void> {
@@ -295,6 +313,10 @@ export function useTeamWork(activeProject: StudioProject | null, options: Option
           onConfirmDataLoss={() => publish(publishing.projectId, true)}
           onViewLogs={(url) => void window.api.openExternal(url)}
           onCombine={(files) => combineWithCopilot(publishing.projectId, files)}
+          onFixInChat={(answer) => {
+            setPublishing(null)
+            fixInChat(publishing.projectId, answer)
+          }}
         />
       )}
       {conflicts && !publishing && (
@@ -337,7 +359,29 @@ export function useTeamWork(activeProject: StudioProject | null, options: Option
           onCancel={() => setConfirmDiscard(null)}
         />
       )}
-      {logs && <LogModal logs={logs} onClose={() => setLogs(null)} />}
+      {logs && (
+        <LogModal
+          logs={logs}
+          onClose={() => setLogs(null)}
+          onDiagnose={
+            logs.projectId && logs.runId
+              ? () => {
+                  const { projectId, runId } = logs
+                  setLogs(null)
+                  if (projectId) diagnose(projectId, { runId })
+                }
+              : undefined
+          }
+        />
+      )}
+      {diagnosis && (
+        <TeamDiagnosisModal
+          input={diagnosis.input}
+          title="Diagnose the failed run"
+          onFixInChat={(answer) => fixInChat(diagnosis.projectId, answer)}
+          onClose={() => setDiagnosis(null)}
+        />
+      )}
     </>
   )
 
@@ -352,6 +396,7 @@ export function useTeamWork(activeProject: StudioProject | null, options: Option
     discard: (projectId) => setConfirmDiscard(projectId),
     setView,
     viewLogs,
+    diagnose,
     overlays
   }
 }
@@ -362,7 +407,8 @@ function PublishModal({
   onStop,
   onConfirmDataLoss,
   onViewLogs,
-  onCombine
+  onCombine,
+  onFixInChat
 }: {
   run: PublishRun
   onClose: () => void
@@ -370,6 +416,7 @@ function PublishModal({
   onConfirmDataLoss: () => void
   onViewLogs: (url: string) => void
   onCombine: (files: string[]) => void
+  onFixInChat: (answer: string) => void
 }): JSX.Element {
   useSuppressPreview()
   const dialogRef = useModalFocus<HTMLDivElement>()
@@ -377,6 +424,8 @@ function PublishModal({
   const reviewWaiting = result?.ok && result.project?.team?.publish?.stage === 'review'
   const publish = result?.project?.team?.publish
   const dataLoss = Boolean(publish?.dataLoss) && publish?.stage === 'failed'
+  // Conflicts and data-loss refusals have their own actions; anything else can be diagnosed.
+  const diagnosable = !run.running && Boolean(result) && !result?.ok && !result?.conflicts?.length && !dataLoss
   return (
     <div className="modal-backdrop">
       <div className="modal team-modal" role="dialog" aria-modal="true" aria-label="Publish" ref={dialogRef}>
@@ -403,6 +452,18 @@ function PublishModal({
             <div className="alert alert--error" role="alert">
               {result.error ?? 'Publishing stopped.'}
             </div>
+          )}
+          {diagnosable && (
+            <TeamDiagnosis
+              input={{
+                kind: 'pipeline',
+                projectId: run.projectId,
+                runId: publish?.runId,
+                runUrl: publish?.runUrl,
+                error: result?.error
+              }}
+              onFixInChat={onFixInChat}
+            />
           )}
         </div>
         <div className="modal-footer">
@@ -438,10 +499,13 @@ function PublishModal({
 
 function LogModal({
   logs,
-  onClose
+  onClose,
+  onDiagnose
 }: {
   logs: { text: string | null; error?: string }
   onClose: () => void
+  /** Diagnose this run with Copilot (replaces the log dialog). */
+  onDiagnose?: () => void
 }): JSX.Element {
   useSuppressPreview()
   const dialogRef = useModalFocus<HTMLDivElement>()
@@ -480,6 +544,11 @@ function LogModal({
           <button type="button" className="btn btn--ghost" onClick={onClose}>
             Close
           </button>
+          {onDiagnose && (
+            <button type="button" className="btn" onClick={onDiagnose}>
+              <span className="codicon codicon-sparkle" aria-hidden="true" /> Diagnose with Copilot
+            </button>
+          )}
         </div>
       </div>
     </div>

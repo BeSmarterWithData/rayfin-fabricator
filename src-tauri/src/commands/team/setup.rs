@@ -33,7 +33,7 @@ fn label(step: &str) -> &'static str {
   SETUP_STEPS.iter().find(|(id, _)| *id == step).map(|(_, l)| *l).unwrap_or("Set up the workspace")
 }
 
-const FABRIC_SP_NOTE: &str = "In the Fabric admin portal, open Tenant settings → Developer settings and turn on \"Service principals can call Fabric public APIs\" (for the organization, or for a security group that includes the workspace's deploy identity).";
+pub(crate) const FABRIC_SP_NOTE: &str = "In the Fabric admin portal, open Tenant settings → Developer settings and turn on \"Service principals can call Fabric public APIs\" (for the organization, or for a security group that includes the workspace's deploy identity).";
 
 struct Setup<'a> {
   app: &'a AppHandle,

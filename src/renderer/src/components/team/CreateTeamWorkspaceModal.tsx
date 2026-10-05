@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState } from 'react'
 import type {
   FabricCapacity,
   TeamActionResult,
+  TeamCreateRequest,
   TeamOwner,
   TeamProblem,
   TeamWorkspace
@@ -9,6 +10,8 @@ import type {
 import { useSuppressPreview } from '../../overlay'
 import { useModalFocus } from '../../modalFocus'
 import { ProblemView, StepList, TeamPrerequisites, teamError, useStepProgress } from './common'
+import TeamDiagnosis from './diagnosis/TeamDiagnosis'
+import type { DiagnosisInput } from './diagnosis/useTeamDiagnosis'
 
 /** Mirrors SETUP_STEPS in src-tauri/src/commands/team/setup.rs. */
 export const SETUP_STEPS = [
@@ -24,6 +27,9 @@ export const SETUP_STEPS = [
 ] as const
 
 type Phase = 'prereq' | 'details' | 'running' | 'failed' | 'done'
+
+const NO_CAPACITY =
+  'You don’t have access to a Fabric capacity. Ask your Fabric administrator for one, then try again.'
 
 /** Holds a picker's place, at the picker's size, while its choices load. */
 function FieldLoading({ text }: { text: string }): JSX.Element {
@@ -145,6 +151,20 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged }:
     )
   }
 
+  /** What the owner entered so far. */
+  function currentRequest(): TeamCreateRequest {
+    const selectedOwner = owners?.find((o) => o.login === owner)
+    const capacity = capacities?.find((c) => c.id === capacityId)
+    return {
+      name: name.trim(),
+      owner,
+      ownerIsOrg: Boolean(selectedOwner?.isOrg),
+      capacityId,
+      capacityName: capacity?.displayName,
+      existingClientId: clientId.trim() || undefined
+    }
+  }
+
   async function run(isResume: boolean): Promise<void> {
     setProblem(null)
     setPhase('running')
@@ -155,19 +175,7 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged }:
       if (isResume && target) {
         result = await window.api.team.resumeSetup(target.id, scope, clientId.trim() || undefined)
       } else {
-        const selectedOwner = owners?.find((o) => o.login === owner)
-        const capacity = capacities?.find((c) => c.id === capacityId)
-        result = await window.api.team.create(
-          {
-            name: name.trim(),
-            owner,
-            ownerIsOrg: Boolean(selectedOwner?.isOrg),
-            capacityId,
-            capacityName: capacity?.displayName,
-            existingClientId: clientId.trim() || undefined
-          },
-          scope
-        )
+        result = await window.api.team.create(currentRequest(), scope)
       }
     } catch (reason) {
       result = { ok: false, error: teamError(reason, 'Setup stopped unexpectedly.') }
@@ -184,6 +192,24 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged }:
 
   const canCreate = Boolean(name.trim() && owner && capacityId) && phase === 'details'
   const identityProblem = problem && ['identity', 'trust'].includes(problem.step)
+  // A picker that couldn't load is also worth diagnosing (locked-down tenants often stop there).
+  const pickerProblem =
+    owners !== null && ownersError
+      ? { step: 'github', error: ownersError }
+      : capacities !== null && capacitiesError
+        ? { step: 'fabric', error: capacitiesError }
+        : capacities !== null && capacities.length === 0
+          ? { step: 'fabric', error: NO_CAPACITY }
+          : null
+  const diagnosis: DiagnosisInput | null =
+    phase === 'failed' && problem
+      ? { kind: 'setup', workspaceId: (workspace ?? resume)?.id, problem }
+      : phase === 'details' && problem
+        ? { kind: 'setup', problem, request: currentRequest() }
+        : phase === 'details' && pickerProblem
+          ? { kind: 'setup', step: pickerProblem.step, error: pickerProblem.error, request: currentRequest() }
+          : null
+  const diagnosisKey = `${phase}|${problem?.step ?? ''}|${problem?.message ?? ''}|${pickerProblem?.error ?? ''}`
 
   return (
     <div className="modal-backdrop" onClick={running ? undefined : onClose}>
@@ -278,12 +304,7 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged }:
                     ))}
                   </select>
                 ) : (
-                  !capacitiesError && (
-                    <FieldProblem
-                      text="You don’t have access to a Fabric capacity. Ask your Fabric administrator for one, then try again."
-                      onRetry={() => void loadCapacities()}
-                    />
-                  )
+                  !capacitiesError && <FieldProblem text={NO_CAPACITY} onRetry={() => void loadCapacities()} />
                 )}
                 {capacities !== null && capacitiesError && (
                   <FieldProblem text={capacitiesError} onRetry={() => void loadCapacities()} />
@@ -354,6 +375,7 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged }:
               )}
             </>
           )}
+          {diagnosis && <TeamDiagnosis input={diagnosis} resetKey={diagnosisKey} />}
         </div>
         <div className="modal-footer">
           {phase === 'running' ? (

@@ -39,7 +39,7 @@ Fabricator can send these custom events:
 | --- | --- |
 | `signin` | `trigger`, currently `startup` or `login`. |
 | `deploy` | `success`, either `true` or `false`. |
-| `team` | `action`, currently `create`, `join`, or `publish`, plus `success`. |
+| `team` | `action`, currently `create`, `join`, `publish`, or `diagnose`, plus `success`. |
 
 Team telemetry does not include repository names, workspace names, or app names.
 
@@ -70,6 +70,8 @@ By default, chat diagnostics contain metadata only. If you turn on **Full diagno
 When you chat, Fabricator sends your request and relevant project context to GitHub Copilot because Copilot is the agent doing the work. That traffic is governed by GitHub's Copilot terms and policies for your account.
 
 The Advisor's **Run deep review** also uses Copilot in a read-only mode.
+
+**Diagnose with Copilot** for team workspaces also uses Copilot in a read-only mode. It sends what failed, the IDs and names of the workspace's repository, deploy identities, tenant, and Fabric workspaces, your sign-in names, and the results of read-only checks, including the end of a failed pipeline log. Values that look like secrets or tokens are masked. Select **Details sent to Copilot** to see what was sent.
 
 ## Deploys go to your Fabric tenant
 

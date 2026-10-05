@@ -1,5 +1,8 @@
+import { useState } from 'react'
 import type { TeamManifest, TeamMap, TeamMapRun } from '@shared/ipc'
 import { Codicon } from '../../icons'
+import TeamDiagnosisModal from '../diagnosis/TeamDiagnosisModal'
+import type { DiagnosisInput } from '../diagnosis/useTeamDiagnosis'
 import { elapsed, friendlyStep, runProgress, timeAgo } from '../runProgress'
 import { fabricHealth, isActive, nodeIds, runLabel, type Health } from './model'
 import { Avatar, FabricGlyph } from './parts'
@@ -28,6 +31,7 @@ function deployed(counts: Record<Health, number>): string {
 
 /** The sidebar while nothing is selected: what the pipeline is doing, and where it deploys. */
 export default function ActivityPanel({ map, runs, now, fabric, notice, targetOf, onReveal, onSelect }: Props): JSX.Element {
+  const [diagnose, setDiagnose] = useState<DiagnosisInput | null>(null)
   const shown = runs
     .filter(
       (r) =>
@@ -105,6 +109,17 @@ export default function ActivityPanel({ map, runs, now, fabric, notice, targetOf
                     )}
                   </span>
                 </button>
+                {state === 'failed' && map.workspace && (
+                  <button
+                    type="button"
+                    className="tmap-icon-btn"
+                    onClick={() => setDiagnose({ kind: 'pipeline', workspaceId: map.workspace?.id, runId: run.id })}
+                    title="Diagnose with Copilot"
+                    aria-label="Diagnose with Copilot"
+                  >
+                    <Codicon name="sparkle" />
+                  </button>
+                )}
                 <button
                   type="button"
                   className="tmap-icon-btn"
@@ -169,6 +184,7 @@ export default function ActivityPanel({ map, runs, now, fabric, notice, targetOf
           All pipeline runs on GitHub <Codicon name="link-external" />
         </button>
       )}
+      {diagnose && <TeamDiagnosisModal input={diagnose} title="Diagnose the failed run" onClose={() => setDiagnose(null)} />}
     </aside>
   )
 }

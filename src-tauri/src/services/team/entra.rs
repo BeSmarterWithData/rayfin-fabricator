@@ -303,6 +303,98 @@ pub fn admin_note(display_name: &str, repo: &str, subjects: &[(String, String)])
   note
 }
 
+/* ------------------------- Microsoft Graph (read-only) ------------------------ */
+
+const GRAPH: &str = "https://graph.microsoft.com/v1.0";
+const GRAPH_RESOURCE: &str = "https://graph.microsoft.com";
+/// How long a Graph token is reused: one diagnosis makes many reads, and each
+/// fresh token costs an `az` process.
+const GRAPH_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(120);
+
+static GRAPH_TOKEN: Lazy<std::sync::Mutex<Option<(std::time::Instant, String)>>> = Lazy::new(Default::default);
+
+async fn graph_token() -> Result<String, AzError> {
+  if let Some((at, token)) = GRAPH_TOKEN.lock().unwrap().as_ref() {
+    if at.elapsed() < GRAPH_TOKEN_TTL {
+      return Ok(token.clone());
+    }
+  }
+  let token = token(GRAPH_RESOURCE).await?;
+  *GRAPH_TOKEN.lock().unwrap() = Some((std::time::Instant::now(), token.clone()));
+  Ok(token)
+}
+
+/// A Microsoft Graph read that failed: the HTTP status (when Graph answered),
+/// Graph's error code, and its message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GraphError {
+  pub status: Option<u16>,
+  pub code: Option<String>,
+  pub message: String,
+}
+
+impl GraphError {
+  pub fn is_not_found(&self) -> bool {
+    self.status == Some(404)
+  }
+
+  /// "HTTP 403 Authorization_RequestDenied: Insufficient privileges…".
+  pub fn summary(&self) -> String {
+    match (self.status, &self.code) {
+      (Some(s), Some(c)) => format!("HTTP {s} {c}: {}", self.message),
+      (Some(s), None) => format!("HTTP {s}: {}", self.message),
+      _ => self.message.clone(),
+    }
+  }
+}
+
+fn graph_error(status: u16, body: &str) -> GraphError {
+  let parsed: Value = serde_json::from_str(body).unwrap_or(Value::Null);
+  let error = parsed.get("error");
+  GraphError {
+    status: Some(status),
+    code: error.and_then(|e| str_of(e, "code")),
+    message: error.and_then(|e| str_of(e, "message")).unwrap_or_else(|| format!("Microsoft Graph returned HTTP {status}.")),
+  }
+}
+
+/// GET a Microsoft Graph v1.0 path as the signed-in user, through the Azure
+/// CLI's token. Read-only: used to explain why a team workspace step failed.
+pub async fn graph_get(path: &str) -> Result<Value, GraphError> {
+  let url = if path.starts_with(GRAPH) { path.to_string() } else { format!("{GRAPH}/{}", path.trim_start_matches('/')) };
+  let token = graph_token().await.map_err(|e| GraphError { status: None, code: None, message: e.message })?;
+  let client = reqwest::Client::builder()
+    .timeout(std::time::Duration::from_secs(30))
+    .build()
+    .map_err(|e| GraphError { status: None, code: None, message: e.to_string() })?;
+  let res = client
+    .get(&url)
+    .bearer_auth(token)
+    .send()
+    .await
+    .map_err(|e| GraphError { status: None, code: None, message: format!("Couldn't reach Microsoft Graph: {e}") })?;
+  let status = res.status().as_u16();
+  let text = res.text().await.unwrap_or_default();
+  if !(200..300).contains(&status) {
+    return Err(graph_error(status, &text));
+  }
+  Ok(serde_json::from_str(&text).unwrap_or(Value::Null))
+}
+
+/// Every item of a Graph collection, following `@odata.nextLink` for up to
+/// `max_pages` pages.
+pub async fn graph_list(path: &str, max_pages: usize) -> Result<Vec<Value>, GraphError> {
+  let mut items = Vec::new();
+  let mut next = Some(path.to_string());
+  for _ in 0..max_pages.max(1) {
+    let Some(page) = next.take() else { break };
+    let v = graph_get(&page).await?;
+    items.extend(v.get("value").and_then(Value::as_array).cloned().unwrap_or_default());
+    next = str_of(&v, "@odata.nextLink").filter(|link| link.starts_with(GRAPH));
+  }
+  Ok(items)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -340,5 +432,14 @@ mod tests {
     let note = admin_note("Fabricator deploy - Team", "o/r", &subjects);
     assert!(note.contains("az ad app create --display-name \"Fabricator deploy - Team\""));
     assert!(note.contains("repo:o/r:pull_request"));
+  }
+
+  #[test]
+  fn graph_errors_keep_status_code_and_message() {
+    let e = graph_error(403, r#"{"error":{"code":"Authorization_RequestDenied","message":"Insufficient privileges to complete the operation."}}"#);
+    assert_eq!(e.summary(), "HTTP 403 Authorization_RequestDenied: Insufficient privileges to complete the operation.");
+    let e = graph_error(404, "not json");
+    assert!(e.is_not_found());
+    assert_eq!(e.summary(), "HTTP 404: Microsoft Graph returned HTTP 404.");
   }
 }

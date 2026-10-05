@@ -12,6 +12,8 @@ import type {
 import ConfirmModal from '../../ConfirmModal'
 import { Codicon } from '../../icons'
 import { ProblemView, teamError } from '../common'
+import TeamDiagnosisModal from '../diagnosis/TeamDiagnosisModal'
+import type { DiagnosisInput } from '../diagnosis/useTeamDiagnosis'
 import { timeAgo, useNow } from '../runProgress'
 import {
   copyHealth,
@@ -290,6 +292,7 @@ export default function Inspector({
   onRemoved
 }: Props): JSX.Element {
   const now = useNow(true)
+  const [diagnose, setDiagnose] = useState<DiagnosisInput | null>(null)
   const target = parseNodeId(selection)
   const app = target.folder ? map.apps.find((a) => a.folder === target.folder) : undefined
   const copy = app && target.branch ? app.copies.find((c) => c.branch === target.branch) : undefined
@@ -486,6 +489,15 @@ export default function Inspector({
               Open in Fabric <Codicon name="link-external" />
             </button>
           )}
+          {!deploying && publishedHealth(app, runs) === 'failed' && (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => setDiagnose({ kind: 'pipeline', workspaceId: workspace.id, runUrl: record?.logUrl, projectId: app.projectId })}
+            >
+              <Codicon name="sparkle" /> Diagnose with Copilot
+            </button>
+          )}
         </div>
       </>
     )
@@ -543,6 +555,22 @@ export default function Inspector({
           {!deploying && health === 'failed' && copy.preview?.logUrl && (
             <External url={copy.preview.logUrl}>See why it failed</External>
           )}
+          {!deploying && health === 'failed' && (
+            <button
+              type="button"
+              className="tmap-link"
+              onClick={() =>
+                setDiagnose({
+                  kind: 'pipeline',
+                  workspaceId: workspace.id,
+                  runUrl: copy.preview?.logUrl,
+                  projectId: copy.mine ? app.projectId : undefined
+                })
+              }
+            >
+              <Codicon name="sparkle" /> Diagnose with Copilot
+            </button>
+          )}
         </section>
         <section className="tmap-insp-section">
           <h4>Changes</h4>
@@ -572,6 +600,7 @@ export default function Inspector({
         <Codicon name="close" />
       </button>
       {body}
+      {diagnose && <TeamDiagnosisModal input={diagnose} title="Diagnose the failed deploy" onClose={() => setDiagnose(null)} />}
     </aside>
   )
 }

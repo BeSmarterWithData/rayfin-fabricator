@@ -32,6 +32,8 @@ import {
   type DeleteProgressEvent,
   type RayfinStudioApi,
   type TeamCreateRequest,
+  type TeamDiagnoseRequest,
+  type TeamDiagnosisEnvelope,
   type TeamProgressEvent,
   type TeamResourceRequest,
   type ToolId,
@@ -410,6 +412,9 @@ export const api: RayfinStudioApi = {
       invoke('team_diff', { workspaceId, folder, prNumber }),
     resources: (workspaceId: string, requests: TeamResourceRequest[]) =>
       invoke('team_resources', { workspaceId, requests }),
+    diagnose: (request: TeamDiagnoseRequest) => invoke('team_diagnose', { request }),
+    onDiagnosis: (cb: (envelope: TeamDiagnosisEnvelope) => void) =>
+      subscribe<TeamDiagnosisEnvelope>(IpcChannels.teamDiagnosis, cb),
     onProgress: (cb: (event: TeamProgressEvent) => void) =>
       subscribe<TeamProgressEvent>(IpcChannels.teamProgress, cb)
   }

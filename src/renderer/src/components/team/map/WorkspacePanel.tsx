@@ -10,6 +10,8 @@ import type {
 import ConfirmModal from '../../ConfirmModal'
 import { Codicon } from '../../icons'
 import { ProblemView, StepList, teamError, useStepProgress } from '../common'
+import TeamDiagnosisModal from '../diagnosis/TeamDiagnosisModal'
+import type { DiagnosisInput } from '../diagnosis/useTeamDiagnosis'
 import { Avatar, FabricGlyph, fabricWorkspaceUrl } from './parts'
 
 export type WorkspaceTab = 'members' | 'access' | 'settings'
@@ -59,6 +61,9 @@ export default function WorkspacePanel({
   const [asOwner, setAsOwner] = useState(false)
   const [confirm, setConfirm] = useState<Confirm | null>(null)
   const [deleteFabric, setDeleteFabric] = useState(false)
+  const [diagnose, setDiagnose] = useState<DiagnosisInput | null>(null)
+  /** The last action was Repair (so `problem`/`error` are its outcome). */
+  const [repairTried, setRepairTried] = useState(false)
   const repairScope = useMemo(() => `team-repair-${crypto.randomUUID()}`, [])
   const [repairRows, setRepairRows] = useStepProgress(VERIFY_STEPS, repairScope)
   const ws = workspace
@@ -111,6 +116,7 @@ export default function WorkspacePanel({
     setError(null)
     setNotice(null)
     setProblem(null)
+    setRepairTried(key === 'repair')
     try {
       const result = await action()
       if (!result.ok) {
@@ -192,6 +198,17 @@ export default function WorkspacePanel({
   }
 
   const needsRepair = health?.items.some((i) => i.repairable) ?? false
+  const healthTrouble = Boolean(health?.error) || (health?.items.some((i) => i.state === 'error' || i.state === 'unknown') ?? false)
+  const repairFailed = repairTried && busy !== 'repair' && Boolean(problem || error)
+  function diagnoseHealth(): void {
+    setDiagnose({
+      kind: 'health',
+      workspaceId: ws.id,
+      health: health?.items ?? [],
+      problem: repairFailed ? (problem ?? undefined) : undefined,
+      error: repairFailed ? (error ?? undefined) : health?.error
+    })
+  }
   const isMe = (who: string): boolean => Boolean(viewer && viewer.toLowerCase() === who.toLowerCase())
   const tabs: { id: WorkspaceTab; label: string }[] = [
     { id: 'members', label: 'Members' },
@@ -447,11 +464,18 @@ export default function WorkspacePanel({
                 {health.error && <li className="tmap-dim">{health.error}</li>}
               </ul>
             )}
-            {canManage && (
-              <div>
-                <button type="button" className={`btn btn--sm${needsRepair ? ' btn--primary' : ''}`} disabled={Boolean(busy)} onClick={() => void repair()}>
-                  {busy === 'repair' ? 'Repairing…' : needsRepair ? 'Repair' : 'Check the pipeline'}
-                </button>
+            {(canManage || healthTrouble || repairFailed) && (
+              <div className="tmap-insp-actions">
+                {canManage && (
+                  <button type="button" className={`btn btn--sm${needsRepair ? ' btn--primary' : ''}`} disabled={Boolean(busy)} onClick={() => void repair()}>
+                    {busy === 'repair' ? 'Repairing…' : needsRepair ? 'Repair' : 'Check the pipeline'}
+                  </button>
+                )}
+                {(healthTrouble || repairFailed) && (
+                  <button type="button" className="btn btn--sm" disabled={busy === 'repair'} onClick={diagnoseHealth}>
+                    <Codicon name="sparkle" /> Diagnose with Copilot
+                  </button>
+                )}
               </div>
             )}
             {busy === 'repair' && <StepList rows={repairRows} />}
@@ -479,6 +503,7 @@ export default function WorkspacePanel({
       {problem && <ProblemView problem={problem} />}
       {error && <div className="alert alert--error">{error}</div>}
       {notice && <div className="tmap-notice">{notice}</div>}
+      {diagnose && <TeamDiagnosisModal input={diagnose} title="Diagnose the workspace" onClose={() => setDiagnose(null)} />}
 
       {confirm && (
         <ConfirmModal

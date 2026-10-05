@@ -630,6 +630,71 @@ export interface TeamProgressEvent {
   detail?: string
 }
 
+/** Which team operation a "Diagnose with Copilot" run is about. */
+export type TeamDiagnosisKind = 'setup' | 'health' | 'join' | 'pipeline'
+
+/** "Diagnose with Copilot": what failed and what the user saw. */
+export interface TeamDiagnoseRequest {
+  /** Caller-owned key: routes `team:diagnosis` events; `team.cancel(diagnosisId)` stops the run. */
+  diagnosisId: string
+  kind: TeamDiagnosisKind
+  workspaceId?: string
+  projectId?: string
+  /** The repository a join targeted (`owner/name`). */
+  repo?: string
+  runId?: number
+  /** A run or log URL, when the run id isn't known. */
+  runUrl?: string
+  /** The setup step that failed, when there's no `problem` (a picker error). */
+  step?: string
+  problem?: TeamProblem
+  error?: string
+  /** What the owner asked for, when setup stopped before the workspace existed. */
+  request?: TeamCreateRequest
+  health?: TeamHealthItem[]
+}
+
+/** One read-only check a diagnosis ran. */
+export interface TeamDiagnosisCheck {
+  id: string
+  label: string
+  /** `failed` means the read itself didn't work (its detail says why). */
+  state: 'running' | 'done' | 'failed'
+  /** What the check found, exactly as sent to Copilot. */
+  detail?: string
+}
+
+export interface TeamDiagnosisConclusion {
+  summary: string
+  area: 'github' | 'entra' | 'fabric' | 'pipeline' | 'app' | 'local' | 'unknown'
+  /** The app's code needs a change Copilot can make in the Build chat. */
+  fixInChat: boolean
+}
+
+export type TeamDiagnosisEvent =
+  | { type: 'context'; text: string }
+  | { type: 'check'; check: TeamDiagnosisCheck }
+  /** `reset` discards the text streamed so far (narration before a check). */
+  | { type: 'delta'; text: string; reset?: boolean }
+  | { type: 'conclusion'; conclusion: TeamDiagnosisConclusion }
+  | { type: 'done'; ok: boolean; error?: string }
+
+export interface TeamDiagnosisEnvelope {
+  diagnosisId: string
+  event: TeamDiagnosisEvent
+}
+
+export interface TeamDiagnosisResult {
+  ok: boolean
+  error?: string
+  /** The Markdown answer. */
+  text: string
+  /** What was sent to Copilot about the failure. */
+  context: string
+  checks: TeamDiagnosisCheck[]
+  conclusion?: TeamDiagnosisConclusion
+}
+
 /** A Fabric workspace the signed-in user can access, with capacity details. */
 export interface FabricWorkspace {
   id: string
@@ -2121,6 +2186,7 @@ export const IpcChannels = {
   updateProgress: 'update:progress',
   deleteProgress: 'delete:progress',
   teamProgress: 'team:progress',
+  teamDiagnosis: 'team:diagnosis',
   devState: 'dev:state'
 } as const
 
@@ -2858,6 +2924,12 @@ export interface RayfinStudioApi {
     diff: (workspaceId: string, folder: string, prNumber?: number) => Promise<TeamDiff>
     /** Apps' config (data model, functions, connectors), published and in working copies. */
     resources: (workspaceId: string, requests: TeamResourceRequest[]) => Promise<TeamResources>
+    /**
+     * Diagnose a failed team operation with Copilot (read-only checks plus a
+     * streamed answer on `team:diagnosis`); stop it with `cancel(diagnosisId)`.
+     */
+    diagnose: (request: TeamDiagnoseRequest) => Promise<TeamDiagnosisResult>
+    onDiagnosis: (cb: (envelope: TeamDiagnosisEnvelope) => void) => () => void
     onProgress: (cb: (event: TeamProgressEvent) => void) => () => void
   }
 }

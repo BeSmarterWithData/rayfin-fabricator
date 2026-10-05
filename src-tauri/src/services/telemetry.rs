@@ -168,8 +168,8 @@ pub fn track_deploy(identity: Option<&TelemetryIdentity>, success: bool) {
   track("deploy", identity, &[("success", success.to_string())]);
 }
 
-/// Record a team workspace action (`create`, `join`, `publish`) and whether it
-/// succeeded. No repository, workspace or app names are sent.
+/// Record a team workspace action (`create`, `join`, `publish`, `diagnose`) and
+/// whether it succeeded. No repository, workspace or app names are sent.
 pub fn track_team(identity: Option<&TelemetryIdentity>, action: &str, success: bool) {
   track("team", identity, &[("action", action.to_string()), ("success", success.to_string())]);
 }

@@ -33,6 +33,15 @@ impl FabricError {
     }
     format!("{action}: {}", self.message)
   }
+
+  /// "HTTP 403 InsufficientPrivileges: …" for diagnosis evidence.
+  pub fn summary(&self) -> String {
+    match (self.status, &self.code) {
+      (Some(s), Some(c)) => format!("HTTP {s} {c}: {}", self.message),
+      (Some(s), None) => format!("HTTP {s}: {}", self.message),
+      _ => self.message.clone(),
+    }
+  }
 }
 
 impl From<entra::AzError> for FabricError {
@@ -70,6 +79,12 @@ async fn request(method: reqwest::Method, path: &str, body: Option<Value>) -> Re
     .map(String::from)
     .unwrap_or_else(|| format!("Fabric returned HTTP {}.", status.as_u16()));
   Err(FabricError { status: Some(status.as_u16()), code, message, needs_login: status.as_u16() == 401 })
+}
+
+/// GET a Fabric REST path as the signed-in user. Read-only: used to explain
+/// why a team workspace step failed.
+pub async fn get(path: &str) -> Result<Value, FabricError> {
+  request(reqwest::Method::GET, path, None).await
 }
 
 /// Capacities the user can create workspaces on (F and P SKUs that are active).

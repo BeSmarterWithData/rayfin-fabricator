@@ -1272,15 +1272,16 @@ pub struct TeamReviewRequest {
   pub pr: TeamPullRequest,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TeamHealthItem {
   pub id: String,
   pub label: String,
   /// ok | warn | error | unknown
   pub state: String,
-  #[serde(skip_serializing_if = "Option::is_none")]
+  #[serde(default, skip_serializing_if = "Option::is_none")]
   pub detail: Option<String>,
+  #[serde(default)]
   pub repairable: bool,
 }
 
@@ -1521,6 +1522,113 @@ pub struct TeamProgressEvent {
   pub label: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub detail: Option<String>,
+}
+
+/* ----------------------------- team diagnosis ----------------------------- */
+
+/// "Diagnose with Copilot": which team operation failed and what the user saw.
+#[derive(Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TeamDiagnoseRequest {
+  /// Renderer-owned key: routes `team:diagnosis` events; `team_cancel` stops the run.
+  pub diagnosis_id: String,
+  /// setup | health | join | pipeline
+  pub kind: String,
+  pub workspace_id: Option<String>,
+  pub project_id: Option<String>,
+  /// The repository a join targeted (`owner/name`).
+  pub repo: Option<String>,
+  /// The failed pipeline run.
+  pub run_id: Option<u64>,
+  /// A run or log URL, when the run id isn't known.
+  pub run_url: Option<String>,
+  /// The setup step that failed, when there's no `problem` (a picker error).
+  pub step: Option<String>,
+  pub problem: Option<TeamProblem>,
+  /// The plain error message the user saw.
+  pub error: Option<String>,
+  /// What the owner asked for, when setup stopped before the workspace existed.
+  pub request: Option<TeamCreateRequest>,
+  /// The health checklist the user saw.
+  pub health: Vec<TeamHealthItem>,
+}
+
+/// One read-only check a diagnosis ran.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDiagnosisCheck {
+  /// Unique within a run: the check's name plus its target.
+  pub id: String,
+  pub label: String,
+  /// running | done | failed (the read itself didn't work)
+  pub state: String,
+  /// What the check found, exactly as sent to Copilot.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub detail: Option<String>,
+}
+
+/// Copilot's structured conclusion, reported through a tool.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDiagnosisConclusion {
+  pub summary: String,
+  /// github | entra | fabric | pipeline | app | local | unknown
+  pub area: String,
+  /// The app's code needs a change Copilot can make in the Build chat.
+  pub fix_in_chat: bool,
+}
+
+/// Streamed diagnosis events (main -> renderer), tagged by `type`.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(tag = "type")]
+pub enum TeamDiagnosisEvent {
+  /// What the diagnosis knows about the failure (sent to Copilot).
+  #[serde(rename = "context")]
+  Context { text: String },
+  /// A check started or finished.
+  #[serde(rename = "check")]
+  Check { check: TeamDiagnosisCheck },
+  /// A chunk of the answer. `reset` discards what was streamed so far: it was
+  /// narration before a check, not the answer.
+  #[serde(rename = "delta")]
+  Delta {
+    text: String,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    reset: bool,
+  },
+  #[serde(rename = "conclusion")]
+  Conclusion { conclusion: TeamDiagnosisConclusion },
+  /// Terminal marker (`ok` false carries `error`).
+  #[serde(rename = "done")]
+  Done {
+    ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+  },
+}
+
+/// One diagnosis event, routed by `diagnosis_id`, on `team:diagnosis`.
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDiagnosisEnvelope {
+  pub diagnosis_id: String,
+  pub event: TeamDiagnosisEvent,
+}
+
+/// A finished (or failed) diagnosis.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamDiagnosisResult {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  /// The Markdown answer.
+  pub text: String,
+  /// What was sent to Copilot about the failure.
+  pub context: String,
+  pub checks: Vec<TeamDiagnosisCheck>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub conclusion: Option<TeamDiagnosisConclusion>,
 }
 
 /* ----------------------------- git ----------------------------- */

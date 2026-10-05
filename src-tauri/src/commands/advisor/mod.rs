@@ -18,6 +18,8 @@ mod evidence;
 mod prompt;
 mod tools;
 
+pub(crate) use evidence::mask_secrets;
+
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -102,16 +104,28 @@ const EXCLUDED_TOOLS: &[&str] = &[
 /// Hosts the deep review may fetch documentation from.
 const ALLOWED_URL_HOSTS: &[&str] = &["rayfin.ai", "www.rayfin.ai"];
 
+/// What a read-only session may do beyond reading files inside its root.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Sandbox {
+  /// Hosts `web_fetch` may reach (https only).
+  pub url_hosts: &'static [&'static str],
+  /// Allow MCP tools that declare themselves read-only.
+  pub read_only_mcp: bool,
+}
+
+/// The Advisor's sandbox: rayfin.ai docs and read-only MCP tools.
+const ADVISOR_SANDBOX: Sandbox = Sandbox { url_hosts: ALLOWED_URL_HOSTS, read_only_mcp: true };
+
 /* ----------------------------- read-only policy ----------------------------- */
 
-fn url_allowed(url: &str) -> bool {
+fn url_allowed(url: &str, hosts: &[&str]) -> bool {
   let Some(rest) = url.trim().strip_prefix("https://") else {
     return false;
   };
   let host = rest.split(['/', '?', '#']).next().unwrap_or("");
   let host = host.rsplit('@').next().unwrap_or(host);
   let host = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
-  ALLOWED_URL_HOSTS.contains(&host.as_str())
+  hosts.contains(&host.as_str())
 }
 
 fn path_inside(root: &Path, path: &str) -> bool {
@@ -155,7 +169,13 @@ fn is_secret_file(path: &str) -> bool {
 
 /// Whether a read-only Advisor session may perform a requested action. Fails
 /// closed: anything unrecognized, and any sandbox-bypass request, is denied.
+#[cfg(test)]
 fn permitted(root: &Path, data: &PermissionRequestData) -> bool {
+  permitted_in(root, ADVISOR_SANDBOX, data)
+}
+
+/// [`permitted`] for any [`Sandbox`].
+pub(crate) fn permitted_in(root: &Path, sandbox: Sandbox, data: &PermissionRequestData) -> bool {
   let body = request_body(data);
   let text = |key: &str| body.get(key).and_then(Value::as_str);
   if body.get("requestSandboxBypass").and_then(Value::as_bool) == Some(true) {
@@ -163,25 +183,26 @@ fn permitted(root: &Path, data: &PermissionRequestData) -> bool {
   }
   match request_kind(data).as_deref() {
     Some("read") => text("path").is_some_and(|p| path_inside(root, p) && !is_secret_file(p)),
-    Some("url") => text("url").is_some_and(url_allowed),
+    Some("url") => text("url").is_some_and(|u| url_allowed(u, sandbox.url_hosts)),
     Some("custom-tool") => true,
-    Some("mcp") => body.get("readOnly").and_then(Value::as_bool).unwrap_or(false),
+    Some("mcp") => sandbox.read_only_mcp && body.get("readOnly").and_then(Value::as_bool).unwrap_or(false),
     _ => false,
   }
 }
 
-/// Answers an Advisor session's permission requests with [`permitted`].
+/// Answers a read-only session's permission requests with [`permitted_in`].
 struct ReadOnlyPolicy {
   root: PathBuf,
+  sandbox: Sandbox,
 }
 
 #[async_trait]
 impl PermissionHandler for ReadOnlyPolicy {
   async fn handle(&self, _: SessionId, _: RequestId, data: PermissionRequestData) -> PermissionResult {
-    if permitted(&self.root, &data) {
+    if permitted_in(&self.root, self.sandbox, &data) {
       return PermissionResult::approve_once();
     }
-    log::info!("Advisor denied a {} request", request_kind(&data).unwrap_or_else(|| "unknown".into()));
+    log::info!("Read-only session denied a {} request", request_kind(&data).unwrap_or_else(|| "unknown".into()));
     // A `reject` reads as the user declining, which ends the whole turn;
     // "no user available" fails only this call, so the review carries on.
     PermissionResult::user_not_available()
@@ -192,7 +213,12 @@ impl PermissionHandler for ReadOnlyPolicy {
 /// rayfin.ai docs): writes, shell, secrets and sandbox bypasses are denied.
 /// Shared with Design mode's model-backed helpers.
 pub(crate) fn read_only_options(root: &str) -> SessionOptions {
-  let policy: Arc<dyn PermissionHandler> = Arc::new(ReadOnlyPolicy { root: PathBuf::from(root) });
+  sandboxed_options(root, ADVISOR_SANDBOX)
+}
+
+/// [`read_only_options`] with another [`Sandbox`] (documentation hosts, MCP).
+pub(crate) fn sandboxed_options(root: &str, sandbox: Sandbox) -> SessionOptions {
+  let policy: Arc<dyn PermissionHandler> = Arc::new(ReadOnlyPolicy { root: PathBuf::from(root), sandbox });
   SessionOptions {
     permission: Some(policy),
     excluded_tools: EXCLUDED_TOOLS.iter().map(|s| s.to_string()).collect(),
@@ -202,7 +228,7 @@ pub(crate) fn read_only_options(root: &str) -> SessionOptions {
 
 /* ----------------------------- event draining ----------------------------- */
 
-enum DrainEnd {
+pub(crate) enum DrainEnd {
   Finished,
   Cancelled,
   Closed,
@@ -211,7 +237,7 @@ enum DrainEnd {
 
 /// Feed session events to `on_event` until it reports a terminal state, the
 /// token is cancelled, the stream closes, or `timeout_ms` passes.
-async fn drain(
+pub(crate) async fn drain(
   session: &Session,
   mut sub: EventSubscription,
   token: &CancelToken,
@@ -963,6 +989,23 @@ mod tests {
   }
 
   #[test]
+  fn other_sandboxes_allow_only_their_own_hosts_and_can_refuse_mcp() {
+    const DOCS: Sandbox = Sandbox { url_hosts: &["learn.microsoft.com", "docs.github.com"], read_only_mcp: false };
+    let root = std::env::temp_dir().join("diagnosis-perm-root");
+    let url = |u: &str| request(json!({ "kind": "url", "intention": "Fetch", "url": u }));
+    assert!(permitted_in(&root, DOCS, &url("https://learn.microsoft.com/en-us/entra/identity-platform/reference-error-codes")));
+    assert!(permitted_in(&root, DOCS, &url("https://docs.github.com/en/actions")));
+    assert!(!permitted_in(&root, DOCS, &url("https://rayfin.ai/llms.txt")));
+    assert!(!permitted_in(&root, DOCS, &url("https://learn.microsoft.com.evil.example/")));
+    assert!(!permitted_in(&root, DOCS, &request(json!({ "kind": "mcp", "serverName": "rayfin", "readOnly": true }))));
+    assert!(!permitted_in(&root, DOCS, &request(json!({ "kind": "shell", "fullCommandText": "az ad app list" }))));
+    assert!(!permitted_in(&root, DOCS, &request(json!({ "kind": "read", "path": std::env::temp_dir().join("x.txt").to_string_lossy() }))));
+    assert!(permitted_in(&root, DOCS, &request(json!({ "kind": "custom-tool", "toolName": "fabricator_team_check" }))));
+    // The Advisor's own sandbox is unchanged.
+    assert!(permitted_in(&root, ADVISOR_SANDBOX, &request(json!({ "kind": "mcp", "serverName": "rayfin", "readOnly": true }))));
+  }
+
+  #[test]
   fn permissions_accept_flat_and_typed_requests() {
     let root = std::env::temp_dir().join("advisor-perm-root");
     let inside = root.join("src").join("App.tsx");
@@ -980,7 +1023,7 @@ mod tests {
   #[tokio::test]
   async fn denials_fail_only_the_call() {
     let root = std::env::temp_dir().join("advisor-perm-root");
-    let policy = ReadOnlyPolicy { root: root.clone() };
+    let policy = ReadOnlyPolicy { root: root.clone(), sandbox: ADVISOR_SANDBOX };
     let decide = |body: Value| policy.handle(SessionId::from("s"), RequestId::new("1"), request(body));
     assert!(matches!(
       decide(json!({ "kind": "shell", "fullCommandText": "rm -rf ." })).await,

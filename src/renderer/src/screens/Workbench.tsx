@@ -1374,6 +1374,7 @@ export default function Workbench({
                 onDiscard={() => teamWork.discard(active.id)}
                 onSetView={(view) => teamWork.setView(active.id, view)}
                 onViewLogs={(runId) => teamWork.viewLogs(active.id, runId)}
+                onDiagnose={(run) => teamWork.diagnose(active.id, run)}
                 onRefresh={() => void teamWork.refresh(active.id, true)}
                 onOpenMap={() => openTeamMap(active.team?.workspaceId ?? '', 'project', active.team?.folder)}
               />
