@@ -99,7 +99,7 @@ If a published deploy would delete data, it emits:
 
 ## Permissions and settings needed
 
-The person setting up the workspace needs the GitHub CLI signed in to `github.com` with `repo`, `read:org`, and `workflow`. Fabricator uses those scopes to create and use the repository and its workflow.
+The person setting up the workspace needs the GitHub CLI signed in to `github.com` with `repo`, `read:org`, and `workflow`. Fabricator uses those scopes to create and use the repository and its workflow. Abandoning an unfinished setup also needs `delete_repo` to delete the repository; Fabricator asks for it only then.
 
 The Azure CLI sign-in must be in the target tenant. To create identities, the user must be allowed to create and update app registrations and service principals, or must have an administrator-provided app registration.
 
@@ -136,5 +136,7 @@ Values that look like secrets or tokens are masked before they're sent. Users ca
 Owners can select **Delete workspace…** in **Manage → Settings**. Fabricator deletes deploy identities it created, archives the GitHub repository, removes the workspace from this computer, and can also delete both Fabric workspaces and every app in them if the owner selects **Also delete both Fabric workspaces and every app in them, with their data**.
 
 Fabricator does not delete an administrator-provided app registration. It only deletes managed identities whose display names start with `Fabricator deploy - ` or `Fabricator previews - `.
+
+If setup didn't finish, the person who started it can select **Abandon setup…** on Home instead. Fabricator deletes the deploy identities it created, both Fabric workspaces, and the GitHub repository (rather than archiving it), then removes the workspace from that computer. See [Abandon an unfinished setup](/docs/team/create#abandon-an-unfinished-setup).
 
 

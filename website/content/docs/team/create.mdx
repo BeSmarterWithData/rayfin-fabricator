@@ -49,3 +49,22 @@ When Fabricator has administrator instructions, it shows **Copy instructions for
 To find out which setting stopped setup and who can change it, select **Diagnose with Copilot** under the problem. Fabricator runs read-only checks with your GitHub and Azure sign-ins, and Copilot explains the most likely cause and drafts a message for the right administrator. See [A team step failed and the message doesn't explain it](/docs/troubleshooting/team#a-team-step-failed-and-the-message-doesnt-explain-it).
 
 If an administrator creates an app registration for you, expand **Advanced options**, paste its application client ID in **Existing app registration (optional)**, and continue. An administrator-provided app registration is used for both previews and published apps.
+
+## Abandon an unfinished setup
+
+If setup stopped and you don't want to finish it, you can delete what it created. On Home, a workspace whose setup didn't finish shows "Setup didn't finish. Pick up where it stopped; nothing is lost." with **Finish setup** and **Abandon setup…**.
+
+1. On Home, under **Team workspaces**, find the workspace and select **Abandon setup…**. If the setup window is still open on a problem, you can select **Abandon setup…** there instead.
+2. Wait while Fabricator looks up what setup created. It lists each item it will delete: the deploy identities, the Fabric workspaces, the GitHub repository, and the workspace's folder on this computer.
+3. If Fabricator says that deleting the repository needs one more GitHub permission (`delete_repo`), select **Grant GitHub access** and approve it. Fabricator opens a terminal that runs `gh auth refresh --hostname github.com --scopes repo,read:org,workflow,delete_repo`.
+4. Select **Delete and abandon**.
+
+Fabricator permanently deletes the deploy identities it created, both Fabric workspaces and anything in them, and the GitHub repository, then removes the workspace from this computer. It never deletes an app registration your administrator provided; your administrator can delete it when it's no longer needed.
+
+To keep what setup created and only remove the workspace from Fabricator, select **Remove from this computer** instead.
+
+### If something can't be deleted
+
+Fabricator deletes the GitHub repository last. If it can't delete a deploy identity or a Fabric workspace, it stops before the repository, and the workspace stays on Home with whatever is left. The message explains what went wrong. Fix it, then select **Try again**: Fabricator picks up with what's left.
+
+Organizations can limit deleting repositories to their owners. If GitHub doesn't let you delete the repository, ask an owner of the organization to delete it, then select **Try again**. To give up on the rest, select **Remove from this computer**. Fabricator lists what that keeps, so you can delete it yourself.

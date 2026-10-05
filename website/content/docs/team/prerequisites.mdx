@@ -20,6 +20,8 @@ You need to be signed in with these classic OAuth scopes:
 
 When the scopes are missing, Fabricator shows **Grant GitHub access** and opens a terminal that runs `gh auth refresh --hostname github.com --scopes repo,read:org,workflow`. If you are not signed in, **Sign in to GitHub** runs `gh auth login --web --git-protocol https --hostname github.com --scopes repo,read:org,workflow`.
 
+Abandoning an unfinished setup also needs the `delete_repo` scope to delete the workspace's repository. Fabricator asks for it only then, with the same **Grant GitHub access** button. See [Abandon an unfinished setup](/docs/team/create#abandon-an-unfinished-setup).
+
 ## Azure CLI sign-in for Microsoft Entra ID
 
 Fabricator checks the Azure CLI sign-in before setup. You need an account in the tenant where the Fabric workspaces will live.

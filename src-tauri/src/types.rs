@@ -1080,6 +1080,9 @@ pub struct TeamEnvStatus {
   pub gh_user: Option<String>,
   /// OAuth scopes the GitHub CLI token lacks (`repo`, `read:org`, `workflow`).
   pub gh_missing_scopes: Vec<String>,
+  /// The token may delete repositories (`delete_repo`). Only abandoning an
+  /// unfinished setup needs it.
+  pub gh_can_delete_repos: bool,
   pub az_signed_in: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub az_user: Option<String>,
@@ -1182,6 +1185,38 @@ pub struct TeamActionResult {
   /// Set when the action stopped on merge conflicts with teammates' changes.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub conflicts: Option<Vec<String>>,
+}
+
+/// Something an unfinished setup created, which abandoning it deletes.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamAbandonItem {
+  /// identity | fabric | github | local
+  pub kind: String,
+  /// Client ID, Fabric workspace ID, `owner/name` or folder: matches the
+  /// workspace's setup record, which keeps whatever is left after a problem.
+  pub id: String,
+  pub name: String,
+  /// Where to see it (GitHub or the Fabric portal).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub url: Option<String>,
+}
+
+/// What abandoning an unfinished setup would delete, looked up live.
+#[derive(Serialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamAbandonPlan {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub problem: Option<TeamProblem>,
+  /// In the order they're deleted.
+  pub items: Vec<TeamAbandonItem>,
+  /// What stays and why, e.g. an administrator's app registration.
+  pub kept: Vec<String>,
+  /// GitHub must allow deleting repositories (`delete_repo`) first.
+  pub needs_delete_permission: bool,
 }
 
 /// One step of a GitHub Actions job.

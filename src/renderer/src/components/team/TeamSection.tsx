@@ -1,10 +1,18 @@
 import { useEffect, useState } from 'react'
 import type { StudioProject, TeamInvitation, TeamReviewRequest, TeamWorkspace } from '@shared/ipc'
+import AbandonSetupModal from './AbandonSetupModal'
 import CreateTeamWorkspaceModal from './CreateTeamWorkspaceModal'
 import JoinTeamWorkspaceModal from './JoinTeamWorkspaceModal'
 import TeamWorkspaceCard from './TeamWorkspaceCard'
 import { teamError } from './common'
 import './team.css'
+
+/** What a team workspace gives you, on Home before you have one. */
+const EMPTY_POINTS = [
+  { icon: 'github', title: 'Shared on GitHub', text: 'Every app lives in one private repository.' },
+  { icon: 'git-branch', title: 'Your own copy', text: 'Change an app with a personal live preview.' },
+  { icon: 'rocket', title: 'Published to Fabric', text: 'A pipeline deploys the changes you publish.' }
+] as const
 
 interface Props {
   workspaces: TeamWorkspace[]
@@ -26,6 +34,7 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
   const [reviews, setReviews] = useState<TeamReviewRequest[]>([])
   const [approving, setApproving] = useState<number | null>(null)
   const [creating, setCreating] = useState<TeamWorkspace | 'new' | null>(null)
+  const [abandoning, setAbandoning] = useState<TeamWorkspace | null>(null)
   const [joining, setJoining] = useState(false)
 
   async function loadInbox(): Promise<void> {
@@ -125,23 +134,35 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
 
       {workspaces.length === 0 ? (
         <div className="team-empty">
-          <span className="team-empty-icon codicon codicon-organization" aria-hidden="true" />
-          <div className="team-empty-text">
-            <p className="team-empty-title">Build apps together</p>
-            <p className="team-muted">
-              A team workspace keeps your team&apos;s apps on GitHub. Everyone works on their own copy with a live
-              preview, and a pipeline publishes to Fabric. Fabricator sets it all up.
-            </p>
-            <div className="team-section-actions">
+          <div className="team-empty-head">
+            <span className="team-empty-icon" aria-hidden="true">
+              <span className="codicon codicon-organization" />
+            </span>
+            <div className="team-empty-text">
+              <p className="team-empty-title">Build apps together</p>
+              <p className="team-muted">Your team&apos;s Rayfin apps in one place. Fabricator sets it all up.</p>
+            </div>
+            <div className="team-empty-actions">
+              <button type="button" className="btn btn--sm" onClick={() => setJoining(true)}>
+                Join
+                {invitations.length > 0 && <span className="team-count">{invitations.length}</span>}
+              </button>
               <button type="button" className="btn btn--sm btn--primary" onClick={() => setCreating('new')}>
                 Create a team workspace
               </button>
-              <button type="button" className="btn btn--sm" onClick={() => setJoining(true)}>
-                Join one
-                {invitations.length > 0 && <span className="team-count">{invitations.length}</span>}
-              </button>
             </div>
           </div>
+          <ul className="team-empty-points">
+            {EMPTY_POINTS.map((point) => (
+              <li key={point.icon} className="team-empty-point">
+                <span className={`codicon codicon-${point.icon}`} aria-hidden="true" />
+                <span className="team-empty-point-text">
+                  <span className="team-empty-point-title">{point.title}</span>
+                  <span className="team-muted">{point.text}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       ) : (
         <div className="team-grid">
@@ -154,6 +175,7 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
               onOpenMap={onOpenMap}
               onNewApp={onNewApp}
               onFinishSetup={setCreating}
+              onAbandonSetup={setAbandoning}
             />
           ))}
         </div>
@@ -165,6 +187,21 @@ export default function TeamSection({ workspaces, onOpened, onNewApp, onOpenMap,
         <CreateTeamWorkspaceModal
           resume={creating === 'new' ? undefined : creating}
           onClose={() => setCreating(null)}
+          onChanged={() => onChanged()}
+          onAbandon={(workspace) => {
+            setCreating(null)
+            setAbandoning(workspace)
+          }}
+        />
+      )}
+      {abandoning && (
+        <AbandonSetupModal
+          workspace={abandoning}
+          onClose={() => setAbandoning(null)}
+          onGone={() => {
+            setAbandoning(null)
+            onChanged()
+          }}
           onChanged={() => onChanged()}
         />
       )}

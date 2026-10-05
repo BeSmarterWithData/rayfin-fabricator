@@ -323,6 +323,8 @@ export interface TeamEnvStatus {
   ghUser?: string
   /** GitHub permissions the CLI's sign-in lacks (repo, read:org, workflow). */
   ghMissingScopes: string[]
+  /** The sign-in may delete repositories (only abandoning a setup needs it). */
+  ghCanDeleteRepos: boolean
   azSignedIn: boolean
   azUser?: string
   azTenant?: string
@@ -403,6 +405,29 @@ export interface TeamActionResult {
   project?: StudioProject
   /** Files changed by both you and a teammate (repo-relative). */
   conflicts?: string[]
+}
+
+/** Something an unfinished setup created, which abandoning it deletes. */
+export interface TeamAbandonItem {
+  kind: 'identity' | 'fabric' | 'github' | 'local'
+  /** Client ID, Fabric workspace ID, `owner/name` or folder (as in the setup record). */
+  id: string
+  name: string
+  /** Where to see it (GitHub or the Fabric portal). */
+  url?: string
+}
+
+/** What abandoning an unfinished setup would delete, looked up live. */
+export interface TeamAbandonPlan {
+  ok: boolean
+  error?: string
+  problem?: TeamProblem
+  /** In the order they're deleted. */
+  items: TeamAbandonItem[]
+  /** What stays and why, e.g. an administrator's app registration. */
+  kept: string[]
+  /** GitHub must allow deleting repositories (`delete_repo`) first. */
+  needsDeletePermission: boolean
 }
 
 export interface TeamRunStep {
@@ -2846,8 +2871,11 @@ export interface RayfinStudioApi {
   team: {
     /** GitHub CLI and Azure CLI sign-in, plus missing GitHub permissions. */
     envStatus: () => Promise<TeamEnvStatus>
-    /** Open a terminal to sign in to GitHub (or add permissions); poll envStatus. */
-    githubSignIn: (signedIn: boolean) => Promise<ProcResult>
+    /**
+     * Open a terminal to sign in to GitHub (or add permissions); poll envStatus.
+     * `deleteRepo` also asks for permission to delete repositories.
+     */
+    githubSignIn: (signedIn: boolean, deleteRepo?: boolean) => Promise<ProcResult>
     /** GitHub accounts that can own a workspace (you and your organizations). */
     owners: () => Promise<TeamOwnersResult>
     /** Fabric capacities for the workspace's apps (via the Azure CLI). */
@@ -2860,6 +2888,13 @@ export interface RayfinStudioApi {
       scope: string,
       existingClientId?: string
     ) => Promise<TeamActionResult>
+    /** What abandoning an unfinished setup would delete. Changes nothing. */
+    abandonPlan: (workspaceId: string) => Promise<TeamAbandonPlan>
+    /**
+     * Delete what an unfinished setup created and forget the workspace here;
+     * progress on `team:progress` (scope).
+     */
+    abandonSetup: (workspaceId: string, scope: string) => Promise<TeamActionResult>
     /** Stop waiting on a long operation (setup verification or publish). */
     cancel: (key: string) => Promise<boolean>
     /** Pending invitations and team workspaces you can join. */

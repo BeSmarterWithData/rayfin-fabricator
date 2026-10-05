@@ -356,12 +356,16 @@ export const api: RayfinStudioApi = {
 
   team: {
     envStatus: () => invoke('team_env_status'),
-    githubSignIn: (signedIn: boolean) => invoke('team_github_signin', { signedIn }),
+    githubSignIn: (signedIn: boolean, deleteRepo?: boolean) =>
+      invoke('team_github_signin', { signedIn, deleteRepo }),
     owners: () => invoke('team_owners'),
     capacities: () => invoke('team_capacities'),
     create: (request: TeamCreateRequest, scope: string) => invoke('team_create', { request, scope }),
     resumeSetup: (workspaceId: string, scope: string, existingClientId?: string) =>
       invoke('team_resume_setup', { workspaceId, scope, existingClientId }),
+    abandonPlan: (workspaceId: string) => invoke('team_abandon_plan', { workspaceId }),
+    abandonSetup: (workspaceId: string, scope: string) =>
+      invoke('team_abandon_setup', { workspaceId, scope }),
     cancel: (key: string) => invoke('team_cancel', { key }),
     joinOptions: () => invoke('team_join_options'),
     acceptInvitation: (invitationId: number, repo: string) =>

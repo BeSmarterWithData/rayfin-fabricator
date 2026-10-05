@@ -197,6 +197,8 @@ pub fn run() {
       commands::team::team_capacities,
       commands::team::team_create,
       commands::team::team_resume_setup,
+      commands::team::team_abandon_plan,
+      commands::team::team_abandon_setup,
       commands::team::team_cancel,
       commands::team::team_join_options,
       commands::team::team_accept_invitation,

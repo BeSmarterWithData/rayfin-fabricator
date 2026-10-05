@@ -19,6 +19,10 @@ use crate::types::{TeamDeployRecord, TeamInvitation, TeamMapFile, TeamMapJob, Te
 /// the managed workflow and lets members push merges that carry workflow changes.
 pub const REQUIRED_SCOPES: &[&str] = &["repo", "read:org", "workflow"];
 
+/// The extra scope deleting a repository needs. Fabricator asks for it only
+/// when an owner abandons an unfinished setup.
+pub const DELETE_REPO_SCOPE: &str = "delete_repo";
+
 #[derive(Debug, Clone)]
 pub struct GhError {
   pub status: Option<u16>,
@@ -250,6 +254,20 @@ pub fn missing_scopes(granted: &[String]) -> Vec<String> {
     })
     .map(|s| s.to_string())
     .collect()
+}
+
+/// Whether the token may delete repositories.
+pub fn can_delete_repos(granted: &[String]) -> bool {
+  granted.iter().any(|g| g == DELETE_REPO_SCOPE)
+}
+
+/// Whether the signed-in user is an active member of the organization `org`.
+pub async fn is_org_member(org: &str) -> Result<bool, GhError> {
+  match api("GET", &format!("user/memberships/orgs/{}", encode(org)), None).await {
+    Ok(v) => Ok(str_of(&v, "state").as_deref() == Some("active")),
+    Err(e) if e.is_not_found() || e.status == Some(403) => Ok(false),
+    Err(e) => Err(e),
+  }
 }
 
 /// Accounts that can own a team repo: the user and their organizations.
@@ -1149,6 +1167,16 @@ pub async fn archive_repo(full_name: &str) -> Result<(), GhError> {
   api("PATCH", &format!("repos/{full_name}"), Some(&json!({ "archived": true }))).await.map(|_| ())
 }
 
+/// Delete a repository (needs admin rights and the `delete_repo` scope). One
+/// that's already gone counts as deleted.
+pub async fn delete_repo(full_name: &str) -> Result<(), GhError> {
+  match api("DELETE", &format!("repos/{full_name}"), None).await {
+    Ok(_) => Ok(()),
+    Err(e) if e.is_not_found() => Ok(()),
+    Err(e) => Err(e),
+  }
+}
+
 /// `git -c …` arguments that make git authenticate to GitHub with the gh
 /// sign-in for this one command (no global configuration is changed).
 pub fn git_credential_args() -> Vec<String> {
@@ -1203,6 +1231,10 @@ mod tests {
     let narrow = vec!["repo".to_string(), "admin:org".to_string()];
     assert_eq!(missing_scopes(&narrow), vec!["workflow".to_string()]);
     assert_eq!(missing_scopes(&[]).len(), 3);
+    assert!(!can_delete_repos(&granted), "repo doesn't include deleting repositories");
+    let with_delete = parse_scopes("X-Oauth-Scopes: delete_repo, read:org, repo, workflow\r\n");
+    assert!(can_delete_repos(&with_delete));
+    assert!(missing_scopes(&with_delete).is_empty());
   }
 
   #[test]

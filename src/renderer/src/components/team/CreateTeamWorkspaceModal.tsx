@@ -60,10 +60,12 @@ interface Props {
   onClose: () => void
   /** Setup finished (or progressed); the parent refreshes its list. */
   onChanged: (workspace?: TeamWorkspace) => void
+  /** Give up on a failed setup: delete what it created instead. */
+  onAbandon?: (workspace: TeamWorkspace) => void
 }
 
 /** Sets up a team workspace automatically, step by step. */
-export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged }: Props): JSX.Element {
+export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, onAbandon }: Props): JSX.Element {
   useSuppressPreview()
   const titleId = useId()
   const ownerFieldId = useId()
@@ -378,6 +380,15 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged }:
           {diagnosis && <TeamDiagnosis input={diagnosis} resetKey={diagnosisKey} />}
         </div>
         <div className="modal-footer">
+          {phase === 'failed' && onAbandon && (workspace ?? resume) && (
+            <button
+              type="button"
+              className="btn btn--ghost team-footer-start"
+              onClick={() => onAbandon((workspace ?? resume)!)}
+            >
+              Abandon setup…
+            </button>
+          )}
           {phase === 'running' ? (
             <button type="button" className="btn btn--ghost" onClick={() => void window.api.team.cancel(scope)}>
               Stop waiting

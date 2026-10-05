@@ -15,6 +15,8 @@ interface Props {
   onOpenMap?: (workspaceId: string, manage?: boolean) => void
   onNewApp: (workspaceId: string) => void
   onFinishSetup: (workspace: TeamWorkspace) => void
+  /** Delete what an unfinished setup created and forget the workspace. */
+  onAbandonSetup: (workspace: TeamWorkspace) => void
 }
 
 /** An app's state on Home: deploying anywhere, else its published status. */
@@ -38,7 +40,8 @@ export default function TeamWorkspaceCard({
   onOpenApp,
   onOpenMap,
   onNewApp,
-  onFinishSetup
+  onFinishSetup,
+  onAbandonSetup
 }: Props): JSX.Element {
   const pending = Boolean(workspace.setup && !workspace.setup.done)
   const [map, setMap] = useState<TeamMap | null>(null)
@@ -119,9 +122,19 @@ export default function TeamWorkspaceCard({
       {pending ? (
         <div className="team-card-setup">
           <span className="team-muted">Setup didn&apos;t finish. Pick up where it stopped; nothing is lost.</span>
-          <button type="button" className="btn btn--sm btn--primary" onClick={() => onFinishSetup(workspace)}>
-            Finish setup
-          </button>
+          <span className="team-card-setup-actions">
+            <button
+              type="button"
+              className="btn btn--sm btn--ghost"
+              title="Delete what setup created and remove the workspace"
+              onClick={() => onAbandonSetup(workspace)}
+            >
+              Abandon setup…
+            </button>
+            <button type="button" className="btn btn--sm btn--primary" onClick={() => onFinishSetup(workspace)}>
+              Finish setup
+            </button>
+          </span>
         </div>
       ) : (
         <ul className="team-card-apps">

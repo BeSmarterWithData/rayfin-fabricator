@@ -236,7 +236,7 @@ pub async fn team_leave(app: AppHandle, workspace_id: String) -> Result<Projects
   Ok(annotate_state(store::get_state()))
 }
 
-async fn forget_workspace(ws: &TeamWorkspace) {
+pub(crate) async fn forget_workspace(ws: &TeamWorkspace) {
   for p in store::get_state().projects {
     if p.team.as_ref().is_some_and(|t| t.workspace_id == ws.id) {
       history::clear_history(&p.id);

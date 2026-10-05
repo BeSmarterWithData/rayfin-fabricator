@@ -1,6 +1,7 @@
 //! Team workspace commands (experimental; Settings → Experiments). The flows
 //! live here; GitHub, Entra ID, Fabric and git access live in `services::team`.
 
+mod abandon;
 mod diagnose;
 mod join;
 mod map;
@@ -11,6 +12,7 @@ mod session;
 mod setup;
 mod workspace;
 
+pub use abandon::*;
 pub use diagnose::*;
 pub use join::*;
 pub use map::*;
@@ -197,10 +199,12 @@ pub async fn team_env_status() -> TeamEnvStatus {
     }
   }
   if status.gh_signed_in {
-    status.gh_missing_scopes = match scopes {
-      Ok(granted) => gh::missing_scopes(&granted),
-      Err(_) => gh::REQUIRED_SCOPES.iter().map(|s| s.to_string()).collect(),
+    let granted = scopes.ok();
+    status.gh_missing_scopes = match &granted {
+      Some(granted) => gh::missing_scopes(granted),
+      None => gh::REQUIRED_SCOPES.iter().map(|s| s.to_string()).collect(),
     };
+    status.gh_can_delete_repos = granted.as_deref().is_some_and(gh::can_delete_repos);
   }
   if let Ok((tenant, user)) = account {
     status.az_signed_in = true;
@@ -211,9 +215,10 @@ pub async fn team_env_status() -> TeamEnvStatus {
 }
 
 /// Open a terminal to sign in to GitHub (or add missing permissions) with the
-/// scopes team workspaces need. The renderer polls [`team_env_status`].
+/// scopes team workspaces need, plus `delete_repo` when `delete_repo` is set
+/// (abandoning an unfinished setup). The renderer polls [`team_env_status`].
 #[tauri::command]
-pub fn team_github_signin(signed_in: bool) -> ProcResult {
+pub fn team_github_signin(signed_in: bool, delete_repo: Option<bool>) -> ProcResult {
   if which::which("gh").is_err() {
     return ProcResult {
       ok: false,
@@ -222,7 +227,11 @@ pub fn team_github_signin(signed_in: bool) -> ProcResult {
     };
   }
   forget_viewer();
-  let scopes = gh::REQUIRED_SCOPES.join(",");
+  let mut scopes = gh::REQUIRED_SCOPES.to_vec();
+  if delete_repo.unwrap_or(false) {
+    scopes.push(gh::DELETE_REPO_SCOPE);
+  }
+  let scopes = scopes.join(",");
   let gh_cmd = if signed_in {
     format!("gh auth refresh --hostname github.com --scopes {scopes}")
   } else {

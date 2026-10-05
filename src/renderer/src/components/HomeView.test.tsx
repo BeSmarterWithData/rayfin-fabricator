@@ -139,6 +139,28 @@ describe('HomeView team workspaces', () => {
     expect(screen.queryByText('Team workspaces')).toBeNull()
   })
 
+  it('explains team workspaces before there is one, with both ways in', async () => {
+    installTeamApi()
+    render(
+      <HomeView {...baseProps()} team={{ workspaces: [], onOpened: vi.fn(), onNewApp: vi.fn(), onChanged: vi.fn() }} />
+    )
+    const section = screen.getByRole('region', { name: 'Team workspaces' })
+    expect(within(section).getByText('Build apps together')).toBeTruthy()
+    for (const point of ['Shared on GitHub', 'Your own copy', 'Published to Fabric']) {
+      expect(within(section).getByText(point)).toBeTruthy()
+    }
+    // The glyph has its own element: codicon styles on the tile itself pinned it to the top.
+    const tile = section.querySelector('.team-empty-icon')
+    expect(tile?.classList.contains('codicon')).toBe(false)
+    expect(tile?.querySelector('.codicon-organization')).toBeTruthy()
+
+    expect(within(section).getByRole('button', { name: 'Create a team workspace' }).className).toContain('btn--primary')
+    const join = within(section).getByRole('button', { name: /^Join/ })
+    await waitFor(() => expect(join.textContent).toBe('Join1'))
+    fireEvent.click(join)
+    expect(await screen.findByRole('dialog', { name: 'Join a team workspace' })).toBeTruthy()
+  })
+
   it('lists workspaces with their apps, invitations, and opens an app on a branch', async () => {
     const { openProject } = installTeamApi()
     const onOpened = vi.fn()
