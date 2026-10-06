@@ -20,7 +20,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use super::gh;
-use crate::services::exec::{self, OnData, RunOptions, RunResult};
+use crate::services::exec::{OnData, RunOptions, RunResult};
+use crate::services::git;
 use crate::types::TeamWorkspace;
 
 const CLONE_DIR: &str = ".repo";
@@ -88,8 +89,7 @@ async fn git_in(dir: &Path, args: &[&str], timeout_ms: u64, on: Option<OnData>) 
       }
     }
   }
-  exec::run(
-    "git",
+  git::run(
     &refs,
     RunOptions {
       cwd: Some(dir.to_path_buf()),
@@ -121,6 +121,12 @@ fn failure(action: &str, res: &RunResult) -> String {
       Some(login) => format!("{action}: GitHub didn't accept the GitHub CLI's sign-in for {login}. Sign in to GitHub as {login} again, then retry."),
       None => format!("{action}: GitHub sign-in is required. Sign in to GitHub again, then retry."),
     };
+  }
+  // A lock held for longer than [`git::run`] waits it out. Git's own wording
+  // ("Another git process seems to be running…") means nothing to the people
+  // using Fabricator.
+  if git::is_lock_failure(&detail) {
+    return format!("{action}: something else on this computer is using this app's folder. Wait a moment, then try again.");
   }
   if detail.is_empty() {
     format!("{action} failed.")

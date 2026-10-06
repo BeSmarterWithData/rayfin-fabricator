@@ -14,7 +14,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::commands::util::{is_rayfin_project, normalize, same_path, with_missing};
 use crate::services::exec::{run, OnData, RunOptions, Stream};
-use crate::services::{emit, history, store};
+use crate::services::{emit, git, history, store};
 use crate::state::AppState;
 use crate::types::{
   CommunityGallery, CommunityGalleryResult, CommunityTemplate, CreateProjectInput,
@@ -263,18 +263,18 @@ fn run_in(dir: &Path, on: Option<OnData>) -> RunOptions {
 /// Initialize a git repo with a baseline commit (best-effort).
 async fn init_git_repo(dir: &Path, summary: &str, on: &OnData) {
   say(on, "Initializing git repository…\n");
-  let init = run("git", &["init"], run_in(dir, Some(on.clone()))).await;
+  let init = git::run(&["init"], run_in(dir, Some(on.clone()))).await;
   if !init.ok {
     return;
   }
-  run("git", &["add", "-A"], run_in(dir, None)).await;
+  git::run(&["add", "-A"], run_in(dir, None)).await;
 
-  let email = run("git", &["config", "user.email"], run_in(dir, None)).await;
+  let email = git::run(&["config", "user.email"], run_in(dir, None)).await;
   if email.stdout.trim().is_empty() {
-    run("git", &["config", "user.email", "fabricator@rayfin.local"], run_in(dir, None)).await;
-    run("git", &["config", "user.name", "Fabricator"], run_in(dir, None)).await;
+    git::run(&["config", "user.email", "fabricator@rayfin.local"], run_in(dir, None)).await;
+    git::run(&["config", "user.name", "Fabricator"], run_in(dir, None)).await;
   }
-  run("git", &["commit", "-m", summary], run_in(dir, Some(on.clone()))).await;
+  git::run(&["commit", "-m", summary], run_in(dir, Some(on.clone()))).await;
 }
 
 fn err(message: impl Into<String>) -> ProjectActionResult {

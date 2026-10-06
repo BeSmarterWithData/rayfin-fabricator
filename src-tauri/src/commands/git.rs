@@ -8,7 +8,8 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 
 use crate::commands::util::{looks_binary, safe_resolve};
-use crate::services::exec::{run, RunOptions};
+use crate::services::exec::RunOptions;
+use crate::services::git::run;
 use crate::services::store::find_project;
 use crate::types::{
   GitChange, GitCommitResult, GitCommitSummary, GitFileDiff, GitHistory, GitRemoteStatus, GitStatus,
@@ -47,7 +48,7 @@ fn opts(cwd: &str) -> RunOptions {
 async fn git(cwd: &str, args: &[&str]) -> Git {
   let mut full: Vec<&str> = vec!["-c", "core.quotepath=false"];
   full.extend_from_slice(args);
-  let res = run("git", &full, opts(cwd)).await;
+  let res = run(&full, opts(cwd)).await;
   Git {
     ok: res.ok,
     stdout: res.stdout,
@@ -303,7 +304,7 @@ async fn live_differs(cwd: &str, deployed: Option<&str>, head: Option<&str>) -> 
   }
   let mut args = vec!["diff", "--quiet", "--no-ext-diff", deployed, "HEAD", "--", "."];
   args.extend_from_slice(AGENT_ONLY);
-  let res = run("git", &args, opts(cwd)).await;
+  let res = run(&args, opts(cwd)).await;
   match res.exit_code {
     Some(0) if res.ok => Some(false),
     // Exit 1 means they differ. Anything else (say, the deployed commit is gone)
@@ -495,7 +496,7 @@ async fn compare_change_list(cwd: &str, base: &str, target: &str) -> Vec<GitChan
 
 async fn show_at(cwd: &str, rev: &str, path: &str) -> String {
   // `:./` resolves from the app's cwd, including inside a linked worktree.
-  let res = run("git", &["-c", "core.quotepath=false", "show", &format!("{rev}:./{path}")], opts(cwd)).await;
+  let res = run(&["-c", "core.quotepath=false", "show", &format!("{rev}:./{path}")], opts(cwd)).await;
   if res.ok { res.stdout } else { String::new() }
 }
 
@@ -1129,7 +1130,6 @@ fn net_opts(cwd: &str) -> RunOptions {
     timeout_ms: Some(90_000),
     env: vec![
       ("GIT_TERMINAL_PROMPT".to_string(), "0".to_string()),
-      ("GIT_OPTIONAL_LOCKS".to_string(), "0".to_string()),
       ("GCM_INTERACTIVE".to_string(), "never".to_string()),
     ],
     ..Default::default()
@@ -1140,7 +1140,7 @@ fn net_opts(cwd: &str) -> RunOptions {
 async fn git_net(cwd: &str, args: &[&str]) -> Git {
   let mut full: Vec<&str> = vec!["-c", "core.quotepath=false"];
   full.extend_from_slice(args);
-  let res = run("git", &full, net_opts(cwd)).await;
+  let res = run(&full, net_opts(cwd)).await;
   Git { ok: res.ok, stdout: res.stdout, stderr: res.stderr }
 }
 

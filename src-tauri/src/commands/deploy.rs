@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager};
 use crate::commands::auth::get_cached_identity;
 use crate::commands::util::{annotate_state, now_iso};
 use crate::services::exec::{self, OnData, RunOptions, RunResult, Stream};
-use crate::services::{crashlog, emit, fabric_auth, store, telemetry};
+use crate::services::{crashlog, emit, fabric_auth, git, store, telemetry};
 use crate::types::{DeployInfo, DeployResult, DeployStatus, FabricDeployment, ProjectsState, StudioProject};
 
 const DEPLOY_TIMEOUT_MS: u64 = 20 * 60_000;
@@ -222,17 +222,17 @@ fn git_opts(dir: &str, ms: u64) -> RunOptions {
 
 /// Commit the current working tree as a deploy checkpoint (best-effort).
 async fn commit_checkpoint(dir: &str, message: &str) {
-  let status = exec::run("git", &["status", "--porcelain"], git_opts(dir, 30_000)).await;
+  let status = git::run(&["status", "--porcelain"], git_opts(dir, 30_000)).await;
   if !status.ok || status.stdout.trim().is_empty() {
     return;
   }
-  let _ = exec::run("git", &["add", "-A"], git_opts(dir, 30_000)).await;
-  let _ = exec::run("git", &["commit", "-m", message], git_opts(dir, 30_000)).await;
+  let _ = git::run(&["add", "-A"], git_opts(dir, 30_000)).await;
+  let _ = git::run(&["commit", "-m", message], git_opts(dir, 30_000)).await;
 }
 
 /// Resolve the project's current HEAD commit sha (None when unavailable).
 async fn head_sha(dir: &str) -> Option<String> {
-  let res = exec::run("git", &["rev-parse", "HEAD"], git_opts(dir, 30_000)).await;
+  let res = git::run(&["rev-parse", "HEAD"], git_opts(dir, 30_000)).await;
   if res.ok {
     let sha = res.stdout.trim().to_string();
     if sha.is_empty() {
@@ -246,8 +246,7 @@ async fn head_sha(dir: &str) -> Option<String> {
 }
 
 async fn has_changes_since_deploy(dir: &str, deployed_commit: Option<&str>) -> Result<bool, String> {
-  let status = exec::run(
-    "git",
+  let status = git::run(
     &["status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"],
     git_opts(dir, 30_000),
   )
@@ -267,8 +266,7 @@ async fn has_changes_since_deploy(dir: &str, deployed_commit: Option<&str>) -> R
   let Some(commit) = deployed_commit.map(str::trim).filter(|s| !s.is_empty()) else {
     return Ok(true);
   };
-  let diff = exec::run(
-    "git",
+  let diff = git::run(
     &["diff", "--quiet", "--no-ext-diff", "--ignore-submodules=none", commit, "HEAD", "--"],
     git_opts(dir, 30_000),
   )

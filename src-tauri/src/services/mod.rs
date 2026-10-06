@@ -13,6 +13,7 @@ pub mod env_path;
 pub mod exec;
 pub mod fabric_auth;
 pub mod fingerprint;
+pub mod git;
 pub mod history;
 pub mod local_ports;
 pub mod npm_cache;

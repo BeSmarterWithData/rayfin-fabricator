@@ -21,7 +21,7 @@ use tauri::{AppHandle, Manager};
 
 use crate::commands::rayfin_version::parse_core;
 use crate::services::exec::{self, RunOptions};
-use crate::services::{fabric_auth, store};
+use crate::services::{fabric_auth, git, store};
 use crate::state::AppState;
 use crate::types::{SecretActionResult, SecretEnvironment, SecretInfo, SecretsState, StudioProject, TeamDeployRecord};
 
@@ -419,7 +419,7 @@ fn git_opts(dir: &Path) -> RunOptions {
 
 /// Whether git sees changes to `path`, or `None` when git can't tell (no repository).
 async fn dirty(dir: &Path, path: &str) -> Option<bool> {
-  let res = exec::run("git", &["status", "--porcelain", "--", path], git_opts(dir)).await;
+  let res = git::run(&["status", "--porcelain", "--", path], git_opts(dir)).await;
   res.ok.then(|| !res.stdout.trim().is_empty())
 }
 

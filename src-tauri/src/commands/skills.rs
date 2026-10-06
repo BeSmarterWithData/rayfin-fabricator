@@ -18,7 +18,7 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 
-use crate::services::{exec, store};
+use crate::services::{exec, git, store};
 use crate::types::{CustomSkillInfo, SkillActionResult, SkillInfo, SkillSource};
 
 /// A curated add-on skill the user can toggle on/off.
@@ -963,20 +963,10 @@ fn git_opts(dir: &str, ms: u64) -> exec::RunOptions {
 
 /// Ensure a local git identity exists so commits don't fail on a fresh machine.
 async fn ensure_git_identity(dir: &str) {
-  let email = exec::run("git", &["config", "user.email"], git_opts(dir, 15_000)).await;
+  let email = git::run(&["config", "user.email"], git_opts(dir, 15_000)).await;
   if email.stdout.trim().is_empty() {
-    let _ = exec::run(
-      "git",
-      &["config", "user.email", "fabricator@rayfin.local"],
-      git_opts(dir, 15_000),
-    )
-    .await;
-    let _ = exec::run(
-      "git",
-      &["config", "user.name", "Fabricator"],
-      git_opts(dir, 15_000),
-    )
-    .await;
+    let _ = git::run(&["config", "user.email", "fabricator@rayfin.local"], git_opts(dir, 15_000)).await;
+    let _ = git::run(&["config", "user.name", "Fabricator"], git_opts(dir, 15_000)).await;
   }
 }
 
@@ -997,10 +987,10 @@ pub(crate) async fn commit_paths(dir: &str, paths: &[&str], message: &str) {
   ensure_git_identity(dir).await;
   let mut add = vec!["add", "-A", "--"];
   add.extend_from_slice(paths);
-  let _ = exec::run("git", &add, git_opts(dir, 30_000)).await;
+  let _ = git::run(&add, git_opts(dir, 30_000)).await;
   let mut commit = vec!["commit", "-m", message, "--"];
   commit.extend_from_slice(paths);
-  let _ = exec::run("git", &commit, git_opts(dir, 30_000)).await;
+  let _ = git::run(&commit, git_opts(dir, 30_000)).await;
 }
 
 // ── Commands ─────────────────────────────────────────────────────────────────
