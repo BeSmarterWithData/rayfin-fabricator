@@ -49,7 +49,7 @@ In **Create a team workspace**, the organization you chose as **GitHub owner** s
 
 Many organizations don't let their members create repositories. Setup needs to create the workspace's repository, or to use one that someone created for it.
 
-1. Ask an owner of the organization to create an empty private (or internal) repository for the workspace and give you the **Admin** role on it.
+1. Ask an owner of the organization to create an empty private (or internal) repository for the workspace and give you the **Maintain** role on it. **Admin** works too.
 2. In **Create a team workspace**, under **GitHub repository**, select **Existing repository**.
 3. In **Repository**, choose it from the suggestions or enter it as `owner/name`. You can also paste its GitHub address.
 4. Select **Create workspace**.
@@ -63,7 +63,7 @@ You see "`<organization>` locked `<repository>` until it's set up in the organiz
 Some organizations lock every new repository until someone finishes setting it up in the organization's portal. Microsoft's `microsoft` organization does this. Until then, even the person who created the repository can only read it. That's true of a repository you created on github.com, and of one setup just created, in which case setup stops on **Add the deploy pipeline to the repository**.
 
 1. In Fabricator, select **Finish setting up the repository**. The portal opens in your browser.
-2. Complete the portal's steps. Make sure your GitHub account ends up with the **Admin** role on the repository.
+2. Complete the portal's steps. Make sure your GitHub account ends up with the **Maintain** or **Admin** role on the repository.
 3. Return to Fabricator and select **Create workspace** or **Retry**.
 
 If Fabricator doesn't show **Finish setting up the repository**, open the repository on GitHub and follow the link in its description or website. If it still fails, select **Diagnose with Copilot**, then [report a problem](/docs/troubleshooting/report-a-problem).
@@ -76,7 +76,7 @@ Some companies' Microsoft Entra ID only trusts GitHub Actions in their own GitHu
 
 1. In the setup window, select **Abandon setup…**, then select **Delete and abandon**. See [Abandon an unfinished setup](/docs/team/create#abandon-an-unfinished-setup).
 2. Create the workspace again, and choose an organization in one of those enterprises as the **GitHub owner**.
-3. Or, under **GitHub repository**, select **Existing repository** and enter one of that organization's repositories where you have the **Admin** role. An owner of the organization can create one for you. See [Setup can't create the GitHub repository](#setup-cant-create-the-github-repository).
+3. Or, under **GitHub repository**, select **Existing repository** and enter one of that organization's repositories where you have the **Maintain** or **Admin** role. An owner of the organization can create one for you. See [Setup can't create the GitHub repository](#setup-cant-create-the-github-repository).
 
 If it still fails, select **Diagnose with Copilot**, then [report a problem](/docs/troubleshooting/report-a-problem).
 

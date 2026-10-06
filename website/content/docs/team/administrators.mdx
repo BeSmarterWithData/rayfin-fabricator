@@ -41,13 +41,15 @@ When an owner chooses where the pipeline runs, Fabricator also sets `FABRICATOR_
 
 Fabricator does not create GitHub Actions secrets. The workflow records deployments in GitHub environments named `preview/<app>/<github-login>` and `production/<app>`.
 
-It asks GitHub to protect `main` with force pushes and deletions disabled, no status-check requirement, no push restrictions, and pull request reviews configured with zero required approvals by default. When the workspace setting **Require a review** is on, Fabricator asks for one approving review. If GitHub says the plan does not support branch protection for the private repository, Fabricator records that only the app enforces the publish flow.
+It asks GitHub to protect `main` with force pushes and deletions disabled, no status-check requirement, no push restrictions, and pull request reviews configured with zero required approvals by default. When the workspace setting **Require a review** is on, Fabricator asks for one approving review. If GitHub says the plan does not support branch protection for the private repository, Fabricator records that only the app enforces the publish flow. GitHub only lets repository admins protect a branch, so Fabricator does the same when the person setting up has the **Maintain** role.
 
 ### A repository an organization owner creates
 
-When members of your organization can't create repositories, the person setting up the workspace can use one you create. Create an empty private or internal repository, and give that person the **Admin** role on it. A repository with commits also works when its default branch is `main`. They select **Existing repository** under **GitHub repository** and enter it.
+When members of your organization can't create repositories, the person setting up the workspace can use one you create. Create an empty private or internal repository, and give that person the **Maintain** role on it (**Admin** works too). A repository with commits also works when its default branch is `main`. They select **Existing repository** under **GitHub repository** and enter it.
 
-Fabricator then changes the repository in the same ways as one it creates. It sets the description to `Fabricator team workspace: <workspace name>`, adds the `fabricator-workspace` topic, and applies the squash-merge settings and branch protection above. It adds the files above, but keeps a `README.md` that's already there and only adds missing lines to an existing `.gitignore`. Setup refuses a repository that's public, archived, or already a team workspace.
+The **Maintain** role covers what setup changes: Actions variables, files on `main`, the description, topics, and merge settings. GitHub keeps adding and removing people, protecting `main`, and archiving the repository for admins. So an owner with **Maintain** asks an admin to add teammates (with the **Write** role) or to delete the workspace.
+
+Fabricator then changes the repository in the same ways as one it creates. It sets the description to `Fabricator team workspace: <workspace name>`, adds the `fabricator-workspace` topic, and applies the squash-merge settings above, plus the branch protection when the person has the **Admin** role. It adds the files above, but keeps a `README.md` that's already there and only adds missing lines to an existing `.gitignore`. Setup refuses a repository that's public, archived, or already a team workspace.
 
 If the setup is abandoned, Fabricator doesn't delete a repository it didn't create. It removes `fabricator.workspace.json`, the pipeline, the Actions variables above, and the topic. It also removes `README.md` and `.gitignore` while they're still exactly Fabricator's, and puts back the previous description. The merge settings and branch protection stay.
 
@@ -172,7 +174,7 @@ Values that look like secrets or tokens are masked before they're sent. Users ca
 
 ## Cleanup
 
-Owners can select **Delete workspace…** in **Manage → Settings**. Fabricator deletes deploy identities it created, archives the GitHub repository, removes the workspace from this computer, and can also delete both Fabric workspaces and every app in them if the owner selects **Also delete both Fabric workspaces and every app in them, with their data**.
+Owners with the **Admin** role on the repository can select **Delete workspace…** in **Manage → Settings**. Fabricator deletes deploy identities it created, archives the GitHub repository, removes the workspace from this computer, and can also delete both Fabric workspaces and every app in them if the owner selects **Also delete both Fabric workspaces and every app in them, with their data**.
 
 Fabricator does not delete an administrator-provided app registration. It only deletes managed identities whose display names start with `Fabricator deploy - ` or `Fabricator previews - `.
 

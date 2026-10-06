@@ -13,12 +13,31 @@ use crate::types::{
 
 const MEMBER_ROLE: &str = "Contributor";
 
+/// Owners (the Maintain or Admin role on the repository) manage who can open
+/// the workspace's apps in Fabric.
 async fn require_owner(ws: &TeamWorkspace) -> Result<(), String> {
   match gh::repo(&ws.repo).await {
+    Ok(info) if info.manages() => Ok(()),
+    Ok(_) => Err("Only the workspace's owners can manage who can open its apps.".into()),
+    Err(e) => Err(e.describe("Check your access to the workspace")),
+  }
+}
+
+/// GitHub only lets a repository's admins add and remove people.
+async fn require_admin(ws: &TeamWorkspace) -> Result<(), String> {
+  match gh::repo(&ws.repo).await {
     Ok(info) if info.admin => Ok(()),
+    Ok(info) if info.manages() => Err(admin_only(&info.full_name)),
     Ok(_) => Err("Only the workspace's owners can manage members.".into()),
     Err(e) => Err(e.describe("Check your access to the workspace")),
   }
+}
+
+/// What an owner with the Maintain role hears when they try to add or remove someone.
+fn admin_only(repo: &str) -> String {
+  format!(
+    "GitHub only lets admins of {repo} add or remove people, and you have the Maintain role. Ask one of its admins to do it on GitHub, or to give you the Admin role."
+  )
 }
 
 fn workspace(id: &str) -> Result<TeamWorkspace, String> {
@@ -96,21 +115,21 @@ async fn members(workspace_id: String) -> TeamMembersResult {
   let mut members: Vec<TeamMember> = match collaborators {
     Ok(list) => list
       .into_iter()
-      .map(|(login, avatar_url, admin)| TeamMember {
+      .map(|(login, avatar_url, owner)| TeamMember {
         login,
         avatar_url,
-        role: if admin { "owner".into() } else { "member".into() },
+        role: if owner { "owner".into() } else { "member".into() },
         pending: false,
         invitation_id: None,
       })
       .collect(),
     Err(e) => return empty(e.describe("List the workspace's members")),
   };
-  for (id, login, avatar_url, admin) in invitations.unwrap_or_default() {
+  for (id, login, avatar_url, owner) in invitations.unwrap_or_default() {
     members.push(TeamMember {
       login,
       avatar_url,
-      role: if admin { "owner".into() } else { "member".into() },
+      role: if owner { "owner".into() } else { "member".into() },
       pending: true,
       invitation_id: Some(id),
     });
@@ -134,7 +153,7 @@ async fn invite(workspace_id: String, login: String, owner: bool, email: Option<
     Ok(ws) => ws,
     Err(e) => return fail(e),
   };
-  if let Err(e) = require_owner(&ws).await {
+  if let Err(e) = require_admin(&ws).await {
     return fail(e);
   }
   let wanted = login.trim().trim_start_matches('@').to_string();
@@ -281,7 +300,7 @@ async fn remove_member(workspace_id: String, login: String, invitation_id: Optio
     Ok(ws) => ws,
     Err(e) => return fail(e),
   };
-  if let Err(e) = require_owner(&ws).await {
+  if let Err(e) = require_admin(&ws).await {
     return fail(e);
   }
   let removed = match invitation_id {

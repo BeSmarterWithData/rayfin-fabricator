@@ -99,7 +99,14 @@ fn github_problem(step: &str, action: &str, e: &gh::GhError) -> TeamProblem {
   p
 }
 
-const CANT_CREATE_REPOS: &str = "Your GitHub organization may not let you create repositories. Ask one of its owners to create an empty private repository for the workspace and give you the Admin role, then choose Existing repository and enter it. Or choose another GitHub owner.";
+const CANT_CREATE_REPOS: &str = "Your GitHub organization may not let you create repositories. Ask one of its owners to create an empty private repository for the workspace and give you the Maintain role (or Admin), then choose Existing repository and enter it. Or choose another GitHub owner.";
+
+/// Why setup's "Protect the main branch" step left it to Fabricator.
+const PLAN_PROTECTION: &str =
+  "GitHub doesn't offer branch protection for this private repository on your plan, so Fabricator enforces the publish flow itself.";
+const ADMIN_PROTECTION: &str =
+  "Only the repository's admins can protect its main branch on GitHub, so Fabricator enforces the publish flow itself.";
+const UNPROTECTED: &str = "GitHub didn't protect the main branch, so Fabricator enforces the publish flow itself.";
 
 fn azure_problem(step: &str, action: &str, e: &entra::AzError, admin_note: Option<String>) -> TeamProblem {
   let mut p = problem(step, e.describe(action));
@@ -310,7 +317,7 @@ async fn provision(app: &AppHandle, ws: TeamWorkspace, scope: &str, cancel: &Can
     if let Err(e) = gh::apply_merge_settings(&info.full_name).await {
       log::warn!("couldn't apply the merge settings to {}: {}", info.full_name, e.message);
     }
-  } else if req.existing_repo.is_none() && info.admin && !naming::is_workspace_description(info.description.as_deref()) {
+  } else if req.existing_repo.is_none() && info.manages() && !naming::is_workspace_description(info.description.as_deref()) {
     // Its organization replaced the description when it locked the new repository.
     if let Err(e) = gh::set_description(&info.full_name, &naming::repo_description(&name)).await {
       log::warn!("couldn't describe {} as a team workspace: {}", info.full_name, e.message);
@@ -487,19 +494,18 @@ async fn provision(app: &AppHandle, ws: TeamWorkspace, scope: &str, cancel: &Can
   s.ws.manifest = Some(manifest.clone());
   s.finish("files");
 
-  // 7. Ask GitHub to require pull requests into main (paid plans).
+  // 7. Ask GitHub to require pull requests into main (paid plans, admins only).
   s.start("protection");
-  s.state.protection = Some(match gh::protect_main(&info.full_name, false).await {
-    Ok(true) => "enforced".into(),
-    Ok(false) => "app".into(),
+  let (protection, protection_note) = match gh::protect_main(&info.full_name, false).await {
+    Ok(true) => ("enforced", None),
+    Ok(false) => ("app", Some(PLAN_PROTECTION)),
     Err(e) => {
       log::warn!("couldn't protect main on {}: {}", info.full_name, e.message);
-      "app".into()
+      ("app", Some(if info.admin { UNPROTECTED } else { ADMIN_PROTECTION }))
     }
-  });
-  let protection_note = (s.state.protection.as_deref() == Some("app"))
-    .then(|| "GitHub doesn't offer branch protection for this private repository on your plan, so Fabricator enforces the publish flow itself.".to_string());
-  progress(app, &s.scope, "protection", "done", label("protection"), protection_note);
+  };
+  s.state.protection = Some(protection.into());
+  progress(app, &s.scope, "protection", "done", label("protection"), protection_note.map(String::from));
   if !s.done("protection") {
     s.state.completed.push("protection".into());
   }
@@ -540,7 +546,7 @@ async fn adopt_repo(full_name: &str, login: &str) -> Result<gh::RepoInfo, TeamPr
       Ok(true) => gh::repo(full_name).await.map_err(|e| open(&e))?,
       Ok(false) => {
         let mut p = problem("github", format!("GitHub doesn't show {full_name} to {login}."));
-        p.guidance = Some(format!("Check the repository's name, and ask its owner to give {login} the Admin role on it."));
+        p.guidance = Some(format!("Check the repository's name, and ask its owner to give {login} the Maintain or Admin role on it."));
         return Err(p);
       }
       Err(e) => return Err(github_problem("github", &format!("Accept the invitation to {full_name}"), &e)),
@@ -564,10 +570,10 @@ fn adoption_problem(info: &gh::RepoInfo, login: &str, has_commits: bool, is_work
     (format!("{repo} is archived."), "Ask its owner to unarchive it on GitHub, or use another repository.".to_string())
   } else if let Some(p) = locked_problem("github", info, login) {
     return Some(p);
-  } else if !info.admin {
+  } else if !info.manages() {
     (
-      format!("{login} needs the Admin role on {repo} to set up a workspace in it."),
-      format!("Ask an owner of {owner} to give {login} the Admin role on the repository, then try again."),
+      format!("{login} needs the Maintain or Admin role on {repo} to set up a workspace in it."),
+      format!("Ask an owner of {owner}, or an admin of the repository, to give {login} the Maintain role on it, then try again."),
     )
   } else if !info.private {
     (format!("{repo} is public."), "Team workspaces need a private or internal repository. Make it private on GitHub, or use another repository.".into())
@@ -590,7 +596,7 @@ fn adoption_problem(info: &gh::RepoInfo, login: &str, has_commits: bool, is_work
 /// set up in the organization's portal (it locks new repositories, even ones
 /// setup just created), with the link to finish.
 fn locked_problem(step: &str, info: &gh::RepoInfo, login: &str) -> Option<TeamProblem> {
-  if info.admin || !info.awaiting_setup() {
+  if info.manages() || !info.awaiting_setup() {
     return None;
   }
   let repo = &info.full_name;
@@ -602,7 +608,7 @@ fn locked_problem(step: &str, info: &gh::RepoInfo, login: &str) -> Option<TeamPr
   } else {
     "Finish setting it up as its description on GitHub says"
   };
-  p.guidance = Some(format!("{finish}, then try again. Setup needs {login} to have the Admin role on the repository."));
+  p.guidance = Some(format!("{finish}, then try again. Setup needs {login} to have the Maintain or Admin role on the repository."));
   Some(p)
 }
 
@@ -710,7 +716,7 @@ fn verify_problem(log: &str, url: &str, repo: &str) -> (TeamProblem, bool) {
       "verify",
       format!("Your Microsoft Entra ID only accepts the pipeline's sign-in from repositories owned by organizations in {enterprises}, and {theirs}."),
     );
-    p.guidance = Some("Set the workspace up in a repository owned by an organization in one of those enterprises: select Abandon setup…, then create the workspace again and choose that organization as the GitHub owner. Or choose Existing repository and enter one of its repositories where you have the Admin role (an owner can create one for you).".into());
+    p.guidance = Some("Set the workspace up in a repository owned by an organization in one of those enterprises: select Abandon setup…, then create the workspace again and choose that organization as the GitHub owner. Or choose Existing repository and enter one of its repositories where you have the Maintain or Admin role (an owner can create one for you).".into());
     return (p, false);
   }
   if ["aadsts70021", "no matching federated identity record", "aadsts700016", "aadsts700213", "aadsts70025"].iter().any(|k| lower.contains(k)) {
@@ -1023,9 +1029,12 @@ mod tests {
     };
     assert_eq!(check(&repo(json!({})), false, false), None, "an empty private repository with Admin");
     assert_eq!(check(&repo(json!({ "visibility": "internal" })), true, false), None, "internal repositories report private");
+    // Maintain covers what setup changes; GitHub keeps only branch protection for admins, which setup leaves to Fabricator.
+    let maintain = json!({ "permissions": { "admin": false, "maintain": true, "push": true, "triage": true, "pull": true } });
+    assert_eq!(check(&repo(maintain), true, false), None, "the Maintain role is enough");
     let (message, guidance) = check(&repo(json!({ "permissions": { "admin": false, "push": true } })), false, false).unwrap();
-    assert_eq!(message, "amy_contoso needs the Admin role on azure-data/sales-apps to set up a workspace in it.");
-    assert!(guidance.contains("Ask an owner of azure-data"));
+    assert_eq!(message, "amy_contoso needs the Maintain or Admin role on azure-data/sales-apps to set up a workspace in it.");
+    assert!(guidance.contains("Ask an owner of azure-data, or an admin of the repository, to give amy_contoso the Maintain role"));
     assert!(check(&repo(json!({ "private": false })), false, false).unwrap().0.ends_with("is public."));
     assert!(check(&repo(json!({ "archived": true })), false, false).unwrap().0.ends_with("is archived."));
     assert!(check(&repo(json!({})), true, true).unwrap().1.contains("select Join"));
@@ -1052,10 +1061,11 @@ mod tests {
     );
     let link = p.link.unwrap();
     assert_eq!((link.label.as_str(), link.url.as_str()), ("Finish setting up the repository", wizard));
-    assert!(p.guidance.unwrap().contains("Setup needs amy_contoso to have the Admin role"));
-    // After setup there (or for an owner with Admin), it's an ordinary repository.
-    let unlocked = gh::RepoInfo { admin: true, ..locked.clone() };
-    assert!(locked_problem("files", &unlocked, "amy_contoso").is_none());
+    assert!(p.guidance.unwrap().contains("Setup needs amy_contoso to have the Maintain or Admin role"));
+    // After setup there (or for someone with Maintain or Admin), it's an ordinary repository.
+    for unlocked in [gh::RepoInfo { admin: true, ..locked.clone() }, gh::RepoInfo { maintain: true, push: true, ..locked.clone() }] {
+      assert!(locked_problem("files", &unlocked, "amy_contoso").is_none());
+    }
     let mid_setup = locked_problem("files", &locked, "amy_contoso").unwrap();
     assert_eq!(mid_setup.step, "files", "a repository setup just created can be locked by the time files are written");
     // Without an address, the description says where.

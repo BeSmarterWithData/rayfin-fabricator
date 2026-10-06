@@ -58,11 +58,13 @@ Use **All pipeline runs on GitHub** to open the repository's Actions page.
 
 ## Manage the workspace
 
-Select **Manage** to open workspace settings. Owners can use:
+Select **Manage** to open workspace settings. Owners, the people with the **Maintain** or **Admin** role on the workspace's repository, can use:
 
-- **Members** to invite or remove teammates
+- **Members** to invite or remove teammates. GitHub only lets the repository's admins do this.
 - **App access** to remove Fabric app access
-- **Settings** to change the **GitHub account** Fabricator uses or **Require a review**, open Fabric workspaces, choose **Where the pipeline runs**, check pipeline health, or leave and delete the workspace
+- **Settings** to change the **GitHub account** Fabricator uses or **Require a review**, open Fabric workspaces, choose **Where the pipeline runs**, check pipeline health, or leave the workspace. Deleting the workspace also needs the **Admin** role.
+
+See [Who is an owner](/docs/team/members#who-is-an-owner).
 
 When Fabricator ships a newer pipeline template, **Pipeline health** can mark an item repairable. Select **Repair** to update the managed workflow, repository variables, merge settings, branch protection, and Fabric access as needed. If no repair is needed, the button says **Check the pipeline**.
 

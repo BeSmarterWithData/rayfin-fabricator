@@ -391,8 +391,8 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
                     {repoChoices && repoChoices.length > 0
                       ? 'Choose one of your repositories, or enter owner/name. '
                       : 'Enter owner/name, or paste the repository’s GitHub address. '}
-                    It must be private or internal, and you need the Admin role on it. If you can&apos;t
-                    create one, an owner of your organization can create it for you.
+                    It must be private or internal, and you need the Maintain or Admin role on it. If
+                    you can&apos;t create one, an owner of your organization can create it for you.
                   </span>
                 </div>
               ) : (
@@ -428,7 +428,7 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
                   )}
                   {ownerLocked && (
                     <FieldProblem
-                      text={`${owner} doesn’t let you create repositories. Ask one of its owners to create an empty private repository for the workspace and give you the Admin role, then use it as an existing repository.`}
+                      text={`${owner} doesn’t let you create repositories. Ask one of its owners to create an empty private repository for the workspace and give you the Maintain role, then use it as an existing repository.`}
                       action="Use an existing repository"
                       onRetry={() => setRepoMode('existing')}
                     />
@@ -531,7 +531,7 @@ export default function CreateTeamWorkspaceModal({ resume, onClose, onChanged, o
                     <strong>{workspace?.name ?? name}</strong> is ready. Create an app in it, or
                     invite your teammates from its settings.
                     {workspace?.setup?.protection === 'app' &&
-                      " GitHub doesn't protect the main branch on your plan, so Fabricator keeps everyone on the publish flow."}
+                      " GitHub doesn't protect its main branch, so Fabricator keeps everyone on the publish flow."}
                   </span>
                 </div>
               )}

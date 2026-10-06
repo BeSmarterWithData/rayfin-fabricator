@@ -28,12 +28,14 @@ Create a team workspace from Home when you want Fabricator to set up a shared re
 
 You can set the workspace up in a repository that already exists instead of a new one: one you created, or one an organization owner created for you. This is the way to go when your organization doesn't let you create repositories.
 
-1. Make sure the repository is private or internal and you have the **Admin** role on it. An empty repository works best. One that already has commits works too if its default branch is `main`. If you can't create the repository yourself, ask an owner of the organization to create it and give you the **Admin** role.
+1. Make sure the repository is private or internal and you have the **Maintain** or **Admin** role on it. An empty repository works best. One that already has commits works too if its default branch is `main`. If you can't create the repository yourself, ask an owner of the organization to create it and give you the **Maintain** role.
 2. In **Create a team workspace**, under **GitHub repository**, select **Existing repository**.
-3. In **Repository**, choose one of your repositories from the suggestions, or enter it as `owner/name`, for example `contoso/sales-apps`. You can also paste its GitHub address. The suggestions are your private repositories where you have the **Admin** role.
+3. In **Repository**, choose one of your repositories from the suggestions, or enter it as `owner/name`, for example `contoso/sales-apps`. You can also paste its GitHub address. The suggestions are your private repositories where you have the **Maintain** or **Admin** role.
 4. Finish creating the workspace.
 
-Fabricator marks the repository as a team workspace: it sets the repository's description and adds the `fabricator-workspace` topic. It also applies the squash-merge settings that publishing uses, then adds the workspace's files. A `README.md` that's already there stays, and an existing `.gitignore` only gets the lines it's missing. Setup stops if the repository is public, already a team workspace, or archived, or if you don't have the **Admin** role on it.
+Fabricator marks the repository as a team workspace: it sets the repository's description and adds the `fabricator-workspace` topic. It also applies the squash-merge settings that publishing uses, then adds the workspace's files. A `README.md` that's already there stays, and an existing `.gitignore` only gets the lines it's missing. Setup stops if the repository is public, already a team workspace, or archived, or if you don't have the **Maintain** or **Admin** role on it.
+
+The **Maintain** role covers everything setup changes. GitHub only lets admins protect `main`, so with **Maintain**, Fabricator keeps everyone on the publish flow itself. Inviting teammates and deleting the workspace later also need an admin. See [Who is an owner](/docs/team/members#who-is-an-owner).
 
 Some organizations lock a new repository until someone finishes setting it up in the organization's portal. Fabricator then shows **Finish setting up the repository**. See [The organization locked the repository until it's set up](/docs/troubleshooting/team#the-organization-locked-the-repository-until-its-set-up).
 

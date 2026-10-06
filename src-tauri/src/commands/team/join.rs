@@ -159,7 +159,7 @@ async fn join_repo_inner(full_name: &str) -> TeamActionResult {
     repo: info.full_name.clone(),
     default_branch: info.default_branch.clone(),
     dir: dir.to_string_lossy().to_string(),
-    role: if info.admin { "owner".into() } else { "member".into() },
+    role: if info.manages() { "owner".into() } else { "member".into() },
     added_at: now_iso(),
     manifest: None,
     setup: None,
@@ -225,7 +225,7 @@ async fn detail(workspace_id: String) -> TeamWorkspaceDetail {
   if info.as_ref().is_some_and(|r| r.archived) {
     error = Some(format!("{DELETED} Leave it to remove it from this computer."));
   }
-  let role = info.map(|r| if r.admin { "owner" } else { "member" });
+  let role = info.map(|r| if r.manages() { "owner" } else { "member" });
   let ws = store::mutate_team_workspace(&ws.id, |w| {
     if let Some(m) = manifest {
       if !m.name.trim().is_empty() {
@@ -290,6 +290,18 @@ pub(crate) async fn forget_workspace(ws: &TeamWorkspace) {
   }
 }
 
+/// Why someone without the Admin role can't delete a workspace.
+fn not_deletable(info: &gh::RepoInfo) -> String {
+  if info.manages() {
+    format!(
+      "Deleting the workspace archives {}, which GitHub only lets its admins do. Ask one of them to delete it, or leave it instead.",
+      info.full_name
+    )
+  } else {
+    "Only the workspace's owners can delete it. You can leave it instead.".into()
+  }
+}
+
 /// Delete a workspace (owners): remove its deploy identity, archive the
 /// repository, optionally delete its Fabric workspaces (and every app in them),
 /// and forget it here. Problems are reported but don't stop the rest.
@@ -307,7 +319,8 @@ async fn delete(workspace_id: String, delete_fabric: bool) -> TeamActionResult {
     return fail("That team workspace is no longer on this computer.");
   };
   match gh::repo(&ws.repo).await {
-    Ok(info) if !info.admin => return fail("Only the workspace's owners can delete it. You can leave it instead."),
+    // Deleting archives the repository, which GitHub only lets admins do.
+    Ok(info) if !info.admin => return fail(not_deletable(&info)),
     Err(e) if !e.is_not_found() => return fail(e.describe("Check your access to the workspace")),
     _ => {}
   }
@@ -354,5 +367,25 @@ async fn delete(workspace_id: String, delete_fabric: bool) -> TeamActionResult {
     ok: true,
     error: (!problems.is_empty()).then(|| problems.join(" ")),
     ..Default::default()
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use serde_json::json;
+
+  #[test]
+  fn owners_with_the_maintain_role_are_told_deleting_needs_an_admin() {
+    let repo = |permissions: serde_json::Value| {
+      gh::repo_info(&json!({ "full_name": "azure-data/rayfin-team-apps", "permissions": permissions })).unwrap()
+    };
+    let maintain = repo(json!({ "admin": false, "maintain": true, "push": true }));
+    assert_eq!(
+      not_deletable(&maintain),
+      "Deleting the workspace archives azure-data/rayfin-team-apps, which GitHub only lets its admins do. Ask one of them to delete it, or leave it instead."
+    );
+    let member = repo(json!({ "admin": false, "push": true }));
+    assert_eq!(not_deletable(&member), "Only the workspace's owners can delete it. You can leave it instead.");
   }
 }

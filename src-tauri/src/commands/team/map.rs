@@ -117,10 +117,10 @@ async fn read_map(workspace_id: String) -> TeamMap {
     .map(|list| {
       list
         .into_iter()
-        .map(|(login, avatar_url, admin)| TeamMapMember {
+        .map(|(login, avatar_url, owner)| TeamMapMember {
           login,
           avatar_url,
-          role: if admin { "owner".into() } else { "member".into() },
+          role: if owner { "owner".into() } else { "member".into() },
         })
         .collect()
     })

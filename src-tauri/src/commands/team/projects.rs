@@ -351,7 +351,7 @@ async fn remove_project(workspace_id: String, folder: String, delete_apps: bool)
     return fail("That team workspace is no longer on this computer.");
   };
   match gh::repo(&ws.repo).await {
-    Ok(info) if info.admin => {}
+    Ok(info) if info.manages() => {}
     Ok(_) => return fail("Only the workspace's owners can remove apps."),
     Err(e) => return fail(e.describe("Check your access to the workspace")),
   }

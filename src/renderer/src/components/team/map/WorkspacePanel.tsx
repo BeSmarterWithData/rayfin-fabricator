@@ -79,7 +79,12 @@ export default function WorkspacePanel({
   const repairScope = useMemo(() => `team-repair-${crypto.randomUUID()}`, [])
   const [repairRows, setRepairRows] = useStepProgress(VERIFY_STEPS, repairScope)
   const ws = workspace
+  /** Owners (the Maintain or Admin role on the repository) manage settings, runners, Repair and app access. */
   const canManage = Boolean(members?.canManage) || ws.role === 'owner'
+  /** GitHub only lets the repository's admins add and remove people, and archive it. */
+  const isAdmin = Boolean(members?.canManage)
+  /** An owner with the Maintain role, once members say so. */
+  const maintainer = canManage && Boolean(members?.ok) && !isAdmin
   const requireReview = Boolean(ws.manifest?.settings.requireReview)
   const fabric = ws.manifest?.fabric
 
@@ -335,7 +340,17 @@ export default function WorkspacePanel({
             )}
           </section>
 
-          {canManage && (
+          {maintainer && (
+            <section className="tmap-insp-section">
+              <h4>Invite a teammate</h4>
+              <p className="tmap-insp-text">
+                GitHub only lets admins of {ws.repo} add or remove people, and you have the Maintain role. Ask one of
+                its admins to add your teammates with the Write role.
+              </p>
+            </section>
+          )}
+
+          {isAdmin && (
             <section className="tmap-insp-section">
               <h4>Invite a teammate</h4>
               <form
@@ -487,7 +502,7 @@ export default function WorkspacePanel({
                 Require a review
                 <span className="tmap-hint">
                   A teammate approves each change before it&apos;s published.
-                  {ws.setup?.protection === 'app' || !ws.setup ? ' On GitHub Free, Fabricator enforces this.' : ''}
+                  {ws.setup?.protection === 'app' || !ws.setup ? ' Where GitHub doesn’t protect main, Fabricator enforces this.' : ''}
                 </span>
               </span>
               <span className={`switch${requireReview ? ' switch--on' : ''}`}>
@@ -643,12 +658,13 @@ export default function WorkspacePanel({
             <h4>Leave or delete</h4>
             <p className="tmap-insp-text">
               Leaving removes the workspace from this computer. Published apps and work saved to GitHub stay.
+              {maintainer && ' Deleting the workspace archives its repository, which GitHub only lets its admins do.'}
             </p>
             <div className="tmap-insp-actions">
               <button type="button" className="btn btn--sm" disabled={Boolean(busy)} onClick={() => setConfirm({ kind: 'leave' })}>
                 Leave on this computer
               </button>
-              {canManage && (
+              {isAdmin && (
                 <button type="button" className="btn btn--sm btn--danger" disabled={Boolean(busy)} onClick={() => setConfirm({ kind: 'delete' })}>
                   Delete workspace…
                 </button>

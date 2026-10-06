@@ -544,9 +544,9 @@ async fn github_repo(repo: &str) -> Result<String, String> {
   let access = if perm("admin") {
     "admin (owner)"
   } else if perm("maintain") {
-    "maintain"
+    "maintain (owner; adding or removing people, protecting `main` and deleting the workspace need admin)"
   } else if perm("push") {
-    "write"
+    "write (member)"
   } else if perm("pull") {
     "read only"
   } else {
@@ -823,7 +823,7 @@ async fn github_variables(repo: &str) -> Result<String, String> {
     match value {
       Ok(Some(v)) => out.push(format!("- `{name}` = `{}`", v.trim())),
       Ok(None) => out.push(format!("- `{name}` isn't set.")),
-      Err(e) => return Err(format!("Couldn't read the repository variables: {} (only repository admins can).", gh_error(&e))),
+      Err(e) => return Err(format!("Couldn't read the repository variables: {} (reading them needs write access to the repository).", gh_error(&e))),
     }
   }
   // Optional: where the jobs run.

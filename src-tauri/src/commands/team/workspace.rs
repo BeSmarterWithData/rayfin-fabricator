@@ -25,10 +25,11 @@ fn workspace(id: &str) -> Result<TeamWorkspace, String> {
   store::find_team_workspace(id).ok_or_else(|| "That team workspace is no longer on this computer.".into())
 }
 
+/// Owners: the Maintain or Admin role on the repository.
 async fn require_owner(ws: &TeamWorkspace) -> Result<gh::RepoInfo, String> {
   match gh::repo(&ws.repo).await {
-    Ok(info) if info.admin => Ok(info),
-    Ok(_) => Err("Only the workspace's owners can change its settings.".into()),
+    Ok(info) if info.manages() => Ok(info),
+    Ok(_) => Err("Only the workspace's owners (the Maintain or Admin role on its repository) can change its settings.".into()),
     Err(e) => Err(e.describe("Check your access to the workspace")),
   }
 }
@@ -120,7 +121,7 @@ async fn health(workspace_id: String) -> TeamHealth {
   let mut items = Vec::new();
   let info = match gh::repo(&ws.repo).await {
     Ok(info) => {
-      let role = if info.admin { "You're an owner." } else if info.push { "You're a member." } else { "You can't change it." };
+      let role = if info.manages() { "You're an owner." } else if info.push { "You're a member." } else { "You can't change it." };
       items.push(item("repo", "GitHub repository", if info.push { "ok" } else { "error" }, Some(format!("{} — {role}", info.full_name)), false));
       Some(info)
     }
@@ -129,7 +130,7 @@ async fn health(workspace_id: String) -> TeamHealth {
       None
     }
   };
-  let owner = info.as_ref().is_some_and(|i| i.admin);
+  let owner = info.as_ref().is_some_and(|i| i.manages());
   let manifest = current_manifest(&ws).await.ok();
 
   let workflow = repo::read_main_file(&ws, naming::WORKFLOW_PATH).await.ok().flatten();
@@ -139,7 +140,7 @@ async fn health(workspace_id: String) -> TeamHealth {
     None => item("workflow", "Deploy pipeline", "error", Some("The pipeline file is missing.".into()), owner),
   });
 
-  // Only owners can read the repository variables, so the rest is for owners.
+  // The rest is the pipeline's settings, which owners manage.
   if !owner {
     return TeamHealth { ok: true, error: None, items };
   }
@@ -294,14 +295,14 @@ pub async fn team_set_account(workspace_id: String, account: String) -> TeamActi
     };
     let (name, email) = super::git_identity(&me);
     repo::set_identity(&ws, &name, &email).await?;
-    Ok((me.login, info.admin))
+    Ok((me.login, info.manages()))
   })
   .await;
   match checked {
-    Ok((login, admin)) => {
+    Ok((login, owner)) => {
       let updated = store::mutate_team_workspace(&ws.id, |w| {
         w.account = Some(login);
-        w.role = if admin { "owner".into() } else { "member".into() };
+        w.role = if owner { "owner".into() } else { "member".into() };
       });
       with_workspace(updated.unwrap_or(ws))
     }

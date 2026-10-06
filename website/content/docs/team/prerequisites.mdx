@@ -58,6 +58,6 @@ The workspace's pipeline runs on GitHub-hosted runners by default. If your GitHu
 
 ## Where the repository can live
 
-The workspace's apps live in one private GitHub repository. Setup can create a new one under the **GitHub owner** you choose, if you're allowed to create repositories there. It can also use a repository that already exists, with you in the **Admin** role. Many organizations don't let their members create repositories. Then an owner of the organization can create an empty private repository for you. See [Use an existing repository](/docs/team/create#use-an-existing-repository).
+The workspace's apps live in one private GitHub repository. Setup can create a new one under the **GitHub owner** you choose, if you're allowed to create repositories there. It can also use a repository that already exists, with you in the **Maintain** or **Admin** role. Many organizations don't let their members create repositories. Then an owner of the organization can create an empty private repository for you. See [Use an existing repository](/docs/team/create#use-an-existing-repository).
 
 Some companies' Microsoft Entra ID only accepts pipeline sign-ins from repositories owned by organizations in their GitHub enterprise. Microsoft's own tenant works this way. In such a tenant, choose one of those organizations, not your personal account. A personal account's repository fails setup's last step with AADSTS7002381. See [The pipeline's sign-in fails with AADSTS7002381](/docs/troubleshooting/team#the-pipelines-sign-in-fails-with-aadsts7002381).

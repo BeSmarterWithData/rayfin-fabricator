@@ -457,6 +457,7 @@ export interface TeamMembersResult {
   ok: boolean
   error?: string
   members: TeamMember[]
+  /** The user can invite and remove people: GitHub only lets the repository's admins (not Maintain). */
   canManage: boolean
 }
 

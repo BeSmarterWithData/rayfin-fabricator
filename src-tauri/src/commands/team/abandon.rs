@@ -106,10 +106,10 @@ async fn inventory(ws: &TeamWorkspace, setup: &TeamSetupState) -> Result<Found, 
   let mut kept = azure.kept;
   let (repo, provided) = if provided_repo { (None, repo) } else { (repo, None) };
   if let Some(info) = &provided {
-    kept.push(if info.admin {
+    kept.push(if info.manages() {
       format!("{} stays because you provided it. Fabricator removes what it added: its settings file, the pipeline and the pipeline's variables. It also puts back the repository's description.", info.full_name)
     } else {
-      format!("{} stays because you provided it. Fabricator can't remove what it added, because you no longer have the Admin role on it.", info.full_name)
+      format!("{} stays because you provided it. Fabricator can't remove what it added, because you no longer have the Maintain or Admin role on it.", info.full_name)
     });
   }
   Ok(Found {
@@ -117,7 +117,7 @@ async fn inventory(ws: &TeamWorkspace, setup: &TeamSetupState) -> Result<Found, 
     trust: azure.trust,
     fabric: azure.fabric,
     repo,
-    provided: provided.filter(|info| info.admin),
+    provided: provided.filter(|info| info.manages()),
     kept,
     needs_delete_permission: needs_delete_permission && !provided_repo,
   })
@@ -242,7 +242,8 @@ async fn find_fabric(ids: &[String]) -> Result<Vec<(String, String)>, TeamProble
 
 /// The repository, when it still exists, and whether deleting it needs the
 /// `delete_repo` permission first. A `provided` repository isn't deleted, so
-/// only its owners' Admin role matters (and the permission doesn't).
+/// the Maintain role is enough to tidy it up (and the permission doesn't matter);
+/// deleting one setup created needs the Admin role.
 async fn find_repo(ws: &TeamWorkspace, provided: bool) -> Result<(Option<gh::RepoInfo>, bool), TeamProblem> {
   if ws.repo.is_empty() {
     return Ok((None, false));
@@ -255,7 +256,7 @@ async fn find_repo(ws: &TeamWorkspace, provided: bool) -> Result<(Option<gh::Rep
       Ok((Some(info), needs))
     }
     Ok(info) => {
-      let mut p = problem("github", format!("Only an owner of {} can delete it.", info.full_name));
+      let mut p = problem("github", format!("Only an admin of {} can delete it.", info.full_name));
       p.guidance = Some(SIGN_IN_AS_OWNER.into());
       Err(p)
     }
@@ -442,7 +443,7 @@ async fn abandon(steps: &Steps<'_>, ws: &TeamWorkspace, setup: &TeamSetupState) 
     steps.set("cleanup", "running", None);
     if let Err(e) = unset_up(info, setup).await {
       let mut p = problem("cleanup", e.describe(&format!("Remove what Fabricator added to {}", info.full_name)));
-      p.guidance = Some("Make sure you still have the Admin role on the repository, then try again. Or remove the workspace from this computer and tidy the repository up on GitHub.".into());
+      p.guidance = Some("Make sure you still have the Maintain or Admin role on the repository, then try again. Or remove the workspace from this computer and tidy the repository up on GitHub.".into());
       return steps.stop("cleanup", p, &ws.id);
     }
     steps.set("cleanup", "done", None);

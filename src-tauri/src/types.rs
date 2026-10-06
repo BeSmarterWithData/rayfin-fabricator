@@ -990,7 +990,7 @@ pub struct TeamWorkspace {
   pub default_branch: String,
   /// Local folder holding the team clone (`.repo`) and one worktree per project.
   pub dir: String,
-  /// "owner" (repo admin) or "member".
+  /// "owner" (the Maintain or Admin role on the repository) or "member".
   #[serde(default)]
   pub role: String,
   pub added_at: String,
@@ -1270,7 +1270,7 @@ pub struct TeamMember {
   pub login: String,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub avatar_url: Option<String>,
-  /// "owner" or "member".
+  /// "owner" (the Maintain or Admin role) or "member".
   pub role: String,
   /// Invited but not yet accepted.
   pub pending: bool,
@@ -1285,7 +1285,8 @@ pub struct TeamMembersResult {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
   pub members: Vec<TeamMember>,
-  /// The signed-in user can invite and remove people.
+  /// The signed-in user can invite and remove people: GitHub only lets the
+  /// repository's admins do that (owners with the Maintain role can't).
   pub can_manage: bool,
 }
 

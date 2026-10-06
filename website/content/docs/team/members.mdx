@@ -24,7 +24,19 @@ You can open member settings from either place:
 4. Turn on **Owner** only if they should manage members and settings.
 5. Select **Send invitation**.
 
-Fabricator invites the GitHub user as a repository collaborator. If you entered a work email, it looks up that person in Microsoft Entra ID and grants Contributor on both Fabric workspaces.
+Fabricator invites the GitHub user as a repository collaborator: owners get the **Admin** role on the repository, and members the **Write** role. If you entered a work email, it looks up that person in Microsoft Entra ID and grants Contributor on both Fabric workspaces.
+
+GitHub only lets a repository's admins add people. If you're an owner with the **Maintain** role, **Invite a teammate** says so instead: ask one of the repository's admins to add your teammates on GitHub with the **Write** role. See [Who is an owner](#who-is-an-owner).
+
+## Who is an owner
+
+Fabricator treats people with the **Maintain** or **Admin** role on the workspace's GitHub repository as its owners, and people with the **Write** role as members. Owners change the workspace's settings, choose where the pipeline runs, run **Repair**, manage app access, and remove apps.
+
+GitHub keeps a few things for the repository's admins. An owner with the **Maintain** role can't:
+
+- Invite or remove people.
+- Delete the workspace, which archives its repository.
+- Protect `main` on GitHub. Fabricator keeps everyone on the publish flow itself instead.
 
 ## Accept an invitation
 
@@ -43,4 +55,4 @@ Workspace owners can select **App access** to see **Who can open the apps**. Thi
 
 ## Remove a member
 
-In **Members**, owners can remove a member or cancel a pending invitation. Removing a member removes their repository access. If Fabricator gave that GitHub login Fabric access from this computer, it also removes that Fabric access. Their unpublished changes stay on GitHub.
+In **Members**, owners with the **Admin** role on the repository can remove a member or cancel a pending invitation. Removing a member removes their repository access. If Fabricator gave that GitHub login Fabric access from this computer, it also removes that Fabric access. Their unpublished changes stay on GitHub.

@@ -558,6 +558,8 @@ pub struct RepoInfo {
   pub private: bool,
   pub default_branch: String,
   pub admin: bool,
+  /// The Maintain role (true for admins too).
+  pub maintain: bool,
   pub push: bool,
   pub html_url: String,
   pub description: Option<String>,
@@ -571,6 +573,14 @@ pub struct RepoInfo {
 }
 
 impl RepoInfo {
+  /// The user can manage a workspace in it: the Maintain or Admin role, which
+  /// covers what setup, Repair and settings change (variables, files,
+  /// description, topics, merge settings). GitHub keeps adding and removing
+  /// people, protecting `main` and archiving for admins.
+  pub fn manages(&self) -> bool {
+    self.maintain || self.admin
+  }
+
   /// Its organization locked it until someone finishes setting it up in the
   /// organization's portal, as Microsoft's organizations do with every new
   /// repository ("To gain access, please finish setting up this repository now
@@ -602,6 +612,7 @@ pub fn repo_info(v: &Value) -> Option<RepoInfo> {
     private: v.get("private").and_then(Value::as_bool).unwrap_or(true),
     default_branch: str_of(v, "default_branch").unwrap_or_else(|| naming::DEFAULT_BRANCH.into()),
     admin: perm("admin"),
+    maintain: perm("maintain") || perm("admin"),
     push: perm("push") || perm("admin"),
     html_url: str_of(v, "html_url").unwrap_or_default(),
     description: str_of(v, "description").filter(|d| !d.trim().is_empty()),
@@ -778,9 +789,9 @@ pub async fn adoptable_repos() -> Result<Vec<RepoInfo>, GhError> {
 }
 
 /// Whether setup could use a repository: private or internal, not archived,
-/// not a team workspace yet, and administered by the user.
+/// not a team workspace yet, and one the user manages (Maintain or Admin).
 pub fn adoptable(r: &RepoInfo) -> bool {
-  r.admin && r.private && !r.archived && !r.topics.iter().any(|t| t.eq_ignore_ascii_case(naming::REPO_TOPIC))
+  r.manages() && r.private && !r.archived && !r.topics.iter().any(|t| t.eq_ignore_ascii_case(naming::REPO_TOPIC))
 }
 
 /* --------------------------------- members -------------------------------- */
@@ -796,22 +807,23 @@ pub async fn invite(full_name: &str, login: &str, permission: &str) -> Result<()
   .map(|_| ())
 }
 
-/// (login, avatar, is_admin) for every collaborator.
+/// (login, avatar, is_owner) for every collaborator. Owners have the Maintain
+/// or Admin role.
 pub async fn collaborators(full_name: &str) -> Result<Vec<(String, Option<String>, bool)>, GhError> {
   let list = api_list(&format!("repos/{full_name}/collaborators?affiliation=all&per_page=100")).await?;
   Ok(
     list
       .iter()
       .filter_map(|c| {
-        let admin = c.get("permissions").and_then(|p| p.get("admin")).and_then(Value::as_bool).unwrap_or(false);
-        Some((str_of(c, "login")?, str_of(c, "avatar_url"), admin))
+        let perm = |k: &str| c.get("permissions").and_then(|p| p.get(k)).and_then(Value::as_bool).unwrap_or(false);
+        Some((str_of(c, "login")?, str_of(c, "avatar_url"), perm("admin") || perm("maintain")))
       })
       .collect(),
   )
 }
 
-/// Pending invitations to the repo: (invitation id, login, avatar, admin). Only
-/// repository admins can list them; others get an empty list.
+/// Pending invitations to the repo: (invitation id, login, avatar, is_owner).
+/// Only repository admins can list them; others get an empty list.
 pub async fn repo_invitations(full_name: &str) -> Result<Vec<(u64, String, Option<String>, bool)>, GhError> {
   match api_list(&format!("repos/{full_name}/invitations?per_page=100")).await {
     Ok(list) => Ok(
@@ -819,8 +831,8 @@ pub async fn repo_invitations(full_name: &str) -> Result<Vec<(u64, String, Optio
         .iter()
         .filter_map(|i| {
           let invitee = i.get("invitee")?;
-          let admin = str_of(i, "permissions").is_some_and(|p| p == "admin");
-          Some((u64_of(i, "id"), str_of(invitee, "login")?, str_of(invitee, "avatar_url"), admin))
+          let owner = str_of(i, "permissions").is_some_and(|p| p == "admin" || p == "maintain");
+          Some((u64_of(i, "id"), str_of(invitee, "login")?, str_of(invitee, "avatar_url"), owner))
         })
         .collect(),
     ),
@@ -1626,10 +1638,16 @@ mod tests {
       repo_info(&v).unwrap()
     };
     assert!(adoptable(&repo(json!({}))));
-    assert!(!adoptable(&repo(json!({ "permissions": { "admin": false, "push": true } }))), "setup needs Admin");
+    // As GitHub lists a repository for someone with the Maintain role.
+    let maintain = repo(json!({ "permissions": { "admin": false, "maintain": true, "push": true, "triage": true, "pull": true } }));
+    assert!(maintain.maintain && !maintain.admin && maintain.manages());
+    assert!(adoptable(&maintain), "Maintain is enough to set a workspace up");
+    assert!(!adoptable(&repo(json!({ "permissions": { "admin": false, "maintain": false, "push": true } }))), "Write isn't");
     assert!(!adoptable(&repo(json!({ "private": false }))), "public");
     assert!(!adoptable(&repo(json!({ "archived": true }))));
     assert!(!adoptable(&repo(json!({ "topics": ["Fabricator-Workspace"] }))), "already a team workspace");
+    let admin = repo(json!({}));
+    assert!(admin.maintain && admin.manages(), "admins can do whatever maintainers can");
   }
 
   #[test]
@@ -1886,7 +1904,7 @@ mod tests {
     }))
     .unwrap();
     assert_eq!((info.id, info.owner_id), (22, 11));
-    assert!(info.push && !info.admin);
+    assert!(info.push && !info.admin && !info.maintain && !info.manages());
     assert_eq!(info.description, None);
     assert_eq!(info.topics, vec!["fabricator-workspace"]);
     assert!(!info.archived);
