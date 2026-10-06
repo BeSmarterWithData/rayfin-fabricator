@@ -163,6 +163,28 @@ pub fn is_workspace_description(description: Option<&str>) -> bool {
     .is_some_and(|start| start.eq_ignore_ascii_case(REPO_DESCRIPTION_PREFIX))
 }
 
+/// `owner/name` from what someone typed or pasted: `owner/name`, or the
+/// repository's GitHub URL (web or clone). `None` when it isn't one.
+pub fn parse_repo(input: &str) -> Option<String> {
+  let mut text = input.trim();
+  for prefix in ["https://", "http://", "git@github.com:", "www.", "github.com/"] {
+    if text.len() >= prefix.len() && text[..prefix.len()].eq_ignore_ascii_case(prefix) {
+      text = &text[prefix.len()..];
+    }
+  }
+  let text = text.trim_end_matches('/');
+  let text = text.strip_suffix(".git").unwrap_or(text);
+  let (owner, name) = text.split_once('/')?;
+  let owner_ok = (1..=39).contains(&owner.len())
+    && !owner.starts_with('-')
+    && owner.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+  let name_ok = (1..=100).contains(&name.len())
+    && name != "."
+    && name != ".."
+    && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'));
+  (owner_ok && name_ok).then(|| format!("{owner}/{name}"))
+}
+
 fn identity_name(prefix: &str, team_name: &str) -> String {
   let clean: String = team_name
     .chars()
@@ -203,6 +225,24 @@ pub fn pr_subjects(full_name: &str, owner_id: u64, repo_id: u64) -> Vec<(String,
 fn subject_prefixes(full_name: &str, owner_id: u64, repo_id: u64) -> (String, String) {
   let (owner, repo) = full_name.split_once('/').unwrap_or((full_name, ""));
   (format!("repo:{owner}/{repo}"), format!("repo:{owner}@{owner_id}/{repo}@{repo_id}"))
+}
+
+/// The names of the federated credentials setup adds to a deploy identity.
+pub const CREDENTIAL_NAMES: &[&str] =
+  &["fabricator-main", "fabricator-main-ids", "fabricator-pull-requests", "fabricator-pull-requests-ids"];
+
+/// The repository (`owner/name`) a GitHub Actions subject trusts, in either
+/// form: `repo:o/r:…` or `repo:o@1/r@2:…`.
+pub fn subject_repo(subject: &str) -> Option<String> {
+  let (repo, _) = subject.strip_prefix("repo:")?.split_once(':')?;
+  let (owner, name) = repo.split_once('/')?;
+  let bare = |part: &str| part.split('@').next().unwrap_or(part).to_string();
+  Some(format!("{}/{}", bare(owner), bare(name)))
+}
+
+/// Whether a federated credential (name, subject) is one setup added for `repo`.
+pub fn is_workspace_credential(name: &str, subject: &str, repo: &str) -> bool {
+  CREDENTIAL_NAMES.contains(&name) && subject_repo(subject).is_some_and(|r| r.eq_ignore_ascii_case(repo))
 }
 
 /// Subjects each identity trusts: (deploy identity, preview identity). Pull
@@ -328,6 +368,42 @@ mod tests {
     assert!(!is_workspace_description(Some("")));
     assert!(!is_workspace_description(Some("Fabricatör ✨")));
     assert!(!is_workspace_description(None));
+  }
+
+  #[test]
+  fn repositories_are_read_from_names_and_urls() {
+    for input in [
+      "azure-data/sales-apps",
+      " azure-data/sales-apps ",
+      "https://github.com/azure-data/sales-apps",
+      "https://github.com/azure-data/sales-apps/",
+      "github.com/azure-data/sales-apps.git",
+      "git@github.com:azure-data/sales-apps.git",
+      "HTTPS://WWW.GitHub.com/azure-data/sales-apps",
+    ] {
+      assert_eq!(parse_repo(input).as_deref(), Some("azure-data/sales-apps"), "{input}");
+    }
+    assert_eq!(parse_repo("octo_contoso/x.y_z-1").as_deref(), Some("octo_contoso/x.y_z-1"));
+    for invalid in ["", "sales-apps", "azure-data/", "/sales", "a/b/c", "-x/y", "x/..", "x/a b", "https://github.com/x", "x/y?z"] {
+      assert_eq!(parse_repo(invalid), None, "{invalid}");
+    }
+  }
+
+  #[test]
+  fn credentials_setup_added_for_a_repository_are_recognized() {
+    let (all, _) = identity_subjects("Contoso/Sales", 7, 9, false);
+    for (name, subject) in &all {
+      assert!(CREDENTIAL_NAMES.contains(&name.as_str()), "{name} isn't listed");
+      assert_eq!(subject_repo(subject).as_deref(), Some("Contoso/Sales"), "{subject}");
+      assert!(is_workspace_credential(name, subject, "contoso/sales"), "{name}");
+    }
+    assert_eq!(all.len(), CREDENTIAL_NAMES.len());
+    // Another repository's (setup reuses the names), or someone else's credential.
+    assert!(!is_workspace_credential("fabricator-main", "repo:contoso/other:ref:refs/heads/main", "contoso/sales"));
+    assert!(!is_workspace_credential("deploy-main", "repo:contoso/sales:ref:refs/heads/main", "contoso/sales"));
+    assert_eq!(subject_repo("repo:o@1/r@2:environment:prod").as_deref(), Some("o/r"));
+    assert_eq!(subject_repo("system:serviceaccount:ns:sa"), None);
+    assert_eq!(subject_repo("repo:o/r"), None);
   }
 
   #[test]

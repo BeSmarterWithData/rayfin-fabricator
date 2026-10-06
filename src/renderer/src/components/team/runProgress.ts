@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { TeamRunStep } from '@shared/ipc'
+import type { TeamRunStatus, TeamRunStep } from '@shared/ipc'
 
 export interface RunProgress {
   done: number
@@ -27,6 +27,21 @@ export function friendlyStep(name: string): string {
   if (/^Run azure\/login@/i.test(name)) return 'Sign in to Fabric'
   if (/^Run actions\/github-script@/i.test(name)) return 'Record the deployment'
   return name.replace(/^Run /, '')
+}
+
+/** GitHub-hosted runners start within a minute or two; longer suggests none will. */
+const RUNNER_HINT_MS = 3 * 60_000
+
+/** Whether a run has waited unusually long for a runner to pick it up. */
+export function waitingForRunner(run: TeamRunStatus, now: number): boolean {
+  const since = run.startedAt ? Date.parse(run.startedAt) : NaN
+  return run.status === 'queued' && Number.isFinite(since) && now - since > RUNNER_HINT_MS
+}
+
+/** What a run that hasn't started is waiting for; `undefined` once it runs. */
+export function waitingStep(run: TeamRunStatus, now: number): string | undefined {
+  if (run.status !== 'queued' && run.status !== 'waiting') return undefined
+  return waitingForRunner(run, now) ? 'Still waiting for a runner' : 'Waiting for the pipeline to start'
 }
 
 /** "42s", "3:07" — time since an ISO timestamp. */

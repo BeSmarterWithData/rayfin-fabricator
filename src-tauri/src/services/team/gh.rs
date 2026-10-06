@@ -31,22 +31,30 @@ pub const REQUIRED_SCOPES: &[&str] = &["repo", "read:org", "workflow"];
 /// when an owner abandons an unfinished setup.
 pub const DELETE_REPO_SCOPE: &str = "delete_repo";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GhError {
   pub status: Option<u16>,
   pub message: String,
   /// The `gh` executable wasn't found.
   pub missing_cli: bool,
+  /// GitHub's link for authorizing this sign-in (token) for an organization's
+  /// SAML single sign-on, when that's what blocked the request.
+  pub sso_url: Option<String>,
 }
 
 static HTTP_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\(HTTP (\d{3})\)").unwrap());
 static AUTH_RE: Lazy<Regex> = Lazy::new(|| {
   Regex::new(r"(?i)bad credentials|requires authentication|gh auth login|authentication (?:failed|required)").unwrap()
 });
+static SSO_URL_RE: Lazy<Regex> = Lazy::new(|| {
+  Regex::new(r"https://github\.com/(?:enterprises|orgs)/[A-Za-z0-9_.-]+/sso\?authorization_request=[A-Za-z0-9_=-]+").unwrap()
+});
+static SSO_ORG_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"The '([^']+)' organization has enabled or enforced SAML SSO").unwrap());
+static SSO_ENTERPRISE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"github\.com/enterprises/([A-Za-z0-9_.-]+)/sso").unwrap());
 
 impl GhError {
   fn new(message: impl Into<String>) -> Self {
-    GhError { status: None, message: message.into(), missing_cli: false }
+    GhError { message: message.into(), ..Default::default() }
   }
 
   pub fn is_auth(&self) -> bool {
@@ -55,6 +63,50 @@ impl GhError {
 
   pub fn is_not_found(&self) -> bool {
     self.status == Some(404)
+  }
+
+  /// An organization's SAML single sign-on blocked the request: this sign-in
+  /// (token) isn't authorized for it.
+  pub fn needs_sso(&self) -> bool {
+    self.sso_url.is_some() || self.message.contains("SAML")
+  }
+
+  /// The organization whose single sign-on blocked the request, when GitHub said.
+  pub fn sso_org(&self) -> Option<String> {
+    SSO_ORG_RE.captures(&self.message).map(|c| c[1].to_string())
+  }
+
+  /// The enterprise that runs that single sign-on, when it's set up for a whole
+  /// enterprise (GitHub's link then goes to the enterprise's page, not the
+  /// organization's: `microsoft`'s is the `microsoftopensource` enterprise's).
+  pub fn sso_enterprise(&self) -> Option<String> {
+    self.sso_url.as_deref().and_then(|url| SSO_ENTERPRISE_RE.captures(url)).map(|c| c[1].to_string())
+  }
+
+  /// Where to start a single sign-on session in the browser: the organization's
+  /// page (GitHub forwards it to its enterprise's), else the enterprise's.
+  pub fn sso_session_url(&self) -> Option<String> {
+    if let Some(org) = self.sso_org() {
+      return Some(format!("https://github.com/orgs/{org}/sso"));
+    }
+    let url = self.sso_url.as_deref()?;
+    Some(url.split('?').next().unwrap_or(url).to_string())
+  }
+
+  /// What single sign-on blocked, in words, without the link: "The microsoft
+  /// organization requires single sign-on (through the microsoftopensource
+  /// enterprise), and the GitHub CLI's sign-in for octo isn't authorized for it yet."
+  pub fn sso_reason(&self) -> String {
+    let org = self.sso_org();
+    let mut who = match &org {
+      Some(o) => format!("The {o} organization requires single sign-on"),
+      None => "Your organization requires single sign-on".to_string(),
+    };
+    if let Some(enterprise) = self.sso_enterprise().filter(|e| org.as_deref().is_none_or(|o| !o.eq_ignore_ascii_case(e))) {
+      who.push_str(&format!(" (through the {enterprise} enterprise)"));
+    }
+    let login = current_account().map(|login| format!(" for {login}")).unwrap_or_default();
+    format!("{who}, and the GitHub CLI's sign-in{login} isn't authorized for it yet.")
   }
 
   /// GitHub withholds the feature on this plan (e.g. branch protection on a
@@ -77,10 +129,15 @@ impl GhError {
         None => format!("{action}: your GitHub sign-in has expired. Sign in to GitHub again."),
       };
     }
-    if self.message.contains("SAML") {
-      return format!(
-        "{action}: your organization requires single sign-on for this GitHub token. Authorize the GitHub CLI for the organization on github.com (Settings → Applications), then try again."
-      );
+    if self.needs_sso() {
+      // GitHub authorizes an OAuth app's sign-in for single sign-on when it's
+      // signed in during an active single sign-on session; its
+      // `authorization_request` link only works for personal access tokens.
+      let session = self
+        .sso_session_url()
+        .map(|url| format!("Open {url} in your browser to start a single sign-on session"))
+        .unwrap_or_else(|| "Start a single sign-on session for the organization on github.com".into());
+      return format!("{action}: {} {session}, then sign in to GitHub again (gh auth refresh) and try again.", self.sso_reason());
     }
     format!("{action}: {}", self.message)
   }
@@ -103,7 +160,7 @@ fn error_message(body: &Value) -> Option<String> {
 
 fn parse_error(res: &RunResult) -> GhError {
   if res.not_found {
-    return GhError { status: None, message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true };
+    return GhError { message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true, ..Default::default() };
   }
   let status = HTTP_RE.captures(&res.stderr).and_then(|c| c[1].parse().ok());
   let message = serde_json::from_str::<Value>(res.stdout.trim())
@@ -114,7 +171,12 @@ fn parse_error(res: &RunResult) -> GhError {
       let text = HTTP_RE.replace(text, "").trim().to_string();
       if text.is_empty() { "GitHub request failed.".to_string() } else { text }
     });
-  GhError { status, message, missing_cli: false }
+  let sso_url = SSO_URL_RE
+    .find(&message)
+    .or_else(|| SSO_URL_RE.find(&res.stderr))
+    .or_else(|| SSO_URL_RE.find(&res.stdout))
+    .map(|m| m.as_str().to_string());
+  GhError { status, message, missing_cli: false, sso_url }
 }
 
 /// Percent-encode a query-string value.
@@ -178,11 +240,11 @@ async fn token_for(login: &str) -> Result<String, GhError> {
   }
   let res = exec::run("gh", &["auth", "token", "--hostname", "github.com", "--user", login], gh_options(20_000)).await;
   if res.not_found {
-    return Err(GhError { status: None, message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true });
+    return Err(GhError { status: None, message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true, sso_url: None });
   }
   let token = res.stdout.trim().to_string();
   if !res.ok || token.is_empty() || token.contains(char::is_whitespace) {
-    return Err(GhError { status: Some(401), message: format!("The GitHub CLI isn't signed in to {login}."), missing_cli: false });
+    return Err(GhError { status: Some(401), message: format!("The GitHub CLI isn't signed in to {login}."), ..Default::default() });
   }
   TOKENS.lock().unwrap().insert(key, (Instant::now(), token.clone()));
   Ok(token)
@@ -239,7 +301,7 @@ fn parse_accounts(stdout: &str) -> Option<Vec<Account>> {
 pub async fn accounts() -> Result<Vec<Account>, GhError> {
   let res = exec::run("gh", &["auth", "status", "--hostname", "github.com", "--json", "hosts"], gh_options(45_000)).await;
   if res.not_found {
-    return Err(GhError { status: None, message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true });
+    return Err(GhError { status: None, message: "The GitHub CLI (gh) isn't installed.".into(), missing_cli: true, sso_url: None });
   }
   if let Some(mut list) = parse_accounts(&res.stdout) {
     list.sort_by_key(|a| !a.active);
@@ -441,13 +503,39 @@ pub async fn owners() -> Result<Vec<TeamOwner>, GhError> {
     login: str_of(&me, "login").unwrap_or_default(),
     is_org: false,
     avatar_url: str_of(&me, "avatar_url"),
+    can_create: None,
   }];
-  for org in api_list("user/orgs?per_page=100").await? {
-    if let Some(login) = str_of(&org, "login") {
-      owners.push(TeamOwner { login, is_org: true, avatar_url: str_of(&org, "avatar_url") });
+  // (login, avatar, org owner)
+  let orgs: Vec<(String, Option<String>, bool)> = api_list("user/memberships/orgs?state=active&per_page=100")
+    .await?
+    .iter()
+    .filter_map(|m| {
+      let org = m.get("organization")?;
+      Some((str_of(org, "login")?, str_of(org, "avatar_url"), str_of(m, "role").as_deref() == Some("admin")))
+    })
+    .collect();
+  // Organization owners can always create repositories; members only when it's allowed.
+  let allowed = futures::future::join_all(orgs.iter().map(|(login, _, admin)| async move {
+    if *admin {
+      return Some(true);
     }
+    api("GET", &format!("orgs/{login}"), None).await.ok().and_then(|org| members_can_create_private(&org))
+  }))
+  .await;
+  for ((login, avatar_url, _), can_create) in orgs.into_iter().zip(allowed) {
+    owners.push(TeamOwner { login, is_org: true, avatar_url, can_create });
   }
   Ok(owners)
+}
+
+/// Whether an organization lets its members create private repositories (what
+/// setup creates), as GitHub tells its members; `None` when it doesn't say.
+pub fn members_can_create_private(org: &Value) -> Option<bool> {
+  let flag = |k: &str| org.get(k).and_then(Value::as_bool);
+  match flag("members_can_create_repositories") {
+    Some(false) => Some(false),
+    _ => flag("members_can_create_private_repositories"),
+  }
 }
 
 /// A user by login, or `None` when it doesn't exist.
@@ -473,10 +561,35 @@ pub struct RepoInfo {
   pub push: bool,
   pub html_url: String,
   pub description: Option<String>,
+  /// The repository's website; organizations that lock new repositories
+  /// until they're set up put their portal's address here.
+  pub homepage: Option<String>,
   pub topics: Vec<String>,
   /// Archived repositories are read-only; Fabricator archives a workspace's
   /// repository when the workspace is deleted.
   pub archived: bool,
+}
+
+impl RepoInfo {
+  /// Its organization locked it until someone finishes setting it up in the
+  /// organization's portal, as Microsoft's organizations do with every new
+  /// repository ("To gain access, please finish setting up this repository now
+  /// at: …"). Until then its creator can only read it.
+  pub fn awaiting_setup(&self) -> bool {
+    self.description.as_deref().is_some_and(|d| d.to_ascii_lowercase().contains("finish setting up this repository"))
+  }
+
+  /// Where to finish setting it up: its website, else an address in its description.
+  pub fn setup_url(&self) -> Option<String> {
+    let https = |text: &str| text.find("https://").map(|at| text[at..].split_whitespace().next().unwrap_or_default().to_string());
+    self
+      .homepage
+      .as_deref()
+      .map(str::trim)
+      .filter(|h| h.starts_with("https://"))
+      .map(String::from)
+      .or_else(|| self.description.as_deref().and_then(https))
+  }
 }
 
 pub fn repo_info(v: &Value) -> Option<RepoInfo> {
@@ -492,6 +605,7 @@ pub fn repo_info(v: &Value) -> Option<RepoInfo> {
     push: perm("push") || perm("admin"),
     html_url: str_of(v, "html_url").unwrap_or_default(),
     description: str_of(v, "description").filter(|d| !d.trim().is_empty()),
+    homepage: str_of(v, "homepage").filter(|h| !h.trim().is_empty()),
     topics: v
       .get("topics")
       .and_then(Value::as_array)
@@ -540,8 +654,35 @@ pub async fn apply_merge_settings(full_name: &str) -> Result<(), GhError> {
   api("PATCH", &format!("repos/{full_name}"), Some(&merge_settings())).await.map(|_| ())
 }
 
-pub async fn set_topics(full_name: &str, topics: &[&str]) -> Result<(), GhError> {
-  api("PUT", &format!("repos/{full_name}/topics"), Some(&json!({ "names": topics }))).await.map(|_| ())
+pub async fn set_description(full_name: &str, description: &str) -> Result<(), GhError> {
+  api("PATCH", &format!("repos/{full_name}"), Some(&json!({ "description": description }))).await.map(|_| ())
+}
+
+/// Add (or remove) one topic, keeping the repository's other topics.
+pub async fn set_topic(info: &RepoInfo, topic: &str, present: bool) -> Result<(), GhError> {
+  let Some(topics) = with_topic(&info.topics, topic, present) else {
+    return Ok(());
+  };
+  api("PUT", &format!("repos/{}/topics", info.full_name), Some(&json!({ "names": topics }))).await.map(|_| ())
+}
+
+/// `topics` with `topic` added or removed, or `None` when nothing changes.
+pub fn with_topic(topics: &[String], topic: &str, present: bool) -> Option<Vec<String>> {
+  let has = topics.iter().any(|t| t.eq_ignore_ascii_case(topic));
+  if has == present {
+    return None;
+  }
+  let mut next: Vec<String> = topics.iter().filter(|t| !t.eq_ignore_ascii_case(topic)).cloned().collect();
+  if present {
+    next.push(topic.to_string());
+  }
+  Some(next)
+}
+
+/// Whether a repository has any commits (an empty one has no branches).
+pub async fn has_commits(full_name: &str) -> Result<bool, GhError> {
+  let v = api("GET", &format!("repos/{full_name}/branches?per_page=1"), None).await?;
+  Ok(v.as_array().is_some_and(|branches| !branches.is_empty()))
 }
 
 /// Create or update a repository Actions variable.
@@ -567,6 +708,30 @@ pub async fn variable(full_name: &str, name: &str) -> Result<Option<String>, GhE
     Err(e) if e.is_not_found() => Ok(None),
     Err(e) => Err(e),
   }
+}
+
+/// Delete a repository Actions variable (fine when it isn't set).
+pub async fn delete_variable(full_name: &str, name: &str) -> Result<(), GhError> {
+  match api("DELETE", &format!("repos/{full_name}/actions/variables/{name}"), None).await {
+    Ok(_) => Ok(()),
+    Err(e) if e.is_not_found() => Ok(()),
+    Err(e) => Err(e),
+  }
+}
+
+/// An organization Actions variable shared with the repository, or `None`.
+pub async fn organization_variable(full_name: &str, name: &str) -> Result<Option<String>, GhError> {
+  let v = match api("GET", &format!("repos/{full_name}/actions/organization-variables?per_page=100"), None).await {
+    Ok(v) => v,
+    Err(e) if e.is_not_found() => return Ok(None),
+    Err(e) => return Err(e),
+  };
+  Ok(
+    v.get("variables")
+      .and_then(Value::as_array)
+      .and_then(|vars| vars.iter().find(|var| str_of(var, "name").is_some_and(|n| n.eq_ignore_ascii_case(name))))
+      .and_then(|var| str_of(var, "value")),
+  )
 }
 
 /// Ask GitHub to require pull requests into `main` (plus one approval when
@@ -603,6 +768,19 @@ pub async fn workspace_repos() -> Result<Vec<RepoInfo>, GhError> {
       .filter(|r| !r.archived && r.topics.iter().any(|t| t == naming::REPO_TOPIC))
       .collect(),
   )
+}
+
+/// Repositories the user owns or was added to that a workspace could be set
+/// up in, newest first (suggestions; any repository can still be entered).
+pub async fn adoptable_repos() -> Result<Vec<RepoInfo>, GhError> {
+  let repos = api_list("user/repos?affiliation=owner,collaborator&sort=created&direction=desc&per_page=100").await?;
+  Ok(repos.iter().filter_map(repo_info).filter(adoptable).collect())
+}
+
+/// Whether setup could use a repository: private or internal, not archived,
+/// not a team workspace yet, and administered by the user.
+pub fn adoptable(r: &RepoInfo) -> bool {
+  r.admin && r.private && !r.archived && !r.topics.iter().any(|t| t.eq_ignore_ascii_case(naming::REPO_TOPIC))
 }
 
 /* --------------------------------- members -------------------------------- */
@@ -942,6 +1120,51 @@ pub async fn pr_files(full_name: &str, number: u64) -> Result<Vec<Value>, GhErro
 pub async fn run_jobs(full_name: &str, run_id: u64) -> Result<Vec<Value>, GhError> {
   let v = api("GET", &format!("repos/{full_name}/actions/runs/{run_id}/jobs?per_page=100"), None).await?;
   Ok(v.get("jobs").and_then(Value::as_array).cloned().unwrap_or_default())
+}
+
+/// Cancel a workflow run.
+pub async fn cancel_run(full_name: &str, run_id: u64) -> Result<(), GhError> {
+  api("POST", &format!("repos/{full_name}/actions/runs/{run_id}/cancel"), None).await.map(|_| ())
+}
+
+/// The failure messages GitHub attached to a job, such as why it never
+/// started (a job's ID is also its check run's). Notices are left out.
+pub async fn job_annotations(full_name: &str, job_id: u64) -> Result<Vec<String>, GhError> {
+  let v = api("GET", &format!("repos/{full_name}/check-runs/{job_id}/annotations?per_page=20"), None).await?;
+  Ok(
+    v.as_array()
+      .map(|items| {
+        items
+          .iter()
+          .filter(|a| str_of(a, "annotation_level").as_deref() == Some("failure"))
+          .filter_map(|a| str_of(a, "message"))
+          .filter(|m| !m.trim().is_empty())
+          .collect()
+      })
+      .unwrap_or_default(),
+  )
+}
+
+/// A failed job GitHub never started: no runner and no steps, as when the
+/// runners it asks for are turned off or don't exist.
+pub fn unstarted_job(jobs: &[Value]) -> Option<u64> {
+  let text = |job: &Value, key: &str| job.get(key).and_then(Value::as_str).filter(|s| !s.is_empty()).map(String::from);
+  jobs
+    .iter()
+    .find(|job| {
+      text(job, "conclusion").as_deref() == Some("failure")
+        && text(job, "runner_name").is_none()
+        && job.get("steps").and_then(Value::as_array).is_none_or(Vec::is_empty)
+    })
+    .and_then(|job| job.get("id").and_then(Value::as_u64))
+}
+
+/// When GitHub never started a failed run's job, its reason (empty when it
+/// gave none). `None` when the jobs ran, or they couldn't be read.
+pub async fn unstarted_reason(full_name: &str, run_id: u64) -> Option<String> {
+  let jobs = run_jobs(full_name, run_id).await.ok()?;
+  let job = unstarted_job(&jobs)?;
+  Some(job_annotations(full_name, job).await.unwrap_or_default().join(" "))
 }
 
 /// Steps that say nothing about the deploy itself: the setup and cleanup GitHub
@@ -1306,25 +1529,54 @@ pub fn base64(bytes: &[u8]) -> String {
   out
 }
 
+/// A file on `main` as text, with its blob SHA, or `None` when it (or the
+/// branch) doesn't exist.
+pub async fn main_file(full_name: &str, path: &str) -> Result<Option<(String, String)>, GhError> {
+  match api("GET", &format!("repos/{full_name}/contents/{path}?ref={}", naming::DEFAULT_BRANCH), None).await {
+    Ok(v) => Ok(str_of(&v, "sha").map(|sha| (decode_content(&v).unwrap_or_default(), sha))),
+    Err(e) if e.is_not_found() => Ok(None),
+    Err(e) => Err(e),
+  }
+}
+
+/// A contents API file's text (GitHub sends it as base64 with line breaks).
+fn decode_content(v: &Value) -> Option<String> {
+  use ::base64::Engine as _;
+  let encoded: String = str_of(v, "content")?.chars().filter(|c| !c.is_whitespace()).collect();
+  let bytes = ::base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+  String::from_utf8(bytes).ok()
+}
+
 /// Create or replace one file on `main` with a single commit (owner settings
-/// and workflow updates). Writing under `.github/workflows` needs the
-/// `workflow` scope.
+/// and workflow updates); nothing is committed when it already has `content`.
+/// Writing under `.github/workflows` needs the `workflow` scope.
 pub async fn put_main_file(full_name: &str, path: &str, content: &str, message: &str) -> Result<(), GhError> {
-  let url = format!("repos/{full_name}/contents/{path}");
-  let sha = match api("GET", &format!("{url}?ref={}", naming::DEFAULT_BRANCH), None).await {
-    Ok(v) => str_of(&v, "sha"),
-    Err(e) if e.is_not_found() => None,
-    Err(e) => return Err(e),
-  };
+  let existing = main_file(full_name, path).await?;
+  if existing.as_ref().is_some_and(|(text, _)| text == content) {
+    return Ok(());
+  }
   let mut body = json!({
     "message": message,
     "content": base64(content.as_bytes()),
     "branch": naming::DEFAULT_BRANCH
   });
-  if let Some(sha) = sha {
+  if let Some((_, sha)) = existing {
     body["sha"] = json!(sha);
   }
-  api("PUT", &url, Some(&body)).await.map(|_| ())
+  api("PUT", &format!("repos/{full_name}/contents/{path}"), Some(&body)).await.map(|_| ())
+}
+
+/// Delete one file from `main` with a single commit (fine when it isn't there).
+pub async fn delete_main_file(full_name: &str, path: &str, message: &str) -> Result<(), GhError> {
+  let Some((_, sha)) = main_file(full_name, path).await? else {
+    return Ok(());
+  };
+  let body = json!({ "message": message, "sha": sha, "branch": naming::DEFAULT_BRANCH });
+  match api("DELETE", &format!("repos/{full_name}/contents/{path}"), Some(&body)).await {
+    Ok(_) => Ok(()),
+    Err(e) if e.is_not_found() => Ok(()),
+    Err(e) => Err(e),
+  }
 }
 
 /// Archive a repository (read-only on GitHub; reversible by an owner).
@@ -1362,6 +1614,106 @@ mod tests {
 
   fn result(ok: bool, stdout: &str, stderr: &str) -> RunResult {
     RunResult { ok, exit_code: Some(if ok { 0 } else { 1 }), stdout: stdout.into(), stderr: stderr.into(), not_found: false }
+  }
+
+  #[test]
+  fn repositories_a_workspace_could_use_are_suggested() {
+    let repo = |over: Value| {
+      let mut v = json!({ "full_name": "contoso/sales", "private": true, "permissions": { "admin": true, "push": true } });
+      for (k, value) in over.as_object().unwrap() {
+        v[k] = value.clone();
+      }
+      repo_info(&v).unwrap()
+    };
+    assert!(adoptable(&repo(json!({}))));
+    assert!(!adoptable(&repo(json!({ "permissions": { "admin": false, "push": true } }))), "setup needs Admin");
+    assert!(!adoptable(&repo(json!({ "private": false }))), "public");
+    assert!(!adoptable(&repo(json!({ "archived": true }))));
+    assert!(!adoptable(&repo(json!({ "topics": ["Fabricator-Workspace"] }))), "already a team workspace");
+  }
+
+  #[test]
+  fn single_sign_on_errors_carry_githubs_authorization_link() {
+    // As GitHub answers a CLI sign-in that isn't authorized for an organization's SAML single sign-on.
+    let body = r#"{"message":"Resource protected by organization SAML enforcement. You must grant your OAuth token access to this organization. The 'microsoft' organization has enabled or enforced SAML SSO.\nTo access this repository, visit https://github.com/enterprises/microsoftopensource/sso?authorization_request=ADBWCQ2V2OYS and try your request again.\n","documentation_url":"https://docs.github.com/rest/repos/repos#get-a-repository","status":"403"}"#;
+    let e = parse_error(&result(false, body, "gh: Resource protected by organization SAML enforcement. (HTTP 403)"));
+    assert_eq!(e.status, Some(403));
+    assert!(e.needs_sso());
+    assert_eq!(e.sso_org().as_deref(), Some("microsoft"));
+    assert_eq!(
+      e.sso_url.as_deref(),
+      Some("https://github.com/enterprises/microsoftopensource/sso?authorization_request=ADBWCQ2V2OYS")
+    );
+    let text = e.describe("Open microsoft/rayfin-team-apps");
+    assert!(
+      text.starts_with("Open microsoft/rayfin-team-apps: The microsoft organization requires single sign-on (through the microsoftopensource enterprise), and the GitHub CLI's sign-in isn't authorized for it yet."),
+      "{text}"
+    );
+    // GitHub's authorization_request link is for personal access tokens (a 404 for the CLI's sign-in).
+    assert!(
+      text.ends_with("Open https://github.com/orgs/microsoft/sso in your browser to start a single sign-on session, then sign in to GitHub again (gh auth refresh) and try again."),
+      "{text}"
+    );
+    assert!(!text.contains("authorization_request"));
+    assert_eq!(e.sso_enterprise().as_deref(), Some("microsoftopensource"));
+    assert_eq!(e.sso_session_url().as_deref(), Some("https://github.com/orgs/microsoft/sso"));
+    // An organization's own single sign-on names no enterprise.
+    let org_only = GhError { sso_url: Some("https://github.com/orgs/contoso/sso?authorization_request=A1".into()), ..e.clone() };
+    assert_eq!(org_only.sso_enterprise(), None);
+    assert!(!org_only.sso_reason().contains("enterprise"));
+    // Without the organization's name, the enterprise's page starts a session too.
+    let unnamed = GhError { message: "Resource protected by organization SAML enforcement.".into(), ..e.clone() };
+    assert_eq!(unnamed.sso_session_url().as_deref(), Some("https://github.com/enterprises/microsoftopensource/sso"));
+    let other = parse_error(&result(false, r#"{"message":"Not Found"}"#, "gh: Not Found (HTTP 404)"));
+    assert!(!other.needs_sso() && other.sso_url.is_none());
+  }
+
+  #[test]
+  fn topics_change_one_at_a_time() {
+    let topics = vec!["sales".to_string(), "Fabricator-Workspace".to_string()];
+    assert_eq!(with_topic(&topics, naming::REPO_TOPIC, true), None, "already there (topics ignore case)");
+    assert_eq!(with_topic(&topics, naming::REPO_TOPIC, false), Some(vec!["sales".to_string()]));
+    assert_eq!(with_topic(&["sales".to_string()], naming::REPO_TOPIC, true), Some(vec!["sales".into(), naming::REPO_TOPIC.into()]));
+    assert_eq!(with_topic(&[], naming::REPO_TOPIC, false), None);
+  }
+
+  #[test]
+  fn organizations_say_whether_members_can_create_private_repositories() {
+    // As GitHub answers a member of an organization in an enterprise.
+    let locked = json!({ "members_can_create_repositories": false, "members_can_create_private_repositories": false });
+    assert_eq!(members_can_create_private(&locked), Some(false));
+    assert_eq!(members_can_create_private(&json!({ "members_can_create_repositories": false })), Some(false));
+    let open = json!({ "members_can_create_repositories": true, "members_can_create_private_repositories": true });
+    assert_eq!(members_can_create_private(&open), Some(true));
+    let public_only = json!({ "members_can_create_repositories": true, "members_can_create_private_repositories": false });
+    assert_eq!(members_can_create_private(&public_only), Some(false));
+    assert_eq!(members_can_create_private(&json!({ "login": "contoso" })), None);
+  }
+
+  #[test]
+  fn contents_api_files_are_decoded() {
+    let file = json!({ "sha": "abc", "content": "bm9kZV9tb2R1bGVz\nLwo=\n", "encoding": "base64" });
+    assert_eq!(decode_content(&file).as_deref(), Some("node_modules/\n"));
+    assert_eq!(decode_content(&json!({ "content": "not base64!" })), None);
+    assert_eq!(decode_content(&json!({ "content": base64("é ✓\n".as_bytes()) })).as_deref(), Some("é ✓\n"));
+  }
+
+  #[test]
+  fn jobs_github_never_started_are_found() {
+    let ran = vec![
+      json!({ "id": 1, "conclusion": "success", "runner_name": "r", "steps": [{ "name": "x" }] }),
+      json!({ "id": 2, "conclusion": "failure", "runner_name": "r", "steps": [{ "name": "x" }] }),
+    ];
+    assert_eq!(unstarted_job(&ran), None);
+    // As GitHub reports a job when hosted runners are turned off for the repository.
+    let refused = json!({
+      "id": 112007371395u64, "name": "Plan", "status": "completed", "conclusion": "failure",
+      "runner_name": "", "runner_group_name": "", "labels": ["ubuntu-latest"], "steps": []
+    });
+    let skipped = json!({ "id": 5, "conclusion": "skipped", "runner_name": null, "steps": [] });
+    assert_eq!(unstarted_job(&[ran[0].clone(), skipped.clone(), refused]), Some(112007371395));
+    assert_eq!(unstarted_job(&[skipped]), None);
+    assert_eq!(unstarted_job(&[json!({ "id": 4, "conclusion": "failure" })]), Some(4));
   }
 
   #[test]
@@ -1419,7 +1771,7 @@ mod tests {
 
   #[tokio::test]
   async fn sign_in_problems_name_the_account_in_use() {
-    let expired = GhError { status: Some(401), message: "Bad credentials".into(), missing_cli: false };
+    let expired = GhError { status: Some(401), message: "Bad credentials".into(), missing_cli: false, sso_url: None };
     assert!(expired.describe("Open the repository").ends_with("your GitHub sign-in has expired. Sign in to GitHub again."));
     let named = as_account(Some("octo_contoso".into()), async { expired.describe("Open the repository") }).await;
     assert_eq!(
@@ -1540,6 +1892,33 @@ mod tests {
     assert!(!info.archived);
     let deleted = repo_info(&json!({"full_name": "Octo/Old", "archived": true})).unwrap();
     assert!(deleted.archived);
+    assert!(!info.awaiting_setup() && info.setup_url().is_none() && info.homepage.is_none());
+  }
+
+  #[test]
+  fn repositories_locked_until_set_up_point_to_their_portal() {
+    // As GitHub returns a new repository in Microsoft's organizations before it's set up.
+    let locked = repo_info(&json!({
+      "full_name": "microsoft/rayfin-team-apps", "private": true, "default_branch": "main",
+      "permissions": {"admin": false, "maintain": false, "push": false, "triage": false, "pull": true},
+      "description": "To gain access, please finish setting up this repository now at: ",
+      "homepage": "https://repos.opensource.microsoft.com/microsoft/wizard?existingreponame=rayfin-team-apps&existingrepoid=1406546045"
+    }))
+    .unwrap();
+    assert!(locked.awaiting_setup());
+    assert_eq!(
+      locked.setup_url().as_deref(),
+      Some("https://repos.opensource.microsoft.com/microsoft/wizard?existingreponame=rayfin-team-apps&existingrepoid=1406546045")
+    );
+    // The address can be in the description instead.
+    let described = RepoInfo {
+      homepage: Some("http://example.com".into()),
+      description: Some("To gain access, please finish setting up this repository now at: https://portal.contoso.com/setup?r=1 today".into()),
+      ..locked.clone()
+    };
+    assert_eq!(described.setup_url().as_deref(), Some("https://portal.contoso.com/setup?r=1"));
+    let plain = RepoInfo { description: Some("Sales team apps".into()), homepage: Some("https://contoso.com".into()), ..locked };
+    assert!(!plain.awaiting_setup());
   }
 
   #[test]

@@ -1,5 +1,6 @@
-//! Workspace settings and maintenance (owners): the review requirement, a
-//! health checklist of everything setup created, and Repair.
+//! Workspace settings and maintenance (owners): the review requirement, where
+//! the pipeline runs, a health checklist of everything setup created, and
+//! Repair.
 //!
 //! Privileged actions use [`TrustedTargets`]: the repository's Actions
 //! variables (only repository admins can change them) or this computer's setup
@@ -14,7 +15,10 @@ use super::{fail, with_workspace};
 use crate::services::store;
 use crate::services::team::{self, entra, fabric, gh, naming, repo, templates, TrustedTargets};
 use crate::state::AppState;
-use crate::types::{TeamActionResult, TeamDeployIdentity, TeamHealth, TeamHealthItem, TeamManifest, TeamWorkspace};
+use crate::types::{
+  TeamActionResult, TeamDeployIdentity, TeamHealth, TeamHealthItem, TeamManifest, TeamRunner, TeamRunnerInfo,
+  TeamRunnerSource, TeamWorkspace,
+};
 
 fn workspace(id: &str) -> Result<TeamWorkspace, String> {
   team::require_enabled()?;
@@ -305,6 +309,74 @@ pub async fn team_set_account(workspace_id: String, account: String) -> TeamActi
   }
 }
 
+/// Where the workspace's pipeline runs (owners: only they can read the
+/// repository's variables).
+#[tauri::command]
+pub async fn team_runner(workspace_id: String) -> TeamRunnerInfo {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, runner(workspace_id)).await
+}
+
+async fn runner(workspace_id: String) -> TeamRunnerInfo {
+  let failed = |e: String| TeamRunnerInfo { ok: false, error: Some(e), ..Default::default() };
+  let ws = match workspace(&workspace_id) {
+    Ok(ws) => ws,
+    Err(e) => return failed(e),
+  };
+  if let Err(e) = require_owner(&ws).await {
+    return failed(e);
+  }
+  let source = |value: String| TeamRunnerSource { runner: templates::parse_runs_on(&value), value };
+  let (repository, organization) = tokio::join!(
+    gh::variable(&ws.repo, templates::RUNS_ON_VARIABLE),
+    gh::organization_variable(&ws.repo, templates::RUNS_ON_VARIABLE)
+  );
+  let repository = match repository {
+    Ok(value) => value.map(source),
+    Err(e) => return failed(e.describe("Check where the pipeline runs")),
+  };
+  // Best effort: personal repositories have no organization.
+  let organization = organization.ok().flatten().map(source);
+  TeamRunnerInfo { ok: true, error: None, repository, organization }
+}
+
+/// Choose where the workspace's pipeline runs: a runner group and/or labels,
+/// or neither for the organization's choice (GitHub-hosted runners unless it
+/// set one). Runs that start afterwards use it.
+#[tauri::command]
+pub async fn team_set_runner(workspace_id: String, runner: TeamRunner) -> TeamActionResult {
+  let account = super::workspace_account(&workspace_id);
+  gh::as_account(account, set_runner(workspace_id, runner)).await
+}
+
+async fn set_runner(workspace_id: String, runner: TeamRunner) -> TeamActionResult {
+  let ws = match workspace(&workspace_id) {
+    Ok(ws) => ws,
+    Err(e) => return fail(e),
+  };
+  let runner = match templates::clean_runner(runner) {
+    Ok(r) => r,
+    Err(e) => return fail(e),
+  };
+  if let Err(e) = require_owner(&ws).await {
+    return fail(e);
+  }
+  let saved = match templates::runs_on_value(&runner) {
+    Some(value) => gh::set_variable(&ws.repo, templates::RUNS_ON_VARIABLE, &value).await,
+    None => gh::delete_variable(&ws.repo, templates::RUNS_ON_VARIABLE).await,
+  };
+  if let Err(e) = saved {
+    return fail(e.describe("Save where the pipeline runs"));
+  }
+  // An unfinished setup applies the same choice when it continues.
+  let updated = store::mutate_team_workspace(&ws.id, |w| {
+    if let Some(setup) = w.setup.as_mut() {
+      setup.request.runner = Some(runner.clone());
+    }
+  });
+  with_workspace(updated.unwrap_or(ws))
+}
+
 async fn repair(app: AppHandle, workspace_id: String, scope: String) -> TeamActionResult {
   let ws = match workspace(&workspace_id) {
     Ok(ws) => ws,
@@ -381,7 +453,7 @@ async fn repair(app: AppHandle, workspace_id: String, scope: String) -> TeamActi
     }
   }
   let _ = gh::apply_merge_settings(&ws.repo).await;
-  let _ = gh::set_topics(&ws.repo, &[naming::REPO_TOPIC]).await;
+  let _ = gh::set_topic(&info, naming::REPO_TOPIC, true).await;
 
   // The managed pipeline.
   let current = repo::read_main_file(&ws, naming::WORKFLOW_PATH).await.ok().flatten();

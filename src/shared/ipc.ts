@@ -215,6 +215,38 @@ export interface TeamCreateRequest {
   existingClientId?: string
   /** The GitHub account to set it up as; the GitHub CLI's active account when absent. */
   account?: string
+  /** Where the pipeline runs; absent leaves it to the organization (or GitHub-hosted runners). */
+  runner?: TeamRunner
+  /**
+   * Set up in this repository (`owner/name`), which someone created for the
+   * workspace, instead of creating one. It decides the owner.
+   */
+  existingRepo?: string
+}
+
+/** Where a team workspace's pipeline runs. Neither field means GitHub-hosted runners. */
+export interface TeamRunner {
+  group?: string
+  /** A runner needs every label. */
+  labels?: string[]
+}
+
+/** One `FABRICATOR_RUNS_ON` Actions variable. */
+export interface TeamRunnerSource {
+  /** As GitHub stores it. */
+  value: string
+  /** What it means; absent when the pipeline can't use it. */
+  runner?: TeamRunner
+}
+
+/** Where a team workspace's pipeline runs (owners). */
+export interface TeamRunnerInfo {
+  ok: boolean
+  error?: string
+  /** The repository's choice, which wins over the organization's. */
+  repository?: TeamRunnerSource
+  /** What the organization shares with the repository. */
+  organization?: TeamRunnerSource
 }
 
 /** A setup or publishing problem, explained in plain language. */
@@ -224,6 +256,14 @@ export interface TeamProblem {
   guidance?: string
   /** Ready-to-send instructions for an administrator. */
   adminNote?: string
+  /**
+   * 'runner' when no runner ran the pipeline, so the user can choose others;
+   * 'sso' when an organization's single sign-on blocked the GitHub CLI's
+   * sign-in, so the user can sign in to GitHub again.
+   */
+  kind?: 'runner' | 'sso'
+  /** A page that fixes it, such as the organization's single sign-on. */
+  link?: { label: string; url: string }
 }
 
 export interface TeamSetupState {
@@ -240,6 +280,8 @@ export interface TeamSetupState {
   previewsWorkspaceId?: string
   /** 'enforced' when GitHub protects main; 'app' when only Fabricator does. */
   protection?: 'enforced' | 'app'
+  /** An existing repository's description before setup changed it. */
+  previousDescription?: string
   problem?: TeamProblem
   done: boolean
 }
@@ -344,12 +386,27 @@ export interface TeamOwner {
   login: string
   isOrg: boolean
   avatarUrl?: string
+  /** Whether you can create private repositories in this organization (absent when GitHub doesn't say). */
+  canCreate?: boolean
 }
 
 export interface TeamOwnersResult {
   ok: boolean
   error?: string
   owners: TeamOwner[]
+}
+
+/** A repository a team workspace could be set up in. */
+export interface TeamRepoChoice {
+  /** `owner/name`. */
+  fullName: string
+  description?: string
+}
+
+export interface TeamReposResult {
+  ok: boolean
+  error?: string
+  repos: TeamRepoChoice[]
 }
 
 /** An account the GitHub CLI is signed in to. */
@@ -434,7 +491,13 @@ export interface TeamActionResult {
 
 /** Something an unfinished setup created, which abandoning it deletes. */
 export interface TeamAbandonItem {
-  kind: 'identity' | 'fabric' | 'github' | 'local'
+  /**
+   * What happens to it: deleted (`identity`, `fabric`, `github`, `local`), or
+   * kept without what setup added (`trust`: the federated credentials on an app
+   * registration you provided; `pipeline`: Fabricator's files and settings in a
+   * repository you provided).
+   */
+  kind: 'identity' | 'trust' | 'fabric' | 'pipeline' | 'github' | 'local'
   /** Client ID, Fabric workspace ID, `owner/name` or folder (as in the setup record). */
   id: string
   name: string
@@ -2912,6 +2975,11 @@ export interface RayfinStudioApi {
     githubSignIn: (signedIn: boolean, deleteRepo?: boolean, account?: string) => Promise<ProcResult>
     /** GitHub accounts that can own a workspace set up as `account` (it and its organizations). */
     owners: (account?: string) => Promise<TeamOwnersResult>
+    /**
+     * Repositories `account` could set a workspace up in: private or internal,
+     * administered by it, and not team workspaces yet (suggestions only).
+     */
+    repos: (account?: string) => Promise<TeamReposResult>
     /** Fabric capacities for the workspace's apps (via the Azure CLI). */
     capacities: () => Promise<FabricCapacitiesResult>
     /** Set up a new team workspace automatically; progress on `team:progress` (scope). */
@@ -2995,6 +3063,13 @@ export interface RayfinStudioApi {
      * must be able to change the repository.
      */
     setAccount: (workspaceId: string, account: string) => Promise<TeamActionResult>
+    /** Where the workspace's pipeline runs (owners). */
+    runner: (workspaceId: string) => Promise<TeamRunnerInfo>
+    /**
+     * Choose where the pipeline runs (owners): a runner group and/or labels, or
+     * neither for the organization's choice or GitHub-hosted runners.
+     */
+    setRunner: (workspaceId: string, runner: TeamRunner) => Promise<TeamActionResult>
     /** Apps, working copies, deployments, pipeline runs and members (workspace map). */
     map: (workspaceId: string) => Promise<TeamMap>
     /** The pipeline's recent runs, with the steps of those in progress. */

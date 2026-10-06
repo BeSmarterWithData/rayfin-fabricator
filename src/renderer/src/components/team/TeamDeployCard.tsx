@@ -1,16 +1,14 @@
 import type { TeamRunStatus } from '@shared/ipc'
-import { elapsed, friendlyStep, runProgress, useNow } from './runProgress'
+import { elapsed, friendlyStep, runProgress, useNow, waitingForRunner, waitingStep } from './runProgress'
 import './team.css'
 
 /** What a deploy is doing, in words: its title, current step, and how far along it is. */
-export function describeRun(run: TeamRunStatus): { title: string; step: string; position: string; fraction: number } {
+export function describeRun(
+  run: TeamRunStatus,
+  now = Date.now()
+): { title: string; step: string; position: string; fraction: number } {
   const progress = runProgress(run.steps)
-  const step =
-    run.status === 'queued' || run.status === 'waiting'
-      ? 'Waiting for the pipeline to start'
-      : progress.current
-        ? friendlyStep(progress.current.name)
-        : 'Getting ready'
+  const step = waitingStep(run, now) ?? (progress.current ? friendlyStep(progress.current.name) : 'Getting ready')
   return {
     title: run.kind === 'production' ? 'Publishing for everyone' : 'Deploying your preview',
     step,
@@ -29,7 +27,7 @@ interface Props {
 /** The preview area while the pipeline deploys an app that has nothing to show yet. */
 export default function TeamDeployCard({ run, first, onOpenMap }: Props): JSX.Element {
   const now = useNow(true)
-  const { title, step, position, fraction } = describeRun(run)
+  const { title, step, position, fraction } = describeRun(run, now)
   const percent = Math.max(4, Math.round(fraction * 100))
   return (
     <div className="team-deploy-card" role="status" aria-live="polite">
@@ -51,9 +49,11 @@ export default function TeamDeployCard({ run, first, onOpenMap }: Props): JSX.El
         <span style={{ width: `${percent}%` }} />
       </span>
       <p className="team-deploy-card-note">
-        {first
-          ? 'The team pipeline builds the app and deploys it to Fabric. The first deploy takes a few minutes; later ones are quicker.'
-          : 'The team pipeline is deploying your latest change. The preview switches to it when it’s live.'}
+        {waitingForRunner(run, now)
+          ? 'No runner has picked up the pipeline yet. If your organization turned off GitHub-hosted runners, an owner can choose its runners under Manage → Settings → Where the pipeline runs.'
+          : first
+            ? 'The team pipeline builds the app and deploys it to Fabric. The first deploy takes a few minutes; later ones are quicker.'
+            : 'The team pipeline is deploying your latest change. The preview switches to it when it’s live.'}
       </p>
       <div className="team-deploy-card-actions">
         {onOpenMap && (

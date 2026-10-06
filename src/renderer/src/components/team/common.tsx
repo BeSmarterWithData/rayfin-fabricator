@@ -61,9 +61,17 @@ export function StepList({ rows }: { rows: StepRow[] }): JSX.Element {
   )
 }
 
-/** A plain-language problem, with instructions to forward to an administrator. */
-export function ProblemView({ problem }: { problem: TeamProblem }): JSX.Element {
+/**
+ * A plain-language problem, with instructions to forward to an administrator.
+ * When single sign-on blocked the GitHub CLI, it also signs `account` (the
+ * CLI's active account when absent) in to GitHub again.
+ */
+export function ProblemView({ problem, account }: { problem: TeamProblem; account?: string }): JSX.Element {
   const [copied, setCopied] = useState(false)
+  /** A terminal sign-in was opened. */
+  const [signingIn, setSigningIn] = useState(false)
+  const [signInError, setSignInError] = useState<string | null>(null)
+  const sso = problem.kind === 'sso'
   async function copy(): Promise<void> {
     if (!problem.adminNote) return
     try {
@@ -74,10 +82,43 @@ export function ProblemView({ problem }: { problem: TeamProblem }): JSX.Element 
       /* clipboard can be unavailable; the text stays selectable */
     }
   }
+  async function signInAgain(): Promise<void> {
+    setSignInError(null)
+    try {
+      const result = await window.api.team.githubSignIn(true, false, account || undefined)
+      if (result.ok) setSigningIn(true)
+      else setSignInError(result.error ?? 'Could not start GitHub sign-in.')
+    } catch (reason) {
+      setSignInError(teamError(reason, 'Could not start GitHub sign-in.'))
+    }
+  }
   return (
     <div className="team-problem" role="alert">
       <p className="team-problem-title">{problem.message}</p>
       {problem.guidance && <p>{problem.guidance}</p>}
+      {(problem.link || sso) && (
+        <div>
+          {problem.link && (
+            <button
+              type="button"
+              className="btn btn--sm btn--primary"
+              onClick={() => void window.api.openExternal(problem.link!.url)}
+            >
+              {problem.link.label} <span className="codicon codicon-link-external" aria-hidden="true" />
+            </button>
+          )}
+          {problem.link && sso && ' '}
+          {sso && (
+            <button type="button" className="btn btn--sm" onClick={() => void signInAgain()}>
+              Sign in to GitHub again
+            </button>
+          )}
+        </div>
+      )}
+      {signingIn && (
+        <p className="team-muted">Finish signing in in the terminal window and your browser, then try again.</p>
+      )}
+      {signInError && <FieldProblem text={signInError} />}
       {problem.adminNote && (
         <>
           <pre className="team-admin-note">{problem.adminNote}</pre>
@@ -112,15 +153,26 @@ export function FieldLoading({ text }: { text: string }): JSX.Element {
   )
 }
 
-/** Why a picker has no choices, with a way to ask again. */
-export function FieldProblem({ text, onRetry }: { text: string; onRetry: () => void }): JSX.Element {
+/** Why a field can't be used as it is, with a way to ask again (or another action). */
+export function FieldProblem({
+  text,
+  onRetry,
+  action = 'Try again'
+}: {
+  text: string
+  onRetry?: () => void
+  /** The button's label. */
+  action?: string
+}): JSX.Element {
   return (
     <div className="team-field-problem" role="alert">
       <span className="codicon codicon-warning" aria-hidden="true" />
       <span className="team-field-problem-text">{text}</span>
-      <button type="button" className="link-btn" onClick={onRetry}>
-        Try again
-      </button>
+      {onRetry && (
+        <button type="button" className="link-btn" onClick={onRetry}>
+          {action}
+        </button>
+      )}
     </div>
   )
 }

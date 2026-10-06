@@ -1,8 +1,8 @@
 import { useEffect, useId, useState } from 'react'
-import type { TeamJoinOptions, TeamWorkspace } from '@shared/ipc'
+import type { TeamJoinOptions, TeamProblem, TeamWorkspace } from '@shared/ipc'
 import { useSuppressPreview } from '../../overlay'
 import { useModalFocus } from '../../modalFocus'
-import { GithubAccountField, teamError } from './common'
+import { GithubAccountField, ProblemView, teamError } from './common'
 import TeamDiagnosis from './diagnosis/TeamDiagnosis'
 import './team.css'
 
@@ -24,6 +24,8 @@ export default function JoinTeamWorkspaceModal({ initialAccount, onClose, onJoin
   const [busy, setBusy] = useState<string | null>(null)
   const [repo, setRepo] = useState('')
   const [error, setError] = useState<string | null>(null)
+  /** The failed join's problem, when it has more to show (a link or a sign-in that fixes it). */
+  const [problem, setProblem] = useState<TeamProblem | null>(null)
   /** The repository the failed join was for. */
   const [failedRepo, setFailedRepo] = useState<string | null>(null)
 
@@ -58,10 +60,11 @@ export default function JoinTeamWorkspaceModal({ initialAccount, onClose, onJoin
   async function join(
     key: string,
     target: string,
-    action: () => Promise<{ ok: boolean; error?: string; workspace?: TeamWorkspace }>
+    action: () => Promise<{ ok: boolean; error?: string; problem?: TeamProblem; workspace?: TeamWorkspace }>
   ): Promise<void> {
     setBusy(key)
     setError(null)
+    setProblem(null)
     setFailedRepo(target)
     try {
       const result = await action()
@@ -70,6 +73,7 @@ export default function JoinTeamWorkspaceModal({ initialAccount, onClose, onJoin
         return
       }
       setError(result.error ?? 'Could not join the workspace.')
+      if (result.problem?.link || result.problem?.kind === 'sso') setProblem(result.problem)
     } catch (reason) {
       setError(teamError(reason, 'Could not join the workspace.'))
     } finally {
@@ -178,7 +182,11 @@ export default function JoinTeamWorkspaceModal({ initialAccount, onClose, onJoin
               </section>
             </>
           )}
-          {error && <div className="alert alert--error">{error}</div>}
+          {problem ? (
+            <ProblemView problem={problem} account={account || undefined} />
+          ) : (
+            error && <div className="alert alert--error">{error}</div>
+          )}
           {error ? (
             <TeamDiagnosis
               input={{ kind: 'join', repo: failedRepo ?? undefined, error, account: account || undefined }}

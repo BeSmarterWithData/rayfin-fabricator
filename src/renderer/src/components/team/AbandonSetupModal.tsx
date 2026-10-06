@@ -7,14 +7,18 @@ import './team.css'
 
 const KIND_LABEL: Record<TeamAbandonItem['kind'], string> = {
   identity: 'Deploy identity',
+  trust: 'Its federated credentials for this workspace',
   fabric: 'Fabric workspace',
+  pipeline: 'Fabricator’s files and settings in it',
   github: 'GitHub repository',
   local: 'Folder on this computer'
 }
 
 const KIND_ICON: Record<TeamAbandonItem['kind'], string> = {
   identity: 'key',
+  trust: 'shield',
   fabric: 'layers',
+  pipeline: 'github-action',
   github: 'github',
   local: 'folder'
 }
@@ -31,7 +35,9 @@ export function abandonSteps(items: TeamAbandonItem[]): Array<{ id: string; labe
     ...(identities
       ? [{ id: 'identity', label: identities === 1 ? 'Delete the deploy identity' : 'Delete the deploy identities' }]
       : []),
+    ...(count('trust') ? [{ id: 'trust', label: 'Remove the federated credentials from your app registration' }] : []),
     ...(fabric ? [{ id: 'fabric', label: fabric === 1 ? 'Delete the Fabric workspace' : 'Delete the Fabric workspaces' }] : []),
+    ...(count('pipeline') ? [{ id: 'cleanup', label: 'Remove Fabricator’s files and settings from the repository' }] : []),
     ...(count('github') ? [{ id: 'github', label: 'Delete the GitHub repository' }] : []),
     { id: 'local', label: 'Remove the workspace from this computer' }
   ]
@@ -47,8 +53,12 @@ export function stillThere(item: TeamAbandonItem, workspace: TeamWorkspace): boo
   switch (item.kind) {
     case 'identity':
       return item.id === setup?.appId || item.id === setup?.previewAppId
+    case 'trust':
+      // Removing the credentials takes the trust step back off the record.
+      return item.id === setup?.appId && Boolean(setup?.completed.includes('trust'))
     case 'fabric':
       return item.id === setup?.productionWorkspaceId || item.id === setup?.previewsWorkspaceId
+    case 'pipeline':
     case 'github':
       return item.id.toLowerCase() === workspace.repo.toLowerCase()
     default:
@@ -251,8 +261,9 @@ export default function AbandonSetupModal({ workspace, onClose, onGone, onChange
               {items.length > 0 ? (
                 <>
                   <p className="team-muted">
-                    Fabricator permanently deletes what setup created so far, then removes the workspace from this
-                    computer:
+                    {items.some((i) => i.kind === 'trust' || i.kind === 'pipeline')
+                      ? 'Fabricator permanently deletes what setup created so far and removes what it added to what you provided, then removes the workspace from this computer:'
+                      : 'Fabricator permanently deletes what setup created so far, then removes the workspace from this computer:'}
                   </p>
                   <ItemList items={items} />
                 </>

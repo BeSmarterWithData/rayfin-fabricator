@@ -72,7 +72,7 @@ const CATALOG: &[(Check, &str, &str)] = &[
   (Check::GithubActionsPolicy, "github_actions_policy", "Whether GitHub Actions is on for the repository, which actions may run (and whether each action the workflow uses may), SHA pinning, and default workflow token permissions."),
   (Check::GithubBranchRules, "github_branch_rules", "Rulesets and branch protection on main, which can block Fabricator's writes to main."),
   (Check::GithubOidcSubject, "github_oidc_subject", "Whether the repository or organization customizes the OIDC subject claim the pipeline presents."),
-  (Check::GithubVariables, "github_variables", "The pipeline's repository variables: client, tenant and Fabric workspace IDs (owners only)."),
+  (Check::GithubVariables, "github_variables", "The pipeline's Actions variables: client, tenant and Fabric workspace IDs, and the runners its jobs ask for, from the repository or the organization (owners only)."),
   (Check::GithubWorkflow, "github_workflow", "Whether the workflow file on main matches Fabricator's current template."),
   (Check::GithubRuns, "github_runs", "The Fabricator workflow's recent runs."),
   (Check::GithubRun, "github_run", "One run's jobs, steps and runners. Optional runId; default: the run being diagnosed, or the latest failed one."),
@@ -273,6 +273,7 @@ pub fn baseline(ctx: &DiagContext) -> Vec<Check> {
       "verify" => vec![
         GithubRun,
         GithubRunLog,
+        GithubVariables,
         EntraFederatedCredentials,
         GithubOidcSubject,
         GithubActionsPolicy,
@@ -698,7 +699,7 @@ async fn github_actions_policy(repo: &str) -> Result<String, String> {
     format!("- Allowed actions: {allowed}."),
   ];
   if flag(&perms, "sha_pinning_required") == Some(true) {
-    out.push("- Actions must be pinned to a full commit SHA. Fabricator's workflow uses version tags (for example `azure/login@v3`), so GitHub refuses to run it.".into());
+    out.push("- Actions must be pinned to a full commit SHA. Fabricator's workflow uses version tags (for example `actions/checkout@v7`), so GitHub refuses to run it.".into());
   }
   match allowed.as_str() {
     "selected" => match gh_get(&format!("repos/{repo}/actions/permissions/selected-actions")).await {
@@ -825,6 +826,24 @@ async fn github_variables(repo: &str) -> Result<String, String> {
       Err(e) => return Err(format!("Couldn't read the repository variables: {} (only repository admins can).", gh_error(&e))),
     }
   }
+  // Optional: where the jobs run.
+  let runs_on = templates::RUNS_ON_VARIABLE;
+  let (repository, organization) =
+    tokio::join!(gh::variable(repo, runs_on), gh::organization_variable(repo, runs_on));
+  let describe = |v: &str| match templates::parse_runs_on(v) {
+    Some(_) => format!("`{}`", v.trim()),
+    None => format!("`{}`, which `runs-on` can't use, so every job fails to start", v.trim()),
+  };
+  match repository {
+    Ok(Some(v)) => out.push(format!("- `{runs_on}` = {} (the repository's choice of runners).", describe(&v))),
+    Ok(None) => out.push(format!("- `{runs_on}` isn't set on the repository.")),
+    Err(e) => out.push(format!("- Couldn't read `{runs_on}`: {}", gh_error(&e))),
+  }
+  match organization {
+    Ok(Some(v)) => out.push(format!("- The organization shares `{runs_on}` = {} with the repository (the repository's own value wins).", describe(&v))),
+    Ok(None) => out.push(format!("- The organization doesn't share `{runs_on}` with the repository.")),
+    Err(e) => out.push(format!("- Couldn't read the organization's variables: {}", gh_error(&e))),
+  }
   Ok(out.join("\n"))
 }
 
@@ -913,8 +932,9 @@ async fn github_run(ctx: &DiagContext, repo: &str, id: Option<u64>) -> Result<St
         ));
         if status == "queued" {
           out.push(format!(
-            "  - Queued since {}. A job that stays queued means no runner picked it up (GitHub-hosted runners may be turned off for the organization).",
-            text(job, "created_at").unwrap_or_else(|| "?".into())
+            "  - Queued since {}. A job that stays queued means no runner picked it up: GitHub-hosted runners may be turned off for the organization, or the runners `{}` names are busy, offline or not available to the repository.",
+            text(job, "created_at").unwrap_or_else(|| "?".into()),
+            templates::RUNS_ON_VARIABLE
           ));
         }
         for step in job.get("steps").and_then(Value::as_array).into_iter().flatten() {
@@ -922,6 +942,14 @@ async fn github_run(ctx: &DiagContext, repo: &str, id: Option<u64>) -> Result<St
             out.push(format!("  - Step `{}` failed.", text(step, "name").unwrap_or_default()));
           }
         }
+      }
+      // A job that never started has no log; GitHub's annotations say why.
+      if let Some(job) = gh::unstarted_job(&jobs) {
+        out.push(match gh::job_annotations(repo, job).await {
+          Ok(reasons) if !reasons.is_empty() => format!("- GitHub never started job {job}: {}", reasons.join(" ")),
+          Ok(_) => format!("- GitHub never started job {job} and gave no reason."),
+          Err(e) => format!("- GitHub never started job {job}; couldn't read why: {}", gh_error(&e)),
+        });
       }
     }
     Err(e) => out.push(format!("- Couldn't read the run's jobs: {}", gh_error(&e))),
@@ -1492,8 +1520,9 @@ mod tests {
     assert!(action_verdict("azure/login@v3", true, true, &[]).contains("verified creator"));
     assert!(action_verdict("azure/login@v3", true, false, &[]).starts_with("BLOCKED"));
     let used = workflow_actions();
-    assert!(used.iter().any(|a| a.starts_with("azure/login@")), "{used:?}");
     assert!(used.iter().any(|a| a.starts_with("actions/checkout@")), "{used:?}");
+    // Only GitHub's own actions, so "Allow GitHub-owned actions" policies run it.
+    assert!(used.iter().all(|a| action_verdict(a, true, false, &[]).starts_with("allowed (GitHub-owned)")), "{used:?}");
   }
 
   #[test]

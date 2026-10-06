@@ -1,5 +1,5 @@
 import type { TeamRunStatus } from '@shared/ipc'
-import { elapsed, friendlyStep, runProgress, useNow } from './runProgress'
+import { elapsed, friendlyStep, runProgress, useNow, waitingStep } from './runProgress'
 import './team.css'
 
 interface Props {
@@ -13,12 +13,7 @@ export default function TeamRunStrip({ run, onOpenMap }: Props): JSX.Element {
   const now = useNow(true)
   const progress = runProgress(run.steps)
   const label = run.kind === 'production' ? 'Publishing for everyone' : 'Deploying your preview'
-  const step =
-    run.status === 'queued' || run.status === 'waiting'
-      ? 'Waiting for the pipeline to start'
-      : progress.current
-        ? friendlyStep(progress.current.name)
-        : 'Getting ready'
+  const step = waitingStep(run, now) ?? (progress.current ? friendlyStep(progress.current.name) : 'Getting ready')
   const position = progress.total > 0 ? ` · step ${Math.min(progress.done + 1, progress.total)} of ${progress.total}` : ''
   return (
     <div className={`team-run-strip team-run-strip--${run.kind}`} role="status" aria-live="polite">

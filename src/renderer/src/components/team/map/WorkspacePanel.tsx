@@ -5,6 +5,7 @@ import type {
   TeamHealthItem,
   TeamMembersResult,
   TeamProblem,
+  TeamRunnerInfo,
   TeamWorkspace
 } from '@shared/ipc'
 import ConfirmModal from '../../ConfirmModal'
@@ -12,6 +13,7 @@ import { Codicon } from '../../icons'
 import { GithubAccountField, ProblemView, StepList, teamError, useStepProgress } from '../common'
 import TeamDiagnosisModal from '../diagnosis/TeamDiagnosisModal'
 import type { DiagnosisInput } from '../diagnosis/useTeamDiagnosis'
+import RunnerFields, { draftRunner, runnerDraft, runnerDraftReady, runnerSummary, type RunnerDraft } from '../RunnerFields'
 import { Avatar, FabricGlyph, fabricWorkspaceUrl } from './parts'
 
 export type WorkspaceTab = 'members' | 'access' | 'settings'
@@ -67,6 +69,10 @@ export default function WorkspacePanel({
   const [changingAccount, setChangingAccount] = useState(false)
   const [newAccount, setNewAccount] = useState('')
   const [newAccountReady, setNewAccountReady] = useState(false)
+  /** Where the pipeline runs (owners); `null` until loaded. */
+  const [runnerInfo, setRunnerInfo] = useState<TeamRunnerInfo | null>(null)
+  const [changingRunner, setChangingRunner] = useState(false)
+  const [runnerChoice, setRunnerChoice] = useState<RunnerDraft>(() => runnerDraft())
   const [diagnose, setDiagnose] = useState<DiagnosisInput | null>(null)
   /** The last action was Repair (so `problem`/`error` are its outcome). */
   const [repairTried, setRepairTried] = useState(false)
@@ -103,6 +109,15 @@ export default function WorkspacePanel({
     }
   }
 
+  async function loadRunner(): Promise<void> {
+    setRunnerInfo(null)
+    try {
+      setRunnerInfo(await window.api.team.runner(ws.id))
+    } catch (reason) {
+      setRunnerInfo({ ok: false, error: teamError(reason, 'Could not check where the pipeline runs.') })
+    }
+  }
+
   useEffect(() => {
     void loadMembers()
   }, [ws.id])
@@ -111,6 +126,11 @@ export default function WorkspacePanel({
     if (tab === 'settings' && !health) void loadHealth()
     if (tab === 'access' && !fabricPeople) void loadFabricPeople()
   }, [tab])
+
+  // Only owners can read the pipeline's variables.
+  useEffect(() => {
+    if (tab === 'settings' && canManage && !runnerInfo) void loadRunner()
+  }, [tab, canManage])
 
   async function act(
     key: string,
@@ -178,6 +198,16 @@ export default function WorkspacePanel({
     if (ok) setChangingAccount(false)
   }
 
+  async function saveRunner(): Promise<void> {
+    const ok = await act(
+      'runner',
+      () => window.api.team.setRunner(ws.id, draftRunner(runnerChoice)),
+      loadRunner,
+      'Pipeline runs that start from now on use these runners.'
+    )
+    if (ok) setChangingRunner(false)
+  }
+
   async function runConfirmed(): Promise<void> {
     const current = confirm
     if (!current) return
@@ -215,6 +245,7 @@ export default function WorkspacePanel({
   }
 
   const needsRepair = health?.items.some((i) => i.repairable) ?? false
+  const runnerNow = runnerInfo?.ok ? runnerSummary(runnerInfo) : null
   const healthTrouble = Boolean(health?.error) || (health?.items.some((i) => i.state === 'error' || i.state === 'unknown') ?? false)
   const repairFailed = repairTried && busy !== 'repair' && Boolean(problem || error)
   function diagnoseHealth(): void {
@@ -500,6 +531,69 @@ export default function WorkspacePanel({
               )}
             </ul>
           </section>
+
+          {canManage && (
+            <section className="tmap-insp-section">
+              <h4>Where the pipeline runs</h4>
+              {changingRunner ? (
+                <>
+                  <RunnerFields
+                    hideLabel
+                    value={runnerChoice}
+                    onChange={setRunnerChoice}
+                    organization={runnerInfo?.organization?.runner}
+                    disabled={Boolean(busy)}
+                  />
+                  <div className="tmap-insp-actions">
+                    <button
+                      type="button"
+                      className="btn btn--sm btn--primary"
+                      disabled={!runnerDraftReady(runnerChoice) || Boolean(busy)}
+                      onClick={() => void saveRunner()}
+                    >
+                      {busy === 'runner' ? 'Saving…' : 'Save'}
+                    </button>
+                    <button type="button" className="btn btn--sm btn--ghost" disabled={Boolean(busy)} onClick={() => setChangingRunner(false)}>
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : !runnerInfo ? (
+                <p className="tmap-dim">
+                  <span className="tmap-spinner" /> Checking where the pipeline runs…
+                </p>
+              ) : !runnerNow ? (
+                <p className="tmap-dim tmap-wrap">{runnerInfo.error}</p>
+              ) : (
+                <ul className="tmap-insp-list">
+                  <li className="tmap-insp-row">
+                    {runnerNow.invalid ? (
+                      <span className="tmap-health tmap-health--failed">
+                        <span className="tmap-health-dot" aria-hidden="true" />
+                      </span>
+                    ) : (
+                      <Codicon name="server" />
+                    )}
+                    <span className="tmap-insp-grow tmap-wrap">
+                      {runnerNow.title}
+                      <span className="tmap-dim tmap-block">{runnerNow.detail}</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      disabled={Boolean(busy)}
+                      onClick={() => {
+                        setRunnerChoice(runnerDraft(runnerInfo.repository?.runner))
+                        setChangingRunner(true)
+                      }}
+                    >
+                      Change
+                    </button>
+                  </li>
+                </ul>
+              )}
+            </section>
+          )}
 
           <section className="tmap-insp-section">
             <div className="tmap-section-head">

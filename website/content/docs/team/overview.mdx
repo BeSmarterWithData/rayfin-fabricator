@@ -62,7 +62,7 @@ Select **Manage** to open workspace settings. Owners can use:
 
 - **Members** to invite or remove teammates
 - **App access** to remove Fabric app access
-- **Settings** to change the **GitHub account** Fabricator uses or **Require a review**, open Fabric workspaces, check pipeline health, or leave and delete the workspace
+- **Settings** to change the **GitHub account** Fabricator uses or **Require a review**, open Fabric workspaces, choose **Where the pipeline runs**, check pipeline health, or leave and delete the workspace
 
 When Fabricator ships a newer pipeline template, **Pipeline health** can mark an item repairable. Select **Repair** to update the managed workflow, repository variables, merge settings, branch protection, and Fabric access as needed. If no repair is needed, the button says **Check the pipeline**.
 
@@ -76,6 +76,19 @@ Fabricator works on each team workspace as the GitHub account it was created or 
 4. Select **Use this account**.
 
 Fabricator first checks that the account can change the workspace's repository. Commits you make from then on are attributed to the new account.
+
+## Change where the pipeline runs
+
+Owners choose which GitHub Actions runners run the workspace's pipeline. Change it when your organization turns off GitHub-hosted runners, or when it gives the team a runner group.
+
+1. Open the workspace's **Manage** panel and select **Settings**.
+2. In **Where the pipeline runs**, select **Change**.
+3. Choose **GitHub-hosted runners**, **A runner group**, or **Runners with labels**, and enter the runner group name or the labels.
+4. Select **Save**.
+
+Pipeline runs that start after you save use the new runners. When the organization chose runners for every Fabricator workspace, the section shows them with "Your organization chose these runners.", and the **GitHub-hosted runners** choice becomes **Your organization’s choice**. See [Where the workflow runs](/docs/team/administrators#where-the-workflow-runs).
+
+A workspace created with an earlier version of Fabricator also needs the newer pipeline. After you save, select **Repair** in **Pipeline health**. Repair updates the pipeline and checks that it runs on the chosen runners.
 
 ## Remove an app
 

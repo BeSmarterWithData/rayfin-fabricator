@@ -43,6 +43,65 @@ This happens when your organization blocks app registration changes, or when Fab
 
 If it still fails, include the setup step and copied instructions when you [report a problem](/docs/troubleshooting/report-a-problem).
 
+## Setup can't create the GitHub repository
+
+In **Create a team workspace**, the organization you chose as **GitHub owner** says "doesn’t let you create repositories". Or setup stops on **Create the private GitHub repository** with a GitHub error, such as "You need admin access to the organization before adding a repository to it."
+
+Many organizations don't let their members create repositories. Setup needs to create the workspace's repository, or to use one that someone created for it.
+
+1. Ask an owner of the organization to create an empty private (or internal) repository for the workspace and give you the **Admin** role on it.
+2. In **Create a team workspace**, under **GitHub repository**, select **Existing repository**.
+3. In **Repository**, choose it from the suggestions or enter it as `owner/name`. You can also paste its GitHub address.
+4. Select **Create workspace**.
+
+See [Use an existing repository](/docs/team/create#use-an-existing-repository). If it still fails, select **Diagnose with Copilot**, then [report a problem](/docs/troubleshooting/report-a-problem).
+
+## The organization locked the repository until it's set up
+
+You see "`<organization>` locked `<repository>` until it's set up in the organization's portal, so `<account>` can't change it yet." when you create a workspace. On GitHub, the repository's description says "To gain access, please finish setting up this repository now at:".
+
+Some organizations lock every new repository until someone finishes setting it up in the organization's portal. Microsoft's `microsoft` organization does this. Until then, even the person who created the repository can only read it. That's true of a repository you created on github.com, and of one setup just created, in which case setup stops on **Add the deploy pipeline to the repository**.
+
+1. In Fabricator, select **Finish setting up the repository**. The portal opens in your browser.
+2. Complete the portal's steps. Make sure your GitHub account ends up with the **Admin** role on the repository.
+3. Return to Fabricator and select **Create workspace** or **Retry**.
+
+If Fabricator doesn't show **Finish setting up the repository**, open the repository on GitHub and follow the link in its description or website. If it still fails, select **Diagnose with Copilot**, then [report a problem](/docs/troubleshooting/report-a-problem).
+
+## The pipeline's sign-in fails with AADSTS7002381
+
+Setup stops on **Check that the pipeline can reach Fabric** with "Your Microsoft Entra ID only accepts the pipeline's sign-in from repositories owned by organizations in the GitHub enterprises …". Or the pipeline's log shows `AADSTS7002381` and says the token "must contain the enterprise claim".
+
+Some companies' Microsoft Entra ID only trusts GitHub Actions in their own GitHub enterprise. Microsoft's own tenant, for example, only accepts the `microsoft`, `github`, and `microsoftopensource` enterprises. GitHub only says which enterprise a repository belongs to when an organization in that enterprise owns it. A repository owned by a personal account, including a managed user's own repository, can't sign in. No setting in the pipeline or the app registration changes that.
+
+1. In the setup window, select **Abandon setup…**, then select **Delete and abandon**. See [Abandon an unfinished setup](/docs/team/create#abandon-an-unfinished-setup).
+2. Create the workspace again, and choose an organization in one of those enterprises as the **GitHub owner**.
+3. Or, under **GitHub repository**, select **Existing repository** and enter one of that organization's repositories where you have the **Admin** role. An owner of the organization can create one for you. See [Setup can't create the GitHub repository](#setup-cant-create-the-github-repository).
+
+If it still fails, select **Diagnose with Copilot**, then [report a problem](/docs/troubleshooting/report-a-problem).
+
+## GitHub says the organization requires single sign-on
+
+You see a message such as "The microsoft organization requires single sign-on (through the microsoftopensource enterprise), and the GitHub CLI's sign-in for `<account>` isn't authorized for it yet." when you create or join a workspace.
+
+The organization uses SAML single sign-on. GitHub lets the GitHub CLI into the organization only when you sign the GitHub CLI in to GitHub while you have a single sign-on session in your browser. Seeing **GitHub CLI** under your account's authorized applications on github.com isn't enough. The authorization link in GitHub's error message is for personal access tokens, so it doesn't help the GitHub CLI.
+
+When the organization belongs to a GitHub enterprise that runs single sign-on for all its organizations, its single sign-on page is the enterprise's. For example, the `microsoft` organization's page belongs to the `microsoftopensource` enterprise. A session there covers the organization.
+
+1. In your browser, make sure you're signed in to github.com as the GitHub account the workspace uses, the one the message names.
+2. In Fabricator, select **Open single sign-on**. Continue with your work account in your browser.
+3. In Fabricator, select **Sign in to GitHub again**. Finish signing in in the terminal window and your browser.
+4. Return to Fabricator and try again: select **Create workspace**, **Retry**, or **Join**.
+
+If Fabricator doesn't show **Open single sign-on**, open `https://github.com/orgs/<organization>/sso` in your browser instead.
+
+If it still fails, sign the GitHub CLI out of that account everywhere and sign in again, as GitHub recommends:
+
+1. On github.com, open **Settings** → **Applications** → **Authorized OAuth Apps**, and revoke **GitHub CLI**.
+2. Open the organization's single sign-on page again, then select **Sign in to GitHub again** in Fabricator.
+
+If that doesn't work either, [report a problem](/docs/troubleshooting/report-a-problem).
+
 ## GitHub CLI is missing, signed out, or missing scopes
 
 You see "The GitHub CLI (gh) isn't installed. Install it from setup, then try again." You may also see **Sign in to GitHub** or **Grant GitHub access**, or a message such as "the GitHub CLI's sign-in for `<account>` has expired or was removed. Sign in to GitHub as `<account>` again."
@@ -72,6 +131,27 @@ The GitHub Actions workflow builds and deploys team apps. Common verified causes
 
 If the log does not explain the failure, attach the GitHub run URL when you [report a problem](/docs/troubleshooting/report-a-problem).
 
+## No runner picks up the pipeline
+
+You see one of these:
+
+- Setup stops on **Check that the pipeline can reach Fabric** with "No runner picked up the pipeline's verification run in 6 minutes." or "GitHub didn't start the pipeline's verification run:" followed by GitHub's reason, such as "GitHub Actions hosted runners are disabled for this repository." or "Required runner group '…' not found".
+- Setup says "GitHub can't use the pipeline's runner setting: FABRICATOR_RUNS_ON is …", because someone set the variable by hand to a value GitHub can't use.
+- Publishing says "Fabricator didn't publish because GitHub didn't start the team pipeline for your preview" or "Your changes are published, but GitHub didn't start the pipeline that deploys them".
+- A preview or publish shows "Still waiting for a runner".
+
+GitHub Actions runs the pipeline on runners. Your GitHub organization or enterprise may have turned off GitHub-hosted runners, or the runners the pipeline asks for are busy, offline, or not available to the workspace's repository.
+
+1. Find out which runners your organization uses for GitHub Actions. Select **Copy instructions for your admin** if Fabricator shows it, and send the text to a GitHub organization owner.
+2. Choose those runners:
+   - During setup, choose them under **Where the pipeline runs** in the setup window, then select **Retry**.
+   - For an existing workspace, an owner opens the workspace overview, selects **Manage** → **Settings**, and in **Where the pipeline runs** selects **Change**, chooses the runners, and selects **Save**. Then, in **Pipeline health**, select **Repair** or **Check the pipeline**.
+3. If Fabricator says "The pipeline's runner couldn't reach GitHub's sign-in, Microsoft Entra ID or Fabric.", ask whoever manages the runners to allow outbound access to GitHub, `login.microsoftonline.com`, and `api.fabric.microsoft.com`.
+
+A repository that belongs to your personal account has no runner groups. If your enterprise allows it, you can add a self-hosted runner to the repository on GitHub, in the repository's **Settings → Actions → Runners**, on a Linux computer. Then choose **Runners with labels** with `self-hosted, linux`.
+
+Runs that were already waiting keep their old runners. Start them again by saving another change or publishing again. See [Where the workflow runs](/docs/team/administrators#where-the-workflow-runs) for what the runners need. If it still fails, select **Diagnose with Copilot**, then [report a problem](/docs/troubleshooting/report-a-problem).
+
 ## Publish is blocked or has conflicts
 
 You see "Your teammates changed some of the same files as you. Bring in their changes and resolve the conflicts first." You may also see **Let Copilot combine them** or **Ask Copilot to finish**.
@@ -95,7 +175,7 @@ Team previews are deployed by the repository's GitHub Actions workflow. They do 
 1. Open the workspace overview.
 2. Select your working copy.
 3. In **Preview**, use **Watch on GitHub**, **See why it failed**, or **Diagnose with Copilot** if shown.
-4. Open **Manage → Settings** and check **Pipeline health** if runs are not starting.
+4. Open **Manage → Settings** and check **Pipeline health** if runs are not starting. If they wait for a runner, see [No runner picks up the pipeline](#no-runner-picks-up-the-pipeline).
 5. Select **Repair** if Fabricator says the pipeline needs repair.
 
 If the workflow did not start, check that GitHub Actions is enabled for the repository, then [report a problem](/docs/troubleshooting/report-a-problem).

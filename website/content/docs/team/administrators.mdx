@@ -37,9 +37,23 @@ It creates or updates these GitHub Actions variables:
 - `FABRIC_WORKSPACE_ID`
 - `FABRIC_PREVIEW_WORKSPACE_ID`
 
+When an owner chooses where the pipeline runs, Fabricator also sets `FABRICATOR_RUNS_ON`, or deletes it when the owner goes back to GitHub-hosted runners. See [Where the workflow runs](#where-the-workflow-runs).
+
 Fabricator does not create GitHub Actions secrets. The workflow records deployments in GitHub environments named `preview/<app>/<github-login>` and `production/<app>`.
 
 It asks GitHub to protect `main` with force pushes and deletions disabled, no status-check requirement, no push restrictions, and pull request reviews configured with zero required approvals by default. When the workspace setting **Require a review** is on, Fabricator asks for one approving review. If GitHub says the plan does not support branch protection for the private repository, Fabricator records that only the app enforces the publish flow.
+
+### A repository an organization owner creates
+
+When members of your organization can't create repositories, the person setting up the workspace can use one you create. Create an empty private or internal repository, and give that person the **Admin** role on it. A repository with commits also works when its default branch is `main`. They select **Existing repository** under **GitHub repository** and enter it.
+
+Fabricator then changes the repository in the same ways as one it creates. It sets the description to `Fabricator team workspace: <workspace name>`, adds the `fabricator-workspace` topic, and applies the squash-merge settings and branch protection above. It adds the files above, but keeps a `README.md` that's already there and only adds missing lines to an existing `.gitignore`. Setup refuses a repository that's public, archived, or already a team workspace.
+
+If the setup is abandoned, Fabricator doesn't delete a repository it didn't create. It removes `fabricator.workspace.json`, the pipeline, the Actions variables above, and the topic. It also removes `README.md` and `.gitignore` while they're still exactly Fabricator's, and puts back the previous description. The merge settings and branch protection stay.
+
+### Organizations in a GitHub enterprise
+
+GitHub's OIDC token names the repository's enterprise (the `enterprise` claim) only when an organization in a GitHub enterprise owns the repository. Repositories owned by personal accounts, including enterprise managed users' own repositories, have no enterprise. Some Microsoft Entra ID tenants only accept GitHub tokens from certain enterprises. Microsoft's own tenant accepts only `microsoft`, `github`, and `microsoftopensource`, and refuses other tokens with `AADSTS7002381`. In such a tenant, the workspace's repository must belong to an organization in one of those enterprises.
 
 ## What Fabricator creates in Microsoft Fabric
 
@@ -85,7 +99,11 @@ The workflow permissions are:
 - `id-token: write`
 - `deployments: write`
 
-It checks out code, installs Node.js 22, installs app dependencies with `npm ci` when `package-lock.json` exists or `npm install` otherwise, checks that `npx --no-install rayfin up --help` supports `--item-name`, signs in with `azure/login@v3`, gets a Fabric API token with Azure CLI, and runs `npx rayfin up --workspace-id "$WORKSPACE" --item-name "$ITEM" --yes`.
+It checks out code, installs Node.js 22, installs app dependencies with `npm ci` when `package-lock.json` exists or `npm install` otherwise, and checks that `npx --no-install rayfin up --help` supports `--item-name`. It then signs in and runs `npx rayfin up --workspace-id "$WORKSPACE" --item-name "$ITEM" --yes` with a Fabric API token.
+
+To sign in, a job requests its GitHub OIDC token with audience `api://AzureADTokenExchange` and exchanges it at `https://login.microsoftonline.com/<tenant>/oauth2/v2.0/token` for a token with scope `https://api.fabric.microsoft.com/.default`. This is the client credentials flow with the OIDC token as the client assertion. It uses bash and curl, not the Azure CLI or `azure/login`, and it needs no Azure subscription. Sign-in failures in the run log quote Microsoft Entra ID's error, including its `AADSTS` code.
+
+The workflow uses only actions made by GitHub: `actions/checkout@v7`, `actions/setup-node@v7`, and `actions/github-script@v9`. An Actions policy that allows only GitHub-made actions lets it run. A policy that requires actions pinned to a full commit SHA does not, because the workflow uses version tags.
 
 Pull requests deploy to the previews workspace with item names like `<app>-pv-<github-login>` and use the preview identity. Pushes to `main` deploy to the published apps workspace with item name `<app>` and use the deploy identity.
 
@@ -96,6 +114,27 @@ If Rayfin is too old, the workflow emits:
 If a published deploy would delete data, it emits:
 
 > "This change would delete data in the published app. Publish it again from Fabricator and confirm to allow it."
+
+## Where the workflow runs
+
+Every job runs on GitHub-hosted `ubuntu-latest` runners unless the `FABRICATOR_RUNS_ON` Actions variable names other runners. Its value is JSON in a form that `runs-on` accepts:
+
+- `{"group":"<runner group>"}` for a runner group
+- `{"group":"<runner group>","labels":["linux"]}` for runners in a group that have every label
+- `["self-hosted","linux"]` for runners that have every label
+
+Workspace owners set the repository variable in Fabricator under **Where the pipeline runs**. A GitHub organization owner can instead set an organization variable named `FABRICATOR_RUNS_ON` and share it with the workspace repositories. Then every team workspace in the organization uses those runners without any setup. A repository variable overrides the organization's.
+
+An organization on a GitHub Team or Enterprise plan, or an enterprise, can turn off standard GitHub-hosted runners. GitHub then fails jobs that ask for `ubuntu-latest` before they start, with an annotation such as "GitHub Actions hosted runners are disabled for this repository." To use a runner group, the group must allow the workspace's repository, under the organization's **Settings → Actions → Runner groups**. A repository owned by a personal account can't use runner groups, but its owner can add a repository-level self-hosted runner when the enterprise allows it.
+
+The runners need:
+
+- Linux with bash, curl, and git
+- outbound access to GitHub, the npm registry, Microsoft Entra ID (`login.microsoftonline.com`), and Microsoft Fabric (`api.fabric.microsoft.com`)
+
+`actions/setup-node` installs Node.js 22, so the runners don't need it preinstalled. They also don't need the Azure CLI.
+
+When GitHub fails setup's verification run before it starts, Fabricator shows GitHub's reason. When no runner picks the run up within 6 minutes, Fabricator cancels it and says "No runner picked up the pipeline's verification run in 6 minutes." Either way, the user can choose other runners and retry. **Copy instructions for your admin** gives the user a message for a GitHub organization owner. It names the repository, asks which runner group or labels to use, and lists the runner requirements.
 
 ## Permissions and settings needed
 
@@ -125,7 +164,7 @@ The instructions include `az ad app create --display-name "Fabricator deploy - <
 
 When setup, Repair, joining, or a pipeline run fails, users can select **Diagnose with Copilot**. Fabricator then runs read-only checks with the user's own GitHub CLI and Azure CLI sign-ins and sends the results to GitHub Copilot, which explains the likely cause and drafts a message for the right administrator. The checks don't change anything. Depending on what failed, they read:
 
-- **GitHub:** the signed-in account and its token scopes, the repository and the user's permission, the user's organization membership and the organization settings the user can see, the repository's Actions permissions and allowed actions, rulesets and branch protection on `main`, OIDC subject claim customization for the repository and organization, the five Actions variables, the workflow file, recent runs, and the end of a failed run's log.
+- **GitHub:** the signed-in account and its token scopes, the repository and the user's permission, the user's organization membership and the organization settings the user can see, the repository's Actions permissions and allowed actions, rulesets and branch protection on `main`, OIDC subject claim customization for the repository and organization, the five Actions variables and `FABRICATOR_RUNS_ON` (the repository's, and the organization's when it shares one), the workflow file, recent runs, and the end of a failed run's log.
 - **Microsoft Entra ID**, through Microsoft Graph: whether users can register applications, the user's user type and active directory roles, and, for the workspace's own deploy identities only, the app registration, its owners, its service principal and that service principal's groups, and its federated identity credentials.
 - **Fabric:** the capacities the user can see, the workspace's two Fabric workspaces and their role assignments, and tenant settings about service principals and workspace creation. Only Fabric administrators can read tenant settings, so for other users that check reports that the settings aren't visible.
 
@@ -138,5 +177,10 @@ Owners can select **Delete workspace…** in **Manage → Settings**. Fabricator
 Fabricator does not delete an administrator-provided app registration. It only deletes managed identities whose display names start with `Fabricator deploy - ` or `Fabricator previews - `.
 
 If setup didn't finish, the person who started it can select **Abandon setup…** on Home instead. Fabricator deletes the deploy identities it created, both Fabric workspaces, and the GitHub repository (rather than archiving it), then removes the workspace from that computer. See [Abandon an unfinished setup](/docs/team/create#abandon-an-unfinished-setup).
+
+Abandoning keeps what someone provided:
+
+- An administrator-provided app registration stays. Fabricator removes its federated credentials named `fabricator-main`, `fabricator-main-ids`, `fabricator-pull-requests`, and `fabricator-pull-requests-ids` whose subjects trust the workspace's repository. A credential with one of those names that trusts another repository stays. Removing them takes the same rights as adding them: an owner of the app registration, or a role that manages app registrations. Without those rights, Fabricator shows **Copy instructions for your admin** with one `az ad app federated-credential delete` command per credential.
+- A repository an organization owner created stays, without what setup added. See [A repository an organization owner creates](#a-repository-an-organization-owner-creates).
 
 

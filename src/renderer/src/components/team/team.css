@@ -519,6 +519,19 @@
   min-width: 0;
 }
 
+/* A runner group's name and optional labels, under the runner choice. */
+.team-runner-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* New or existing repository: the segmented control sits flush in its field. */
+.team-repo-mode {
+  align-self: flex-start;
+  margin-bottom: 0;
+}
+
 /* A footer action set apart from Cancel and the main action. */
 .team-footer-start {
   margin-right: auto;

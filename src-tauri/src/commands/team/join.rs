@@ -5,7 +5,7 @@ use std::path::Path;
 use futures::future::join_all;
 use tauri::AppHandle;
 
-use super::{fail, git_identity, unique_dir, viewer, with_workspace};
+use super::{fail, fail_github, git_identity, unique_dir, viewer, with_workspace};
 use crate::commands::util::{annotate_state, now_iso};
 use crate::services::store;
 use crate::services::team::{self, entra, fabric, gh, naming, repo, templates};
@@ -22,7 +22,7 @@ fn joined(full_name: &str) -> Option<TeamWorkspace> {
 const DELETED: &str = "This team workspace was deleted: its GitHub repository is archived.";
 
 /// Accept the user's pending invitation to a repository, if there is one.
-async fn accept_pending_invitation(full_name: &str) -> Result<bool, gh::GhError> {
+pub(crate) async fn accept_pending_invitation(full_name: &str) -> Result<bool, gh::GhError> {
   let invitations = gh::user_invitations().await?;
   let Some(invite) = invitations.iter().find(|i| i.repo.eq_ignore_ascii_case(full_name)) else {
     return Ok(false);
@@ -102,7 +102,7 @@ pub async fn team_accept_invitation(invitation_id: u64, repo: String, account: O
   }
   gh::as_account(account, async move {
     if let Err(e) = gh::accept_invitation(invitation_id).await {
-      return fail(e.describe("Accept the invitation"));
+      return fail_github("Accept the invitation", &e);
     }
     join_repo(&repo).await
   })
@@ -134,12 +134,12 @@ async fn join_repo_inner(full_name: &str) -> TeamActionResult {
     Err(e) if e.is_not_found() => match accept_pending_invitation(full_name).await {
       Ok(true) => match gh::repo(full_name).await {
         Ok(info) => info,
-        Err(e) => return fail(e.describe("Open the repository")),
+        Err(e) => return fail_github("Open the repository", &e),
       },
       Ok(false) => return fail(e.describe("Open the repository")),
-      Err(e) => return fail(e.describe("Accept the invitation")),
+      Err(e) => return fail_github("Accept the invitation", &e),
     },
-    Err(e) => return fail(e.describe("Open the repository")),
+    Err(e) => return fail_github("Open the repository", &e),
   };
   if info.archived {
     return fail(DELETED);

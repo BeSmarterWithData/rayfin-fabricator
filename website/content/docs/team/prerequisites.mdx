@@ -22,6 +22,8 @@ When the scopes are missing, Fabricator shows **Grant GitHub access** and opens 
 
 Abandoning an unfinished setup also needs the `delete_repo` scope to delete the workspace's repository. Fabricator asks for it only then, with the same **Grant GitHub access** button. See [Abandon an unfinished setup](/docs/team/create#abandon-an-unfinished-setup).
 
+In organizations that use SAML single sign-on, GitHub lets the GitHub CLI into the organization only when you sign it in during a single sign-on session. When that's missing, Fabricator shows **Open single sign-on** and **Sign in to GitHub again**. See [GitHub says the organization requires single sign-on](/docs/troubleshooting/team#github-says-the-organization-requires-single-sign-on).
+
 ### More than one GitHub account
 
 The GitHub CLI can be signed in to several GitHub accounts, for example a personal account and a work account. When you create or join a team workspace, choose the **GitHub account** to use. Fabricator remembers it and always uses that account for the workspace, whichever account the GitHub CLI has active. Workspaces under different accounts work side by side.
@@ -49,3 +51,13 @@ Team workspace deploys need Rayfin 1.36.2 or newer because the pipeline deploys 
 ## GitHub plan
 
 GitHub Free private repositories do not support branch protection. Fabricator still follows the publish flow in the app, but GitHub cannot enforce it for direct pushes to `main`. See [Team workspace limitations](/docs/team/limitations).
+
+## GitHub Actions runners
+
+The workspace's pipeline runs on GitHub-hosted runners by default. If your GitHub organization turned those off, ask an organization owner which runner group or runner labels Actions jobs should use, and choose them when you create the workspace. See [Choose where the pipeline runs](/docs/team/create#choose-where-the-pipeline-runs).
+
+## Where the repository can live
+
+The workspace's apps live in one private GitHub repository. Setup can create a new one under the **GitHub owner** you choose, if you're allowed to create repositories there. It can also use a repository that already exists, with you in the **Admin** role. Many organizations don't let their members create repositories. Then an owner of the organization can create an empty private repository for you. See [Use an existing repository](/docs/team/create#use-an-existing-repository).
+
+Some companies' Microsoft Entra ID only accepts pipeline sign-ins from repositories owned by organizations in their GitHub enterprise. Microsoft's own tenant works this way. In such a tenant, choose one of those organizations, not your personal account. A personal account's repository fails setup's last step with AADSTS7002381. See [The pipeline's sign-in fails with AADSTS7002381](/docs/troubleshooting/team#the-pipelines-sign-in-fails-with-aadsts7002381).

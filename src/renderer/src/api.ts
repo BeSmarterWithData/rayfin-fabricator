@@ -36,6 +36,7 @@ import {
   type TeamDiagnosisEnvelope,
   type TeamProgressEvent,
   type TeamResourceRequest,
+  type TeamRunner,
   type ToolId,
   type UpdateProgress
 } from '@shared/ipc'
@@ -359,6 +360,7 @@ export const api: RayfinStudioApi = {
     githubSignIn: (signedIn: boolean, deleteRepo?: boolean, account?: string) =>
       invoke('team_github_signin', { signedIn, deleteRepo, account }),
     owners: (account?: string) => invoke('team_owners', { account }),
+    repos: (account?: string) => invoke('team_repos', { account }),
     capacities: () => invoke('team_capacities'),
     create: (request: TeamCreateRequest, scope: string) => invoke('team_create', { request, scope }),
     resumeSetup: (workspaceId: string, scope: string, existingClientId?: string) =>
@@ -411,6 +413,8 @@ export const api: RayfinStudioApi = {
     health: (workspaceId: string) => invoke('team_health', { workspaceId }),
     repair: (workspaceId: string, scope: string) => invoke('team_repair', { workspaceId, scope }),
     setAccount: (workspaceId: string, account: string) => invoke('team_set_account', { workspaceId, account }),
+    runner: (workspaceId: string) => invoke('team_runner', { workspaceId }),
+    setRunner: (workspaceId: string, runner: TeamRunner) => invoke('team_set_runner', { workspaceId, runner }),
     map: (workspaceId: string) => invoke('team_map', { workspaceId }),
     activity: (workspaceId: string) => invoke('team_activity', { workspaceId }),
     diff: (workspaceId: string, folder: string, prNumber?: number) =>

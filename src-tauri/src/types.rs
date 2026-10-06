@@ -861,6 +861,53 @@ pub struct TeamCreateRequest {
   /// active account when absent.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub account: Option<String>,
+  /// Where the pipeline's jobs run; absent leaves it to the organization (or
+  /// GitHub-hosted runners).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub runner: Option<TeamRunner>,
+  /// Set up in this repository (`owner/name`), which someone created for the
+  /// workspace, instead of creating one: for organizations where members can't
+  /// create repositories.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub existing_repo: Option<String>,
+}
+
+/// Where a team workspace's pipeline runs: a runner group and/or runner labels.
+/// Neither means GitHub-hosted `ubuntu-latest` runners.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRunner {
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub group: Option<String>,
+  /// A runner needs every label.
+  #[serde(default, skip_serializing_if = "Vec::is_empty")]
+  pub labels: Vec<String>,
+}
+
+/// One `FABRICATOR_RUNS_ON` Actions variable.
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRunnerSource {
+  /// The variable as GitHub stores it.
+  pub value: String,
+  /// What it means; absent when the pipeline can't use it.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub runner: Option<TeamRunner>,
+}
+
+/// Where a team workspace's pipeline runs (owners).
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRunnerInfo {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  /// The repository's choice, which wins over the organization's.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub repository: Option<TeamRunnerSource>,
+  /// What the organization shares with the repository.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub organization: Option<TeamRunnerSource>,
 }
 
 /// A setup problem, explained in plain language.
@@ -875,6 +922,20 @@ pub struct TeamProblem {
   /// Ready-to-send instructions for an administrator, when only one can fix it.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub admin_note: Option<String>,
+  /// "runner" when no runner ran the pipeline, so the user can choose others.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub kind: Option<String>,
+  /// A page that fixes it, such as GitHub's single sign-on authorization.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub link: Option<TeamLink>,
+}
+
+/// A labeled link to a web page.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamLink {
+  pub label: String,
+  pub url: String,
 }
 
 /// Progress of the automatic setup, so it can resume after a failure.
@@ -906,6 +967,10 @@ pub struct TeamSetupState {
   /// "enforced" when GitHub protects `main`, "app" when only Fabricator does.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub protection: Option<String>,
+  /// An existing repository's description before setup marked it as a team
+  /// workspace (absent when it had none), put back if setup is abandoned.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub previous_description: Option<String>,
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub problem: Option<TeamProblem>,
   #[serde(default)]
@@ -1126,6 +1191,10 @@ pub struct TeamOwner {
   pub is_org: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub avatar_url: Option<String>,
+  /// Whether the signed-in account can create private repositories in this
+  /// organization; absent when GitHub doesn't say (and for the account itself).
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub can_create: Option<bool>,
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -1135,6 +1204,25 @@ pub struct TeamOwnersResult {
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
   pub owners: Vec<TeamOwner>,
+}
+
+/// A repository a team workspace could be set up in.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamRepoChoice {
+  /// `owner/name`.
+  pub full_name: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub description: Option<String>,
+}
+
+#[derive(Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct TeamReposResult {
+  pub ok: bool,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
+  pub repos: Vec<TeamRepoChoice>,
 }
 
 /// A pending invitation to a GitHub repository (possibly a team workspace).

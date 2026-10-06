@@ -13,7 +13,8 @@ use crate::services::exec::{self, RunOptions, RunResult};
 
 /// OIDC issuer for GitHub Actions on github.com.
 pub const GITHUB_ISSUER: &str = "https://token.actions.githubusercontent.com";
-/// Audience `azure/login` requests by default.
+/// Audience of the GitHub OIDC token the pipeline exchanges for an Entra ID
+/// token (the one `azure/login` also uses by default).
 pub const TOKEN_EXCHANGE_AUDIENCE: &str = "api://AzureADTokenExchange";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -263,6 +264,16 @@ pub async fn ensure_federated_credentials(app_object_id: &str, wanted: &[(String
 
 pub async fn delete_app(app_id: &str) -> Result<(), AzError> {
   match az(&["ad", "app", "delete", "--id", app_id], 90_000).await {
+    Ok(_) => Ok(()),
+    Err(e) if e.kind == AzErrorKind::NotFound => Ok(()),
+    Err(e) => Err(e),
+  }
+}
+
+/// Delete one of the application's federated credentials, by name (fine when
+/// it's already gone).
+pub async fn delete_federated_credential(app_object_id: &str, name: &str) -> Result<(), AzError> {
+  match az(&["ad", "app", "federated-credential", "delete", "--id", app_object_id, "--federated-credential-id", name], 90_000).await {
     Ok(_) => Ok(()),
     Err(e) if e.kind == AzErrorKind::NotFound => Ok(()),
     Err(e) => Err(e),

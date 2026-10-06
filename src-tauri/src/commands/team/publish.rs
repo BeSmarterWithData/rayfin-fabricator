@@ -169,6 +169,8 @@ async fn publish(app: &AppHandle, project_id: &str, cancel: &CancelToken) -> Tea
       );
     }
     Ok(Some(run)) if run.conclusion.as_deref() != Some("success") => {
+      // A run GitHub never started (no runner) isn't the app's problem.
+      let unstarted = gh::unstarted_reason(&full, run.id).await;
       set_publish(
         project_id,
         Some(TeamPublishState {
@@ -179,7 +181,13 @@ async fn publish(app: &AppHandle, project_id: &str, cancel: &CancelToken) -> Tea
       );
       return fail_at(
         "checks",
-        "Your preview didn't deploy, so Fabricator didn't publish. Open the preview's logs, fix the problem with Copilot, then publish again.".into(),
+        match unstarted {
+          Some(reason) => super::unstarted_message(
+            "Fabricator didn't publish because GitHub didn't start the team pipeline for your preview",
+            &reason,
+          ),
+          None => "Your preview didn't deploy, so Fabricator didn't publish. Open the preview's logs, fix the problem with Copilot, then publish again.".into(),
+        },
       );
     }
     Ok(Some(_)) => {}
@@ -303,7 +311,15 @@ async fn follow_production(
   let current = store::find_project(project_id)
     .and_then(|p| p.team.and_then(|t| t.publish))
     .unwrap_or_else(|| TeamPublishState { merge_sha: Some(sha.to_string()), ..stage("deploying", Some(pr_number)) });
-  let outcome = settled(&current, &finished, production.as_ref());
+  let mut outcome = settled(&current, &finished, production.as_ref());
+  if outcome.stage == "failed" && outcome.data_loss != Some(true) {
+    if let Some(reason) = gh::unstarted_reason(full, finished.id).await {
+      outcome.error = Some(super::unstarted_message(
+        "Your changes are published, but GitHub didn't start the pipeline that deploys them",
+        &reason,
+      ));
+    }
+  }
   let failed = outcome.stage == "failed";
   let message = outcome.error.clone();
   let project = set_publish(project_id, Some(outcome));

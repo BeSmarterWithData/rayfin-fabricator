@@ -35,8 +35,8 @@ use crate::services::exec::CancelToken;
 use crate::services::store;
 use crate::services::team::{entra, fabric, gh, naming};
 use crate::types::{
-  FabricCapacitiesResult, ProcResult, StudioProject, TeamActionResult, TeamEnvStatus, TeamGhAccount, TeamOwnersResult,
-  TeamProblem, TeamProgressEvent, TeamWorkspace,
+  FabricCapacitiesResult, ProcResult, StudioProject, TeamActionResult, TeamEnvStatus, TeamGhAccount, TeamLink,
+  TeamOwnersResult, TeamProblem, TeamProgressEvent, TeamRepoChoice, TeamReposResult, TeamWorkspace,
 };
 
 /// Event for streamed progress of long team operations.
@@ -72,7 +72,55 @@ pub(crate) fn with_workspace(workspace: TeamWorkspace) -> TeamActionResult {
 }
 
 pub(crate) fn problem(step: &str, message: impl Into<String>) -> TeamProblem {
-  TeamProblem { step: step.to_string(), message: message.into(), guidance: None, admin_note: None }
+  TeamProblem { step: step.to_string(), message: message.into(), ..Default::default() }
+}
+
+/// When an organization's single sign-on blocked a GitHub request: a problem
+/// that walks through authorizing the GitHub CLI's sign-in. GitHub only lets an
+/// OAuth app's sign-in into the organization when it was signed in during an
+/// active single sign-on session, so: start a session, then sign in again.
+pub(crate) fn sso_problem(step: &str, action: &str, e: &gh::GhError) -> Option<TeamProblem> {
+  if !e.needs_sso() {
+    return None;
+  }
+  let mut p = problem(step, format!("{action}: {}", e.sso_reason()));
+  let account = match gh::current_account() {
+    Some(login) => format!("signed in to github.com as {login}"),
+    None => "signed in to github.com as the account the GitHub CLI uses".to_string(),
+  };
+  let link = e.sso_session_url().map(|url| TeamLink { label: "Open single sign-on".into(), url });
+  let session = if link.is_some() {
+    "select Open single sign-on and continue with your work account"
+  } else {
+    "start a single sign-on session for the organization on github.com"
+  };
+  p.guidance = Some(format!(
+    "GitHub lets the GitHub CLI into the organization only when you sign it in during a single sign-on session. In your browser, stay {account}: {session}, then select Sign in to GitHub again and finish in the terminal and browser. Then try again."
+  ));
+  p.kind = Some("sso".into());
+  p.link = link;
+  Some(p)
+}
+
+/// A failed GitHub request as a result: with the single sign-on link when
+/// that's what blocked it.
+pub(crate) fn fail_github(action: &str, e: &gh::GhError) -> TeamActionResult {
+  match sso_problem("github", action, e) {
+    Some(p) => fail_with(p),
+    None => fail(e.describe(action)),
+  }
+}
+
+/// What to say when GitHub never started a pipeline run (no runner): `lead`,
+/// GitHub's reason when it gave one, and what an owner can do.
+pub(crate) fn unstarted_message(lead: &str, reason: &str) -> String {
+  let reason = reason.trim();
+  let mut text = if reason.is_empty() { lead.to_string() } else { format!("{lead}: {reason}") };
+  if !text.ends_with(['.', '!', '?']) {
+    text.push('.');
+  }
+  text.push_str(" A workspace owner can choose the runners the pipeline uses under Manage → Settings → Where the pipeline runs.");
+  text
 }
 
 /// The signed-in GitHub user, cached for the session (cleared on failures).
@@ -334,6 +382,23 @@ pub async fn team_owners(account: Option<String>) -> TeamOwnersResult {
   .await
 }
 
+/// Repositories `account` could set a workspace up in, suggested when the
+/// owner chooses an existing repository.
+#[tauri::command]
+pub async fn team_repos(account: Option<String>) -> TeamReposResult {
+  gh::as_account(account, async {
+    match gh::adoptable_repos().await {
+      Ok(repos) => TeamReposResult {
+        ok: true,
+        error: None,
+        repos: repos.into_iter().map(|r| TeamRepoChoice { full_name: r.full_name, description: r.description }).collect(),
+      },
+      Err(e) => TeamReposResult { ok: false, error: Some(e.describe("List your repositories")), repos: vec![] },
+    }
+  })
+  .await
+}
+
 #[tauri::command]
 pub async fn team_capacities() -> FabricCapacitiesResult {
   match fabric::capacities().await {
@@ -352,6 +417,69 @@ mod tests {
   use super::*;
 
   const SCOPES: &str = "repo,read:org,workflow";
+
+  #[test]
+  fn single_sign_on_problems_link_to_githubs_authorization() {
+    let e = gh::GhError {
+      status: Some(403),
+      message: "Resource protected by organization SAML enforcement. The 'microsoft' organization has enabled or enforced SAML SSO.".into(),
+      sso_url: Some("https://github.com/enterprises/microsoftopensource/sso?authorization_request=X1".into()),
+      ..Default::default()
+    };
+    let p = sso_problem("github", "Open microsoft/rayfin-team-apps", &e).unwrap();
+    assert_eq!(p.step, "github");
+    assert_eq!(p.kind.as_deref(), Some("sso"), "the setup window offers Sign in to GitHub again");
+    assert_eq!(
+      p.message,
+      "Open microsoft/rayfin-team-apps: The microsoft organization requires single sign-on (through the microsoftopensource enterprise), and the GitHub CLI's sign-in isn't authorized for it yet."
+    );
+    let link = p.link.unwrap();
+    assert_eq!(link.label, "Open single sign-on");
+    assert_eq!(link.url, "https://github.com/orgs/microsoft/sso", "a session page, not the token's authorization_request");
+    let guidance = p.guidance.unwrap();
+    assert!(guidance.contains("only when you sign it in during a single sign-on session"), "{guidance}");
+    assert!(guidance.contains("stay signed in to github.com as the account the GitHub CLI uses: select Open single sign-on"));
+    assert!(guidance.contains("then select Sign in to GitHub again"));
+    let result = fail_github("Open microsoft/rayfin-team-apps", &e);
+    assert!(result.problem.and_then(|p| p.link).is_some());
+    // Without GitHub's link, the organization's page still starts a session.
+    let no_link = gh::GhError { sso_url: None, ..e.clone() };
+    assert_eq!(sso_problem("github", "Open it", &no_link).unwrap().link.unwrap().url, "https://github.com/orgs/microsoft/sso");
+    // Knowing neither, the steps still say what to do.
+    let unknown = gh::GhError { message: "Resource protected by organization SAML enforcement.".into(), ..Default::default() };
+    let p = sso_problem("github", "Open it", &unknown).unwrap();
+    assert!(p.link.is_none());
+    assert!(p.guidance.unwrap().contains("start a single sign-on session for the organization on github.com, then select Sign in to GitHub again"));
+    let other = gh::GhError { status: Some(404), message: "Not Found".into(), ..Default::default() };
+    assert!(sso_problem("github", "Open it", &other).is_none());
+    assert_eq!(fail_github("Open it", &other).error.as_deref(), Some("Open it: Not Found"));
+  }
+
+  #[tokio::test]
+  async fn single_sign_on_names_the_account_to_sign_in_as() {
+    let e = gh::GhError {
+      message: "The 'microsoft' organization has enabled or enforced SAML SSO.".into(),
+      sso_url: Some("https://github.com/enterprises/microsoftopensource/sso?authorization_request=X1".into()),
+      ..Default::default()
+    };
+    let p = gh::as_account(Some("spatney".into()), async { sso_problem("github", "Open it", &e) }).await.unwrap();
+    assert!(p.message.contains("the GitHub CLI's sign-in for spatney isn't authorized"), "{}", p.message);
+    assert!(p.guidance.unwrap().contains("stay signed in to github.com as spatney"));
+  }
+
+  #[test]
+  fn runs_github_never_started_are_explained_with_its_reason() {
+    let reason = "GitHub Actions hosted runners are disabled for this repository. For more information please contact your GitHub Enterprise Administrator.";
+    assert_eq!(
+      unstarted_message("Fabricator didn't publish because GitHub didn't start the team pipeline for your preview", reason),
+      format!("Fabricator didn't publish because GitHub didn't start the team pipeline for your preview: {reason} A workspace owner can choose the runners the pipeline uses under Manage → Settings → Where the pipeline runs.")
+    );
+    assert_eq!(
+      unstarted_message("GitHub didn't start it", "  "),
+      "GitHub didn't start it. A workspace owner can choose the runners the pipeline uses under Manage → Settings → Where the pipeline runs."
+    );
+    assert!(unstarted_message("Lead", "No runner").starts_with("Lead: No runner. A workspace owner"));
+  }
 
   #[test]
   fn signing_in_keeps_the_active_account_active() {

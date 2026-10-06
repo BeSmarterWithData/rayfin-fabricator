@@ -223,6 +223,10 @@ async fn resolve(req: &TeamDiagnoseRequest) -> Result<DiagContext, String> {
       ctx.workspace_name = clean(Some(&r.name));
     }
     ctx.capacity = Some(r.capacity_id.trim().to_string()).filter(|c| is_guid(c)).map(|c| (c, r.capacity_name.clone()));
+    // Setup was asked to use this repository, so its checks can read it.
+    if ctx.repo.is_none() {
+      ctx.repo = r.existing_repo.as_deref().and_then(team::naming::parse_repo).filter(|r| REPO_RE.is_match(r));
+    }
   }
   ctx.owner = ctx
     .repo

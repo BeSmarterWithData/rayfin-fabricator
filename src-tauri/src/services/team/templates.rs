@@ -1,17 +1,27 @@
 //! Files Fabricator writes into a team workspace repository: the managed
 //! deploy workflow, a README, a root `.gitignore`, and the workspace manifest.
 //!
-//! The workflow signs in to Entra ID through GitHub OIDC (`azure/login` with no
-//! subscription), mints a Fabric API token, and hands it to the Rayfin CLI as
-//! `RAYFIN_TOKEN` (`rayfin up` only needs the Fabric scope). No secrets are
-//! stored in the repository: the variables hold IDs only.
+//! The workflow signs in to Entra ID itself: it exchanges the job's GitHub OIDC
+//! token for a Fabric API token (client credentials with a client assertion)
+//! and hands it to the Rayfin CLI as `RAYFIN_TOKEN` (`rayfin up` only needs the
+//! Fabric scope). It uses only GitHub's own actions plus bash, curl and git, so
+//! it also runs on an organization's own runners, chosen with the
+//! [`RUNS_ON_VARIABLE`] Actions variable. No secrets are stored in the
+//! repository: the variables hold IDs only.
 
-use crate::types::TeamManifest;
+use serde_json::{json, Value};
+
+use crate::types::{TeamManifest, TeamRunner};
 
 use super::MIN_RAYFIN;
 
 /// Bump when [`WORKFLOW`] changes so existing workspaces are offered an update.
-pub const TEMPLATE_VERSION: u32 = 4;
+pub const TEMPLATE_VERSION: u32 = 5;
+
+/// The Actions variable (repository or organization) that names the runners
+/// the workflow's jobs use, as JSON `runs-on` accepts. GitHub-hosted
+/// `ubuntu-latest` runners when it isn't set.
+pub const RUNS_ON_VARIABLE: &str = "FABRICATOR_RUNS_ON";
 
 const WORKFLOW: &str = r##"# Managed by Fabricator (team workspace template v{{VERSION}}).
 # Fabricator replaces this file when its template changes, so edits here may be lost.
@@ -22,6 +32,10 @@ const WORKFLOW: &str = r##"# Managed by Fabricator (team workspace template v{{V
 # Jobs sign in through GitHub OIDC: pull requests as the preview identity (which
 # can only reach the previews workspace), main as the deploy identity.
 # No secrets are stored here; the repository variables hold IDs only.
+#
+# Jobs run on GitHub-hosted ubuntu-latest runners unless the FABRICATOR_RUNS_ON
+# variable (repository or organization) names other runners as JSON, for example
+# {"group":"my-runners"} or ["self-hosted","linux"]. Runners need bash, curl and git.
 name: Fabricator
 
 on:
@@ -52,13 +66,14 @@ permissions:
   deployments: write
 
 env:
+  AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
   FABRIC_WORKSPACE_ID: ${{ vars.FABRIC_WORKSPACE_ID }}
   FABRIC_PREVIEW_WORKSPACE_ID: ${{ vars.FABRIC_PREVIEW_WORKSPACE_ID }}
 
 jobs:
   plan:
     name: Plan
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FABRICATOR_RUNS_ON || '"ubuntu-latest"') }}
     outputs:
       mode: ${{ steps.plan.outputs.mode }}
       projects: ${{ steps.plan.outputs.projects }}
@@ -83,6 +98,7 @@ jobs:
               if [ -f "$dir/rayfin/rayfin.yml" ]; then echo "$dir"; fi
             done
           }
+          is_app_folder() { [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] && [[ "$1" != *..* ]]; }
           mode=production
           if [ "$EVENT" = "pull_request" ]; then mode=preview; fi
           if [ "$EVENT" = "workflow_dispatch" ] && [ "${INPUT_ACTION:-deploy}" = "verify" ]; then
@@ -92,7 +108,7 @@ jobs:
           fi
           if [ "$EVENT" = "workflow_dispatch" ]; then
             if [ -n "${INPUT_PROJECT:-}" ]; then
-              if ! [[ "$INPUT_PROJECT" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || [[ "$INPUT_PROJECT" == *..* ]]; then
+              if ! is_app_folder "$INPUT_PROJECT"; then
                 echo "::error::'$INPUT_PROJECT' isn't an app folder name."
                 exit 1
               fi
@@ -117,12 +133,18 @@ jobs:
               list="$(git diff --name-only "$base" "$GITHUB_SHA" | grep / | cut -d/ -f1 | sort -u || true)"
             fi
           fi
-          projects="[]"
+          # A JSON list of the app folders; their names need no escaping.
+          projects=""
           for project in $list; do
             if [ -f "$project/rayfin/rayfin.yml" ]; then
-              projects="$(jq -c --arg p "$project" '. + [$p]' <<< "$projects")"
+              if ! is_app_folder "$project"; then
+                echo "::warning::Skipped '$project': it isn't a valid app folder name."
+                continue
+              fi
+              projects="${projects:+$projects,}\"$project\""
             fi
           done
+          projects="[$projects]"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
           echo "Mode: $mode. Apps: $projects"
@@ -131,54 +153,38 @@ jobs:
     name: Verify Fabric access
     needs: plan
     if: needs.plan.outputs.mode == 'verify'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FABRICATOR_RUNS_ON || '"ubuntu-latest"') }}
     steps:
-      - name: Sign in as the deploy identity
-        uses: azure/login@v3
-        with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
-      - name: Check the published apps' workspace
+      - name: Sign in as each identity and read its workspace
         shell: bash
         env:
-          WORKSPACE: ${{ vars.FABRIC_WORKSPACE_ID }}
+          DEPLOY_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          PREVIEW_CLIENT_ID: ${{ vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID }}
         run: |
-          set -euo pipefail
-          token="$(az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv)"
-          echo "::add-mask::$token"
-          code="$(curl -sS -o "$RUNNER_TEMP/workspace.json" -w '%{http_code}' -H "Authorization: Bearer $token" "https://api.fabric.microsoft.com/v1/workspaces/$WORKSPACE")"
-          if [ "$code" != "200" ]; then
-            echo "::error title=Fabric access::Workspace $WORKSPACE returned HTTP $code: $(head -c 400 "$RUNNER_TEMP/workspace.json")"
-            exit 1
-          fi
-          echo "Fabric workspace $WORKSPACE is reachable."
-      - name: Sign in as the preview identity
-        uses: azure/login@v3
-        with:
-          client-id: ${{ vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
-      - name: Check the previews workspace
-        shell: bash
-        env:
-          WORKSPACE: ${{ vars.FABRIC_PREVIEW_WORKSPACE_ID }}
-        run: |
-          set -euo pipefail
-          token="$(az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv)"
-          echo "::add-mask::$token"
-          code="$(curl -sS -o "$RUNNER_TEMP/workspace.json" -w '%{http_code}' -H "Authorization: Bearer $token" "https://api.fabric.microsoft.com/v1/workspaces/$WORKSPACE")"
-          if [ "$code" != "200" ]; then
-            echo "::error title=Fabric access::Workspace $WORKSPACE returned HTTP $code: $(head -c 400 "$RUNNER_TEMP/workspace.json")"
-            exit 1
-          fi
-          echo "Fabric workspace $WORKSPACE is reachable."
+          set -uo pipefail
+          {{SIGN_IN}}
+          check() {
+            local who="$1" client="$2" workspace="$3" code
+            fabric_sign_in "$client" || return 1
+            code="$(curl -sS --retry 2 --max-time 60 -o "$RUNNER_TEMP/workspace.json" -w '%{http_code}' -H "Authorization: Bearer $TOKEN" "https://api.fabric.microsoft.com/v1/workspaces/$workspace")" || code=000
+            if [ "$code" = "000" ]; then
+              echo "::error title=Fabric access::Couldn't reach Microsoft Fabric (api.fabric.microsoft.com) from this runner."
+              return 1
+            fi
+            if [ "$code" != "200" ]; then
+              echo "::error title=Fabric access::Workspace $workspace returned HTTP $code to the $who identity: $(head -c 400 "$RUNNER_TEMP/workspace.json")"
+              return 1
+            fi
+            echo "The $who identity can reach Fabric workspace $workspace."
+          }
+          check deploy "$DEPLOY_CLIENT_ID" "$FABRIC_WORKSPACE_ID" || exit 1
+          check preview "$PREVIEW_CLIENT_ID" "$FABRIC_PREVIEW_WORKSPACE_ID" || exit 1
 
   deploy:
     name: ${{ needs.plan.outputs.mode == 'preview' && 'Preview' || 'Deploy' }} ${{ matrix.project }}
     needs: plan
     if: needs.plan.outputs.mode != 'verify' && needs.plan.outputs.projects != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.FABRICATOR_RUNS_ON || '"ubuntu-latest"') }}
     strategy:
       fail-fast: false
       matrix:
@@ -239,25 +245,22 @@ jobs:
             echo "::error title=Rayfin update needed::$PROJECT uses Rayfin CLI $found. Team workspaces need Rayfin {{MIN_RAYFIN}} or newer: open the app in Fabricator, select Rayfin in the status bar and choose Update with Copilot."
             exit 1
           fi
-      - name: Sign in to Fabric
-        uses: azure/login@v3
-        with:
-          # Pull requests can only use the preview identity.
-          client-id: ${{ needs.plan.outputs.mode == 'preview' && (vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID) || vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          allow-no-subscriptions: true
       - id: deploy
         name: Deploy with Rayfin
         working-directory: ${{ matrix.project }}
         shell: bash
         env:
+          # Pull requests can only use the preview identity.
+          CLIENT_ID: ${{ needs.plan.outputs.mode == 'preview' && (vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID) || vars.AZURE_CLIENT_ID }}
           WORKSPACE: ${{ steps.target.outputs.workspace }}
           ITEM: ${{ steps.target.outputs.item }}
           FORCE_FLAG: ${{ steps.target.outputs.force }}
         run: |
           set -uo pipefail
-          RAYFIN_TOKEN="$(az account get-access-token --resource https://api.fabric.microsoft.com --query accessToken -o tsv)"
-          echo "::add-mask::$RAYFIN_TOKEN"
+          {{SIGN_IN}}
+          # Signed in only now, after the app's own code (npm scripts, its CLI) has run.
+          fabric_sign_in "$CLIENT_ID" || exit 1
+          RAYFIN_TOKEN="$TOKEN"
           export RAYFIN_TOKEN
           npx rayfin up --workspace-id "$WORKSPACE" --item-name "$ITEM" --yes $FORCE_FLAG 2>&1 | tee "$RUNNER_TEMP/deploy.log"
           code="${PIPESTATUS[0]}"
@@ -346,6 +349,48 @@ jobs:
             })
 "##;
 
+/// Bash for the workflow's `{{SIGN_IN}}` lines: GitHub OIDC → Microsoft Entra
+/// ID client credentials, the same exchange `azure/login` makes, without
+/// needing the Azure CLI on the runner. Sign-in errors keep Entra ID's own
+/// text (AADSTS codes), which setup's verification explains.
+const SIGN_IN: &str = r##"# Sign in to Microsoft Entra ID as the identity with client ID $1 using this
+# job's GitHub OIDC token (no secrets), and put a Fabric API token in $TOKEN.
+fabric_sign_in() {
+  local response assertion detail
+  TOKEN=""
+  if [ -z "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] || [ -z "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+    echo "::error title=Sign-in failed::GitHub didn't give this job an OIDC token. The workflow needs the id-token: write permission."
+    return 1
+  fi
+  if ! response="$(curl -sS --retry 2 --max-time 60 -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange")"; then
+    echo "::error title=Sign-in failed::Couldn't get an OIDC token from GitHub."
+    return 1
+  fi
+  assertion="$(sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$response")"
+  if [ -z "$assertion" ]; then
+    echo "::error title=Sign-in failed::GitHub didn't issue an OIDC token: $(head -c 300 <<<"$response" | tr -d '\r\n')"
+    return 1
+  fi
+  echo "::add-mask::$assertion"
+  if ! response="$(curl -sS --retry 2 --max-time 60 "https://login.microsoftonline.com/$AZURE_TENANT_ID/oauth2/v2.0/token" \
+    --data-urlencode "client_id=$1" \
+    --data-urlencode "scope=https://api.fabric.microsoft.com/.default" \
+    --data-urlencode "grant_type=client_credentials" \
+    --data-urlencode "client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer" \
+    --data-urlencode "client_assertion=$assertion")"; then
+    echo "::error title=Sign-in failed::Couldn't reach Microsoft Entra ID (login.microsoftonline.com) from this runner."
+    return 1
+  fi
+  TOKEN="$(sed -n 's/.*"access_token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$response")"
+  if [ -z "$TOKEN" ]; then
+    detail="$(sed -n 's/.*"error_description"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$response")"
+    echo "::error title=Sign-in failed::Microsoft Entra ID didn't sign in $1: ${detail:-$(head -c 400 <<<"$response" | tr -d '\r\n')}"
+    return 1
+  fi
+  echo "::add-mask::$TOKEN"
+}
+"##;
+
 const README: &str = r##"# {{NAME}}
 
 This repository is a **Fabricator team workspace**. Each top-level folder is a Rayfin app.
@@ -362,9 +407,85 @@ const GITIGNORE: &str = "node_modules/\n.DS_Store\n";
 
 /// The managed deploy workflow.
 pub fn workflow() -> String {
-  WORKFLOW
+  let text = WORKFLOW
     .replace("{{VERSION}}", &TEMPLATE_VERSION.to_string())
-    .replace("{{MIN_RAYFIN}}", MIN_RAYFIN)
+    .replace("{{MIN_RAYFIN}}", MIN_RAYFIN);
+  let mut out = String::with_capacity(text.len() + 2 * SIGN_IN.len());
+  for line in text.split_inclusive('\n') {
+    if line.trim() != "{{SIGN_IN}}" {
+      out.push_str(line);
+      continue;
+    }
+    // The function, indented like the placeholder inside its `run: |` block.
+    let indent = &line[..line.len() - line.trim_start().len()];
+    for sign_in in SIGN_IN.lines() {
+      if !sign_in.is_empty() {
+        out.push_str(indent);
+        out.push_str(sign_in);
+      }
+      out.push('\n');
+    }
+  }
+  out
+}
+
+/// The [`RUNS_ON_VARIABLE`] value for `runner`, as JSON `runs-on` accepts, or
+/// `None` for GitHub-hosted runners, which need no variable.
+pub fn runs_on_value(runner: &TeamRunner) -> Option<String> {
+  let value = match (&runner.group, runner.labels.is_empty()) {
+    (Some(group), true) => json!({ "group": group }),
+    (Some(group), false) => json!({ "group": group, "labels": runner.labels }),
+    (None, true) => return None,
+    (None, false) => json!(runner.labels),
+  };
+  Some(value.to_string())
+}
+
+/// What a [`RUNS_ON_VARIABLE`] value means, or `None` when `runs-on` can't use
+/// it (it was written by hand).
+pub fn parse_runs_on(value: &str) -> Option<TeamRunner> {
+  fn names(v: &Value) -> Option<Vec<String>> {
+    match v {
+      Value::String(s) => Some(vec![s.clone()]),
+      Value::Array(items) => items.iter().map(|i| i.as_str().map(String::from)).collect(),
+      _ => None,
+    }
+  }
+  let runner = match serde_json::from_str::<Value>(value.trim()).ok()? {
+    Value::Object(map) => {
+      if map.keys().any(|k| k != "group" && k != "labels") {
+        return None;
+      }
+      let group = match map.get("group") {
+        Some(Value::String(g)) => Some(g.clone()),
+        Some(_) => return None,
+        None => None,
+      };
+      let labels = match map.get("labels") {
+        Some(v) => names(v)?,
+        None => Vec::new(),
+      };
+      TeamRunner { group, labels }
+    }
+    other => TeamRunner { group: None, labels: names(&other)? },
+  };
+  clean_runner(runner).ok().filter(|r| r.group.is_some() || !r.labels.is_empty())
+}
+
+/// `runner` with its names trimmed, labels split at commas and duplicates
+/// dropped, or why it can't be used.
+pub fn clean_runner(runner: TeamRunner) -> Result<TeamRunner, String> {
+  let group = runner.group.map(|g| g.trim().to_string()).filter(|g| !g.is_empty());
+  let mut labels: Vec<String> = Vec::new();
+  for label in runner.labels.iter().flat_map(|l| l.split(',')).map(str::trim).filter(|l| !l.is_empty()) {
+    if !labels.iter().any(|l| l.eq_ignore_ascii_case(label)) {
+      labels.push(label.to_string());
+    }
+  }
+  if group.iter().chain(&labels).any(|n| n.chars().count() > 256 || n.chars().any(char::is_control)) {
+    return Err("Enter runner group names and labels as your organization's runner settings show them.".into());
+  }
+  Ok(TeamRunner { group, labels })
 }
 
 pub fn readme(name: &str) -> String {
@@ -424,30 +545,112 @@ mod tests {
   fn workflow_never_references_secrets_and_uses_oidc() {
     let text = workflow();
     assert!(!text.contains("secrets."));
-    assert!(text.contains("azure/login@v3"));
-    assert!(text.contains("allow-no-subscriptions: true"));
     assert!(text.contains("RAYFIN_TOKEN"));
     assert!(text.contains("--item-name \"$ITEM\" --yes $FORCE_FLAG"));
+    // Runners need only bash, curl and git: no Azure CLI, azure/login or jq.
+    for tool in ["azure/login", "az account", "az login", "jq "] {
+      assert!(!text.contains(tool), "uses {tool}");
+    }
+    for placeholder in ["{{VERSION}}", "{{MIN_RAYFIN}}", "{{SIGN_IN}}"] {
+      assert!(!text.contains(placeholder), "{placeholder} was left in");
+    }
+  }
+
+  #[test]
+  fn jobs_sign_in_with_the_oidc_token_exchange() {
+    let text = workflow();
+    assert!(text.contains(&format!("audience={}", crate::services::team::entra::TOKEN_EXCHANGE_AUDIENCE)));
+    assert!(text.contains("https://login.microsoftonline.com/$AZURE_TENANT_ID/oauth2/v2.0/token"));
+    assert!(text.contains("--data-urlencode \"client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer\""));
+    assert!(text.contains("--data-urlencode \"scope=https://api.fabric.microsoft.com/.default\""));
+    // Both tokens are masked before anything could print them.
+    assert!(text.contains("echo \"::add-mask::$assertion\""));
+    assert!(text.contains("echo \"::add-mask::$TOKEN\""));
+    // Entra ID's own error text (AADSTS codes) reaches the log for setup to explain.
+    assert!(text.contains("Microsoft Entra ID didn't sign in $1: ${detail:-"));
+    let doc = yaml();
+    assert_eq!(doc["env"]["AZURE_TENANT_ID"].as_str(), Some("${{ vars.AZURE_TENANT_ID }}"));
+    // The same function, indented to fit, wherever a step signs in.
+    let defined: Vec<String> = ["verify", "deploy"]
+      .iter()
+      .flat_map(|job| doc["jobs"][*job]["steps"].as_sequence().unwrap().iter())
+      .filter_map(|s| s["run"].as_str())
+      .filter(|run| run.contains("fabric_sign_in() {"))
+      .map(|run| {
+        let start = run.find("# Sign in to Microsoft Entra ID").unwrap();
+        let end = run[start..].find("\n}\n").unwrap() + start + 3;
+        run[start..end].to_string()
+      })
+      .collect();
+    assert_eq!(defined.len(), 2);
+    assert_eq!(defined[0], defined[1]);
+    assert_eq!(defined[0], SIGN_IN);
+  }
+
+  #[test]
+  fn every_job_runs_where_the_variable_says() {
+    let doc = yaml();
+    for job in ["plan", "verify", "deploy"] {
+      assert_eq!(
+        doc["jobs"][job]["runs-on"].as_str(),
+        Some(format!("${{{{ fromJSON(vars.{RUNS_ON_VARIABLE} || '\"ubuntu-latest\"') }}}}").as_str()),
+        "{job}"
+      );
+    }
+  }
+
+  #[test]
+  fn runner_choices_become_runs_on_json_and_back() {
+    let group = TeamRunner { group: Some("deployers".into()), labels: vec![] };
+    let both = TeamRunner { group: Some("deployers".into()), labels: vec!["linux".into()] };
+    let labels = TeamRunner { group: None, labels: vec!["self-hosted".into(), "linux".into()] };
+    assert_eq!(runs_on_value(&group).as_deref(), Some(r#"{"group":"deployers"}"#));
+    assert_eq!(runs_on_value(&both).as_deref(), Some(r#"{"group":"deployers","labels":["linux"]}"#));
+    assert_eq!(runs_on_value(&labels).as_deref(), Some(r#"["self-hosted","linux"]"#));
+    assert_eq!(runs_on_value(&TeamRunner::default()), None);
+    for runner in [&group, &both, &labels] {
+      assert_eq!(parse_runs_on(&runs_on_value(runner).unwrap()).as_ref(), Some(runner));
+    }
+    // What organization owners may write by hand.
+    assert_eq!(parse_runs_on(r#""self-hosted""#).unwrap().labels, vec!["self-hosted"]);
+    assert_eq!(parse_runs_on(r#" {"group": "g", "labels": "x64"} "#), Some(TeamRunner { group: Some("g".into()), labels: vec!["x64".into()] }));
+    for invalid in ["self-hosted", "", "{}", "[]", "[1]", r#"{"group":1}"#, r#"{"name":"g"}"#, r#"{"group":"  "}"#] {
+      assert_eq!(parse_runs_on(invalid), None, "{invalid}");
+    }
+  }
+
+  #[test]
+  fn runner_choices_are_cleaned_up() {
+    let cleaned = clean_runner(TeamRunner {
+      group: Some("  ".into()),
+      labels: vec!["self-hosted, Linux".into(), " linux ".into(), "".into(), "x64".into()],
+    })
+    .unwrap();
+    assert_eq!(cleaned, TeamRunner { group: None, labels: vec!["self-hosted".into(), "Linux".into(), "x64".into()] });
+    assert!(clean_runner(TeamRunner { group: Some("a\nb".into()), labels: vec![] }).is_err());
+    assert!(clean_runner(TeamRunner { group: Some("g".repeat(300)), labels: vec![] }).is_err());
   }
 
   #[test]
   fn pull_requests_deploy_with_the_preview_identity() {
-    let text = workflow();
-    assert!(text.contains(
-      "client-id: ${{ needs.plan.outputs.mode == 'preview' && (vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID) || vars.AZURE_CLIENT_ID }}"
-    ));
-    // Verification checks each identity against its own workspace.
     let doc = yaml();
-    let steps = doc["jobs"]["verify"]["steps"].as_sequence().unwrap();
-    let logins: Vec<&str> = steps
-      .iter()
-      .filter(|s| s["uses"].as_str() == Some("azure/login@v3"))
-      .map(|s| s["with"]["client-id"].as_str().unwrap())
-      .collect();
+    let deploy = doc["jobs"]["deploy"]["steps"].as_sequence().unwrap().iter().find(|s| s["id"].as_str() == Some("deploy")).unwrap();
     assert_eq!(
-      logins,
-      vec!["${{ vars.AZURE_CLIENT_ID }}", "${{ vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID }}"]
+      deploy["env"]["CLIENT_ID"].as_str(),
+      Some("${{ needs.plan.outputs.mode == 'preview' && (vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID) || vars.AZURE_CLIENT_ID }}")
     );
+    assert!(deploy["run"].as_str().unwrap().contains("fabric_sign_in \"$CLIENT_ID\" || exit 1"));
+    // Verification checks each identity against its own workspace.
+    let steps = doc["jobs"]["verify"]["steps"].as_sequence().unwrap();
+    assert_eq!(steps.len(), 1);
+    assert_eq!(steps[0]["env"]["DEPLOY_CLIENT_ID"].as_str(), Some("${{ vars.AZURE_CLIENT_ID }}"));
+    assert_eq!(steps[0]["env"]["PREVIEW_CLIENT_ID"].as_str(), Some("${{ vars.AZURE_PREVIEW_CLIENT_ID || vars.AZURE_CLIENT_ID }}"));
+    let run = steps[0]["run"].as_str().unwrap();
+    assert!(run.contains("check deploy \"$DEPLOY_CLIENT_ID\" \"$FABRIC_WORKSPACE_ID\" || exit 1"));
+    assert!(run.contains("check preview \"$PREVIEW_CLIENT_ID\" \"$FABRIC_PREVIEW_WORKSPACE_ID\" || exit 1"));
+    // Setup explains these messages (see setup::verify_problem).
+    assert!(run.contains("returned HTTP $code to the $who identity"));
+    assert!(run.contains("Couldn't reach Microsoft Fabric (api.fabric.microsoft.com) from this runner."));
   }
 
   #[test]
@@ -508,7 +711,14 @@ mod tests {
     let steps = doc["jobs"]["deploy"]["steps"].as_sequence().unwrap();
     let position = |name: &str| steps.iter().position(|s| s["name"].as_str() == Some(name)).unwrap();
     assert!(position("Install dependencies") < position("Check the Rayfin version"));
-    assert!(position("Check the Rayfin version") < position("Sign in to Fabric"));
+    assert!(position("Check the Rayfin version") < position("Deploy with Rayfin"));
+    // Only the deploy step signs in, after the app's own code has run.
+    let signs_in: Vec<&str> = steps
+      .iter()
+      .filter(|s| s["run"].as_str().is_some_and(|r| r.contains("fabric_sign_in")))
+      .filter_map(|s| s["name"].as_str())
+      .collect();
+    assert_eq!(signs_in, vec!["Deploy with Rayfin"]);
     let check = &steps[position("Check the Rayfin version")];
     assert_eq!(check["id"].as_str(), Some("rayfin"));
     // Only the project's own CLI counts: never download a package named `rayfin`.
