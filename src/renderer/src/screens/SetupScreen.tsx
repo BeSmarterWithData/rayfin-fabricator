@@ -648,6 +648,7 @@ export default function SetupScreen({ doctor, auth, refreshing, error, onRefresh
           onClose={() => setShowHelp(false)}
           appVersion={undefined}
           facts={setupFacts(doctor, auth, { online })}
+          surface="setup"
           onAction={runSetupHelpAction}
           onReportIssue={(issue) => void reportIssue(window.api, null, navigator.userAgent, issue)}
         />

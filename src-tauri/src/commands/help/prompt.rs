@@ -174,6 +174,7 @@ mod tests {
       projects: Vec::new(),
       recent_activity: String::new(),
       facts: Vec::new(),
+      surface: crate::commands::help::tools::Surface::Project,
       extra_roots: Vec::new(),
     }
   }

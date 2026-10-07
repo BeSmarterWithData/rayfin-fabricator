@@ -3021,10 +3021,15 @@ pub struct HelpAskRequest {
   pub attachments: Vec<String>,
   /// Short statements of what is true *right now*, supplied by the screen that
   /// opened Help — which setup steps passed, what is deployed, and so on. The
-  /// error journal is history; without this the assistant can only reason from
-  /// what went wrong, and will raise a problem the user already fixed.
+  /// activity journal is history; without this the assistant can only reason
+  /// from what went wrong, and will raise a problem the user already fixed.
   #[serde(default)]
   pub facts: Vec<String>,
+  /// Where the user is: `setup`, `home`, or a project. Gates the actions the
+  /// assistant may offer, so it never produces a button that does nothing from
+  /// the screen they are actually on.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub surface: Option<String>,
   /// The conversation so far, replayed so follow-up questions have context.
   #[serde(default)]
   pub history: Vec<HelpTurn>,

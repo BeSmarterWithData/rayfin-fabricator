@@ -148,7 +148,32 @@ describe('workbenchFacts', () => {
   })
 
   it('handles no open app', () => {
-    expect(workbenchFacts(null, { projectCount: 3 })[0]).toContain('3 app(s) are available')
+    expect(workbenchFacts(null, { projectCount: 3 })[0]).toContain('list of 3 app(s)')
+    expect(workbenchFacts(null)[0]).toContain('none have been created')
+  })
+})
+
+describe('knowing which screen the user is on', () => {
+  const project = {
+    id: 'p1',
+    name: 'Expenses',
+    path: 'C:\\apps\\expenses',
+    addedAt: '2026-01-01T00:00:00Z'
+  } as StudioProject
+
+  // Help offered "Open my projects" while the project list was already on
+  // screen; pressing it did nothing. It has to know where the user is.
+  it('says when the user is already looking at their list', () => {
+    const facts = workbenchFacts(project, { onHome: true })
+    expect(facts[0]).toContain('looking at their list of apps')
+  })
+
+  it('does not say that while they are working inside an app', () => {
+    const facts = workbenchFacts(project)
+    expect(facts.some((f) => f.includes('looking at their list'))).toBe(false)
+  })
+
+  it('describes an empty list as nothing to open', () => {
     expect(workbenchFacts(null)[0]).toContain('none have been created')
   })
 })

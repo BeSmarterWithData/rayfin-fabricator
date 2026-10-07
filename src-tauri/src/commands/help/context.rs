@@ -9,6 +9,7 @@
 
 use std::path::PathBuf;
 
+use super::tools::Surface;
 use crate::services::{grounding, journal, paths, store};
 
 /// How many journal records to put in front of the model each turn.
@@ -62,6 +63,9 @@ pub struct HelpContext {
   pub recent_activity: String,
   /// What is true right now, from the screen that opened Help.
   pub facts: Vec<String>,
+  /// Which screen the user is on, so an action that can't work from there is
+  /// never offered as a button.
+  pub surface: Surface,
   /// Extra files and folders the user attached.
   pub extra_roots: Vec<String>,
 }
@@ -73,6 +77,7 @@ impl HelpContext {
     project_id: Option<&str>,
     attachments: &[String],
     facts: &[String],
+    surface: Surface,
   ) -> Self {
     let status = grounding::status(app_version);
     let project = project_id.and_then(project_context);
@@ -88,6 +93,7 @@ impl HelpContext {
       projects: all_projects(),
       recent_activity: journal::recent(RECENT_ACTIVITY),
       facts: facts.to_vec(),
+      surface,
       extra_roots: attachments.to_vec(),
     }
   }
@@ -233,6 +239,7 @@ mod tests {
       projects: Vec::new(),
       recent_activity: String::new(),
       facts: Vec::new(),
+      surface: Surface::Project,
       extra_roots: vec!["C:\\Users\\me\\Desktop\\shot.png".into()],
     }
   }

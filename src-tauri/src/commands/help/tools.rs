@@ -64,6 +64,41 @@ const PERSONAL_ONLY: &[&str] = &["share-app"];
 /// Actions that only apply to a team app.
 const TEAM_ONLY: &[&str] = &["open-team-access"];
 
+/// The only actions that work from the setup screen. The rest need the
+/// workbench, which doesn't exist yet while someone is still setting up —
+/// offering one there produces a button that does nothing when pressed.
+const SETUP_SAFE: &[&str] = &[
+  "open-docs",
+  "open-logs",
+  "export-diagnostics",
+  "report-issue",
+  "run-doctor",
+  "sign-in-copilot",
+];
+
+/// Where the user is standing when they ask. Decides whether an in-app
+/// navigation action can actually take them anywhere.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Surface {
+  /// Still setting up; the workbench isn't running.
+  Setup,
+  /// Looking at the list of their projects.
+  Home,
+  /// Inside a project.
+  #[default]
+  Project,
+}
+
+impl Surface {
+  pub fn parse(raw: Option<&str>) -> Self {
+    match raw.map(str::trim).unwrap_or_default() {
+      "setup" => Self::Setup,
+      "home" => Self::Home,
+      _ => Self::Project,
+    }
+  }
+}
+
 fn action_ids() -> Vec<&'static str> {
   ACTIONS.iter().map(|(id, _)| *id).collect()
 }
@@ -97,6 +132,8 @@ pub struct ToolContext {
   /// Whether the open project is a team app, which has a different set of
   /// controls from a personal one.
   pub team_project: bool,
+  /// Where the user is, which decides whether a navigation action is reachable.
+  pub surface: Surface,
 }
 
 fn ok(text: impl Into<String>) -> ToolResult {
@@ -149,6 +186,30 @@ impl ToolHandler for ActionTool {
     }
 
     let ctx = &self.0;
+    // A button that does nothing is worse than no button. Everything below
+    // rejects an action the user's current screen cannot actually perform, and
+    // says what to offer instead.
+    if ctx.surface == Surface::Setup && !SETUP_SAFE.contains(&id.as_str()) {
+      return Ok(fail(format!(
+        "`{id}` isn't available yet: the user is still on the setup screen, and the rest of the \
+app isn't running. Tell them what to do on the setup screen instead, or offer one of: {}.",
+        SETUP_SAFE.join(", ")
+      )));
+    }
+    if id == "open-home" && ctx.surface == Surface::Home {
+      return Ok(fail(
+        "The user is already looking at their list of projects, so `open-home` would do nothing. \
+Either offer `open-project` with a specific project's id, or just tell them to pick one."
+          .to_string(),
+      ));
+    }
+    if (id == "open-home" || id == "open-project") && ctx.project_ids.is_empty() {
+      return Ok(fail(
+        "There are no projects on this computer yet, so there is nothing to open. Tell them to \
+select New project on the home screen instead."
+          .to_string(),
+      ));
+    }
     if NEEDS_PROJECT.contains(&id.as_str()) && !ctx.has_project {
       return Ok(fail(format!(
         "`{id}` needs a project to be open, and none is. Offer `open-project` or `open-home` first."
@@ -440,6 +501,32 @@ mod tests {
     for id in NEEDS_PROJECT {
       assert!(action_ids().contains(id), "{id} is gated but not offered");
     }
+  }
+
+  #[test]
+  fn every_setup_safe_action_exists() {
+    for id in SETUP_SAFE {
+      assert!(action_ids().contains(id), "{id} is allowed in setup but not offered");
+    }
+  }
+
+  /// The setup screen can only run a handful of these; the rest need a
+  /// workbench that isn't running yet. Anything outside the safe list must be
+  /// something the setup screen actually ignores.
+  #[test]
+  fn nothing_outside_the_setup_safe_list_pretends_to_work_during_setup() {
+    for id in &["open-home", "open-project", "share-app", "open-advisor", "open-settings"] {
+      assert!(!SETUP_SAFE.contains(id), "{id} cannot work before the workbench exists");
+    }
+  }
+
+  #[test]
+  fn a_surface_defaults_to_the_project_view() {
+    assert_eq!(Surface::parse(None), Surface::Project);
+    assert_eq!(Surface::parse(Some("project")), Surface::Project);
+    assert_eq!(Surface::parse(Some("nonsense")), Surface::Project);
+    assert_eq!(Surface::parse(Some(" setup ")), Surface::Setup);
+    assert_eq!(Surface::parse(Some("home")), Surface::Home);
   }
 
   #[test]

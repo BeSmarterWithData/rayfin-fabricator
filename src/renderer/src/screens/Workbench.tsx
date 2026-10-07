@@ -2019,6 +2019,7 @@ export default function Workbench({
             ...workbenchFacts(active, {
               projectCount: projects?.projects.length,
               team: Boolean(active?.team),
+              onHome: showHome,
               previewUrl:
                 active && devServers[active.id]?.status === 'running'
                   ? (devServers[active.id]?.url ?? null)
@@ -2026,6 +2027,7 @@ export default function Workbench({
               deploying: Boolean(active && deploys[active.id]?.running)
             })
           ]}
+          surface={showHome || !active ? 'home' : 'project'}
           onAction={runHelpAction}
           onReportIssue={reportHelpIssue}
         />

@@ -287,11 +287,6 @@ pub fn write(rec: &Record) {
   append_to(&paths::logs_dir(), rec);
 }
 
-/// Note that something went right.
-pub fn ok(area: Area, event: &str, message: &str) {
-  entry(Level::Info, area, event, message).write();
-}
-
 /// The most recent lines, oldest first, capped at `max_lines`. Returns raw
 /// JSONL so the caller can hand it straight to the model — and so the ordering
 /// that makes a later success meaningful is preserved.

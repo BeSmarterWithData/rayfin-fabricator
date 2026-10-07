@@ -129,6 +129,7 @@ export function workbenchFacts(
   options: {
     projectCount?: number
     team?: boolean
+    onHome?: boolean
     previewUrl?: string | null
     deploying?: boolean
   } = {}
@@ -138,10 +139,14 @@ export function workbenchFacts(
   if (!active) {
     facts.push(
       options.projectCount
-        ? `No app is open right now; ${options.projectCount} app(s) are available on the home screen.`
+        ? `No app is open right now; the user is looking at their list of ${options.projectCount} app(s).`
         : 'No app is open, and none have been created on this computer yet.'
     )
     return facts
+  }
+
+  if (options.onHome) {
+    facts.push('The user is looking at their list of apps, not working inside one.')
   }
 
   facts.push(

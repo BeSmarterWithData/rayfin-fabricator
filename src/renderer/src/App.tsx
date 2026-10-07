@@ -32,6 +32,46 @@ const ALL_PROVIDERS: AuthProvider[] = ['copilot', 'rayfin', 'az']
 /** Setup gates entry on these; the slower Fabric check only matters inside the app. */
 const SETUP_PROVIDERS: AuthProvider[] = ['copilot', 'az']
 
+/**
+ * Note how things stood at startup in the activity journal.
+ *
+ * This is the anchor that keeps the journal honest. Without a periodic "and
+ * everything was fine here", a failure from last week still reads as the most
+ * recent word on the subject, and the Help assistant reports it as live.
+ *
+ * Written once per launch. React can mount the app more than once — a dev-mode
+ * remount, a hot reload — and a journal that repeats the same line four times
+ * for one launch is harder to read, not easier.
+ */
+let startupRecorded = false
+
+function recordStartup(ready: boolean, doctor: DoctorReport | null): void {
+  if (startupRecorded) return
+  startupRecorded = true
+  if (ready) {
+    reportEvent(
+      'app',
+      'app.ready',
+      'Fabricator started. All required tools are ready and both accounts are connected.'
+    )
+    return
+  }
+  const missing = doctor?.tools.filter((t) => t.required && !t.satisfied).length ?? 0
+  reportEvent(
+    'setup',
+    'app.setup_needed',
+    missing > 0
+      ? `Fabricator started on the setup screen; ${missing} tool(s) still need to be installed.`
+      : 'Fabricator started on the setup screen; setup is not finished yet.',
+    { level: 'warn' }
+  )
+}
+
+/** Test seam: let each test observe the once-per-launch record. */
+export function resetStartupRecordForTests(): void {
+  startupRecorded = false
+}
+
 function App(): JSX.Element {
   // Decided once per launch: after setup has passed here, open the app at once
   // and verify tools and accounts in the background.
@@ -148,6 +188,7 @@ function App(): JSX.Element {
       } else {
         applyPhase('setup')
       }
+      recordStartup(ready, d.status === 'fulfilled' ? d.value : null)
       setRefreshing(false)
     },
     [applyPhase, checkAuth]
@@ -160,17 +201,30 @@ function App(): JSX.Element {
     const seq = ++refreshSeqRef.current
     const tools = Promise.resolve()
       .then(() => window.api.doctor.check())
-      .then(
-        (report) => {
-          if (mountedRef.current && seq === refreshSeqRef.current) setDoctor(report)
-        },
-        (reason) => {
-          if (mountedRef.current && seq === refreshSeqRef.current) {
-            setCheckError(authErrorMessage(reason, 'Could not check the installed tools. Please retry.'))
-          }
-        }
-      )
-    await Promise.allSettled([tools, checkAuth(SETUP_PROVIDERS), checkAuth(['rayfin'])])
+      .then((result) => {
+        if (mountedRef.current && seq === refreshSeqRef.current) setDoctor(result)
+        return result
+      })
+    tools.catch((reason) => {
+      if (mountedRef.current && seq === refreshSeqRef.current) {
+        setCheckError(authErrorMessage(reason, 'Could not check the installed tools. Please retry.'))
+      }
+    })
+    const [report, accounts] = await Promise.allSettled([
+      tools,
+      checkAuth(SETUP_PROVIDERS),
+      checkAuth(['rayfin'])
+    ])
+    const doctorReport = report.status === 'fulfilled' ? report.value : null
+    // This is the common launch path, so it is also the one that most needs an
+    // "everything was fine" marker in the journal.
+    recordStartup(
+      Boolean(doctorReport?.ready) &&
+        accounts.status === 'fulfilled' &&
+        Boolean(accounts.value.copilot?.signedIn) &&
+        Boolean(accounts.value.az?.signedIn),
+      doctorReport
+    )
   }, [checkAuth])
 
   /** Re-verify every account without leaving the app; rejects when verification fails. */

@@ -82,7 +82,8 @@ export const api: RayfinStudioApi = {
         message: report.message,
         operation: report.operation,
         detail: report.detail,
-        projectId: report.projectId
+        projectId: report.projectId,
+        dev: report.dev
       })
   },
   openInEditor: (id: string) => invoke('open_in_editor', { id }),

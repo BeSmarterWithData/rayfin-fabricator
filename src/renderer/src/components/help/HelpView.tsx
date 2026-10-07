@@ -55,6 +55,12 @@ export interface HelpViewProps {
    * the assistant can tell a problem the user already fixed from a live one.
    */
   facts?: string[]
+  /**
+   * Which screen Help was opened from. Sent so the assistant never offers a
+   * button that can't do anything from there — "Open my projects" while the
+   * project list is already on screen, or any of them during setup.
+   */
+  surface?: 'setup' | 'home' | 'project'
   appVersion?: string
 }
 
@@ -64,7 +70,7 @@ function newId(): string {
 
 /**
  * The Help assistant: a full-screen, terminal-style overlay that debugs the
- * user's problem from the error journal, the docs and Fabricator's own source.
+ * user's problem from the activity journal, the docs and Fabricator's own source.
  *
  * Deliberately spare — one column, one prompt, monospace chrome — so it reads as
  * a tool rather than a second chat. Motion is limited to the caret, the working
@@ -77,6 +83,7 @@ export function HelpView({
   onAction,
   onReportIssue,
   facts,
+  surface,
   appVersion
 }: HelpViewProps): JSX.Element {
   const toast = useToast()
@@ -286,6 +293,7 @@ export function HelpView({
           projectId,
           attachments,
           facts,
+          surface,
           history
         })
         patch(id, (prev) => applyAnswer(prev, answer))
@@ -303,7 +311,7 @@ export function HelpView({
         setBusy(false)
       }
     },
-    [facts, history, patch, projectId]
+    [facts, history, patch, projectId, surface]
   )
 
   const stop = useCallback((): void => {
@@ -502,7 +510,7 @@ function Welcome({
         </span>
       </div>
       <p className="help-welcome-lead">
-        Ask about anything that isn&apos;t working. I can read this machine&apos;s error log, the
+        Ask about anything that isn&apos;t working. I can read what this machine has been doing, the
         documentation, and your project.
       </p>
       <ul className="help-prompts">

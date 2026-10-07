@@ -5,7 +5,7 @@ import type { AuthProvider, AuthStatus, DoctorReport } from '@shared/ipc'
 import type { SetupAttention } from './startup'
 import { ToastProvider } from './toast'
 import { deferred } from '../test/deferred'
-import App from './App'
+import App, { resetStartupRecordForTests } from './App'
 
 vi.mock('./update', () => ({ useUpdates: () => ({ blocking: null }) }))
 vi.mock('./theme', () => ({
@@ -118,7 +118,8 @@ function installApi() {
       status: vi.fn().mockResolvedValue(signedIn),
       check: vi.fn<Check>((providers) => Promise.resolve(pick(providers)))
     },
-    settings: { get: vi.fn().mockResolvedValue(null) }
+    settings: { get: vi.fn().mockResolvedValue(null) },
+    diagnostics: { record: vi.fn().mockResolvedValue(undefined) }
   }
   ;(window as unknown as { api: unknown }).api = api
   return api
@@ -156,6 +157,7 @@ function renderApp(): void {
 
 beforeEach(() => {
   vi.useFakeTimers()
+  resetStartupRecordForTests()
 })
 
 afterEach(() => {
@@ -378,5 +380,51 @@ describe('App authentication orchestration', () => {
     expect(screen.getByTestId('copilot').textContent).toBe('false')
     expect(screen.getByRole('alert').textContent).toContain('Current startup failed')
     expect(screen.queryByTestId('workbench')).toBeNull()
+  })
+})
+
+describe('what startup puts in the activity journal', () => {
+  // Help reads the journal to answer "is anything wrong?". Without a marker
+  // saying everything was fine at launch, the newest entry is whatever failed
+  // last — possibly days ago — and it gets reported as a live problem.
+  it('records that the app started ready', async () => {
+    localStorage.setItem(SETUP_DONE, '1')
+    const api = installApi()
+    renderApp()
+    await settle()
+
+    expect(api.diagnostics.record).toHaveBeenCalledWith(
+      expect.objectContaining({ level: 'info', event: 'app.ready' })
+    )
+  })
+
+  it('records a warning naming how many tools are still missing', async () => {
+    localStorage.setItem(SETUP_DONE, '1')
+    const api = installApi()
+    api.doctor.check.mockResolvedValue(missingNode)
+    renderApp()
+    await settle()
+
+    expect(api.diagnostics.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: 'warn',
+        event: 'app.setup_needed',
+        message: expect.stringContaining('1 tool(s)')
+      })
+    )
+  })
+
+  it('writes one line per launch, not one per mount', async () => {
+    const api = installApi()
+    renderApp()
+    await finishSplash()
+    cleanup()
+    renderApp()
+    await settle()
+
+    const startups = api.diagnostics.record.mock.calls.filter(([r]) =>
+      String(r.event).startsWith('app.')
+    )
+    expect(startups).toHaveLength(1)
   })
 })

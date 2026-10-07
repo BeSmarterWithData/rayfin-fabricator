@@ -2321,6 +2321,12 @@ export interface ErrorReport {
   /** A stack trace, stderr, or other context. */
   detail?: string
   projectId?: string
+  /**
+   * True when this came from a development build run from source. Those are a
+   * developer's own half-finished edits, not faults in the installed app, so
+   * the Help assistant discounts them.
+   */
+  dev?: boolean
 }
 
 /**
@@ -2418,6 +2424,11 @@ export interface HelpAskRequest {
    * the assistant can tell a resolved problem from a live one.
    */
   facts?: string[]
+  /**
+   * Which screen the user is on. Gates the actions the assistant may offer, so
+   * it never produces a button that does nothing from where they are standing.
+   */
+  surface?: 'setup' | 'home' | 'project'
   /** The conversation so far, replayed so follow-up questions have context. */
   history?: HelpTurn[]
   model?: string

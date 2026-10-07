@@ -458,7 +458,8 @@ pub async fn help_ask(
   state: State<'_, AppState>,
   request: HelpAskRequest,
 ) -> Result<HelpAnswer, String> {
-  let HelpAskRequest { ask_id, question, project_id, attachments, facts, history, model } = request;
+  let HelpAskRequest { ask_id, question, project_id, attachments, facts, surface, history, model } =
+    request;
   let question = question.trim().to_string();
   if question.is_empty() {
     return Err("Type a question first.".to_string());
@@ -471,7 +472,13 @@ pub async fn help_ask(
     attachments.into_iter().filter(|p| !p.trim().is_empty()).take(MAX_ATTACHMENTS).collect();
 
   let version = app.package_info().version.to_string();
-  let ctx = HelpContext::build(&version, project_id.as_deref(), &attachments, &facts);
+  let ctx = HelpContext::build(
+    &version,
+    project_id.as_deref(),
+    &attachments,
+    &facts,
+    tools::Surface::parse(surface.as_deref()),
+  );
   let token = state.begin_help();
 
   let emit: tools::Emit = {
@@ -539,6 +546,7 @@ async fn run_turn(
     project_ids: ctx.projects.iter().map(|p| p.id.clone()).collect(),
     has_project: ctx.project.is_some(),
     team_project: ctx.project.as_ref().is_some_and(|p| p.team.is_some()),
+    surface: ctx.surface,
   });
   let opts = SessionOptions {
     permission: Some(policy),
@@ -673,6 +681,7 @@ mod tests {
       projects: Vec::new(),
       recent_activity: String::new(),
       facts: Vec::new(),
+      surface: crate::commands::help::tools::Surface::Project,
       extra_roots: Vec::new(),
     }
   }
