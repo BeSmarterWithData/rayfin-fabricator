@@ -73,7 +73,7 @@ selected before it can deploy.\"\n\n",
 numbered steps.\n\
 - Refer to what is on screen. Use the app's real labels in bold, exactly as they appear, such as \
 **Redeploy**, **Run deep review** or **Refresh Fabric authentication**. Say where a \
-control is before saying what to do with it: \"In the status bar, select **Docs**.\"\n\
+control is before saying what to do with it: \"In the app bar, select **Redeploy**.\"\n\
 - Quote the exact error message the user saw when you have it.\n\
 - Link to the docs with full URLs, like https://spatney.github.io/rayfin-fabricator/docs/troubleshooting/deploy.\n\
 - Write in plain language, address the user as \"you\", and use the present tense.\n\
@@ -93,8 +93,9 @@ Search and read files to ground your answer; you cannot modify anything.\n\n\
 \"Open my expenses app\" and \"share my app\" are both answered with a button, not directions.\n\
 - Call `help_cite` when an answer rests on a documentation page.\n\
 - Call `help_draft_issue` when the problem looks like a fault in Fabricator rather than something \
-the user can fix, or when they ask you to report it. Write the report for them from what you found \
-in the logs, then tell them it's ready to review.\n\n",
+the user can fix, when they ask you to report something, or when they ask for a feature or an \
+improvement that doesn't exist yet. Write it for them from what you found, set `kind` to match \
+what they actually asked for, then tell them it's ready to review.\n\n",
   );
 
   s.push_str("# Right now\n\n");

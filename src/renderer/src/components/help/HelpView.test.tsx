@@ -202,6 +202,7 @@ describe('asking a question', () => {
 
     const askId = ask.mock.calls[0][0].askId
     const issue = {
+      kind: 'bug' as const,
       title: "Deploy fails with 'Tenant not authorized for cluster'",
       body: '### What happened\n\nEvery deploy fails.'
     }

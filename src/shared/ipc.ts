@@ -2331,10 +2331,13 @@ export interface HelpAction {
 }
 
 /**
- * A bug report the assistant wrote from what it found, ready for the user to
- * review and submit. The app appends version and system details.
+ * A bug report or feature request the assistant wrote from what it found, ready
+ * for the user to review and submit. A bug report also carries version and
+ * system details.
  */
 export interface HelpIssueDraft {
+  /** Decides the title prefix and the GitHub label. */
+  kind: 'bug' | 'feature'
   title: string
   /** Markdown body, in the user's voice. */
   body: string

@@ -545,6 +545,11 @@
   font-size: 14px;
 }
 
+/* A feature request isn't a problem, so it doesn't borrow the warning colour. */
+.help-issue-icon.is-feature {
+  color: var(--accent-2);
+}
+
 .help-issue-id {
   display: flex;
   min-width: 0;

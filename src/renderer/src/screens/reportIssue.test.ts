@@ -33,19 +33,38 @@ describe('buildReportIssueUrl', () => {
 
   it('references the diagnostics bundle path when one was exported', () => {
     const body = bodyOf(buildReportIssueUrl(versions, 'C:/logs/fabricator-diagnostics-42.md', 'UA/1.0'))
-    expect(body).toContain('### Diagnostics')
+    expect(body).toContain('## Diagnostics')
     expect(body).toContain('C:/logs/fabricator-diagnostics-42.md')
   })
 
   it('omits the Diagnostics section when no bundle was exported', () => {
     const body = bodyOf(buildReportIssueUrl(versions, null, 'UA/1.0'))
-    expect(body).not.toContain('### Diagnostics')
+    expect(body).not.toContain('## Diagnostics')
   })
 
   it('degrades to "unknown" when versions are unavailable', () => {
     const body = bodyOf(buildReportIssueUrl(null, null, 'UA/1.0'))
     expect(body).toContain('App: Fabricator unknown')
     expect(body).toContain('Copilot CLI: unknown')
+  })
+
+  it('prefixes a drafted bug the way the repository template does', () => {
+    const url = new URL(
+      buildReportIssueUrl(versions, null, 'UA/1.0', {
+        kind: 'bug',
+        title: "Deploy fails with 'Tenant not authorized'",
+        body: '## Summary\n\nIt broke.'
+      })
+    )
+    expect(url.searchParams.get('title')).toBe("Bug: Deploy fails with 'Tenant not authorized'")
+    expect(url.searchParams.get('labels')).toBe('bug')
+    expect(url.searchParams.get('body')).toContain('It broke.')
+  })
+
+  it('keeps the empty bug template when nothing was drafted', () => {
+    const url = new URL(buildReportIssueUrl(versions, null, 'UA/1.0'))
+    expect(url.searchParams.get('title')).toBe('Bug: ')
+    expect(url.searchParams.get('body')).toContain('Steps to reproduce')
   })
 })
 
@@ -77,6 +96,31 @@ describe('reportIssue', () => {
     expect(api.openExternal).toHaveBeenCalledTimes(1)
     const url = api.openExternal.mock.calls[0][0] as string
     expect(url).toContain('/issues/new?')
-    expect(bodyOf(url)).not.toContain('### Diagnostics')
+    expect(bodyOf(url)).not.toContain('## Diagnostics')
+  })
+
+  it('files a feature request as an enhancement, with no Bug prefix', async () => {
+    const api = {
+      diagnostics: { export: vi.fn().mockResolvedValue('C:/logs/bundle.md') },
+      openExternal: vi.fn().mockResolvedValue(undefined)
+    }
+
+    const bundlePath = await reportIssue(api, versions, 'UA/1.0', {
+      kind: 'feature',
+      title: 'Let me rename a deployment after creating it',
+      body: '## Problem or motivation\n\nI named it wrong.'
+    })
+
+    // Nothing to diagnose about a feature, so no export and nothing to attach.
+    expect(api.diagnostics.export).not.toHaveBeenCalled()
+    expect(bundlePath).toBeNull()
+
+    const url = new URL(api.openExternal.mock.calls[0][0] as string)
+    expect(url.searchParams.get('labels')).toBe('enhancement')
+    expect(url.searchParams.get('title')).toBe('Let me rename a deployment after creating it')
+    const body = url.searchParams.get('body') ?? ''
+    expect(body).toContain('Problem or motivation')
+    expect(body).not.toContain('Steps to reproduce')
+    expect(body).not.toContain('App: Fabricator')
   })
 })

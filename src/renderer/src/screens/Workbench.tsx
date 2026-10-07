@@ -67,7 +67,7 @@ import { HelpView } from '../components/help/HelpView'
 import HelpUnavailableModal from '../components/help/HelpUnavailableModal'
 import { setErrorProject } from '../errorReport'
 import type { HelpAction, HelpIssueDraft } from '@shared/ipc'
-import { BookIcon, Codicon } from '../components/icons'
+import { Codicon } from '../components/icons'
 import { FabricatorMark } from '../components/FabricatorMark'
 import AccountMenu from '../components/AccountMenu'
 import AccountsModal from '../components/AccountsModal'
@@ -1980,22 +1980,14 @@ export default function Workbench({
           </span>
         </span>
 
-        {/* Actions. Their hover backdrops already separate them, so no dots.
-            Reporting a bug lives inside Help: it can write the report from what
-            it found, and falls back to a plain one when Copilot is unavailable. */}
+        {/* One action. Help is the support surface: it answers questions,
+            links the documentation, and writes a bug report when the problem
+            is ours. */}
         <span className="statusbar-actions">
-          <button
-            className="statusbar-report"
-            onClick={() => openDocs('home')}
-            title="Open the Fabricator docs in your browser"
-          >
-            <BookIcon />
-            Docs
-          </button>
           <button
             className="statusbar-report statusbar-help"
             onClick={openHelp}
-            title="Ask Help — debug a problem, or report it, using your logs and the docs (Ctrl+J)"
+            title="Ask Help — debug a problem, browse the docs, or report an issue (Ctrl+J)"
           >
             <Codicon name="comment-discussion" />
             Help

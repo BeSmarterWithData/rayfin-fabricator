@@ -2957,14 +2957,23 @@ pub struct HelpAction {
   pub target: Option<String>,
 }
 
-/// A bug report the assistant wrote from what it found, ready for the user to
-/// review and submit. The app appends version and system details.
+/// A bug report or feature request the assistant wrote from what it found,
+/// ready for the user to review and submit. The app appends version and system
+/// details to a bug report.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct HelpIssueDraft {
+  /// `bug` or `feature`. Decides the title prefix, the GitHub label, and
+  /// whether environment details are worth attaching.
+  #[serde(default = "default_issue_kind")]
+  pub kind: String,
   pub title: String,
   /// Markdown body, in the user's voice.
   pub body: String,
+}
+
+fn default_issue_kind() -> String {
+  "bug".to_string()
 }
 
 /// A documentation page the answer rests on.
@@ -2992,7 +3001,7 @@ pub struct HelpAnswer {
   pub actions: Vec<HelpAction>,
   #[serde(default)]
   pub citations: Vec<HelpCitation>,
-  /// A bug report the assistant wrote for this answer, when it drafted one.
+  /// A bug report or feature request the assistant drafted for this answer.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub issue: Option<HelpIssueDraft>,
   pub elapsed_ms: u64,

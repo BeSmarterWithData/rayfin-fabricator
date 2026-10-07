@@ -25,7 +25,7 @@ What happened instead?
 
 ## Environment
 
-The in-app **Report an issue** button prefills many of these details.
+The in-app **Help** button prefills many of these details.
 
 - App version:
 - OS / Windows build:

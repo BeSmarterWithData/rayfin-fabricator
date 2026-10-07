@@ -267,8 +267,19 @@ const MAX_ISSUE_BODY: usize = 6000;
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IssueParams {
+  #[serde(default)]
+  kind: Option<String>,
   title: String,
   body: String,
+}
+
+/// Normalise the model's answer to the one of two things the repository has
+/// templates and labels for.
+fn issue_kind(raw: Option<&str>) -> String {
+  match raw.map(|k| k.trim().to_ascii_lowercase()).as_deref() {
+    Some("feature") | Some("enhancement") | Some("request") => "feature".to_string(),
+    _ => "bug".to_string(),
+  }
 }
 
 struct IssueTool(Arc<ToolContext>);
@@ -288,7 +299,9 @@ impl ToolHandler for IssueTool {
 
     // The draft quotes the user's own logs, so mask anything secret-looking
     // before it can reach a public issue.
+    let kind = issue_kind(params.kind.as_deref());
     let issue = HelpIssueDraft {
+      kind: kind.clone(),
       title: crate::commands::advisor::mask_secrets(&title),
       body: crate::commands::advisor::mask_secrets(&body),
     };
@@ -300,10 +313,11 @@ impl ToolHandler for IssueTool {
       held.issue = Some(issue.clone());
     }
     (self.0.emit)(HelpEvent::Issue { issue });
-    Ok(ok(
-      "Drafted the bug report. The user sees it with a button to review and submit it, so don't \
-repeat the text in your answer — just say it's ready.",
-    ))
+    let what = if kind == "feature" { "feature request" } else { "bug report" };
+    Ok(ok(format!(
+      "Drafted the {what}. The user sees it with a button to review and submit it, so don't \
+repeat the text in your answer — just say it's ready."
+    )))
   }
 }
 
@@ -348,29 +362,44 @@ once per page, at most three times per answer.",
 
   let issue = Tool::new(ISSUE_TOOL)
     .with_description(
-      "Write up the user's problem as a bug report they can submit. Call this when the problem \
-looks like a fault in Fabricator rather than something they can fix, or when they ask you to \
-report it. Fill in everything you learned from the logs so they don't have to remember it. The \
-app adds the version and system details, so don't include those. Call it at most once per answer.",
+      "Write up something for the user to file on GitHub, and say it's ready. Call this when a \
+problem looks like a fault in Fabricator rather than something they can fix, when they ask you to \
+report something, or when they ask for a feature or improvement that doesn't exist yet. Fill in \
+everything you learned so they don't have to remember it. Call it at most once per answer.",
     )
     .with_parameters(json!({
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["bug", "feature"],
+          "description":
+            "`bug` when something is broken or behaving wrongly. `feature` when the user wants \
+something Fabricator doesn't do yet, or wants an existing thing to work differently. Read what \
+they actually asked for: \"can you add…\", \"it would be good if…\" and \"I wish it…\" are \
+feature requests, not bugs."
+        },
         "title": {
           "type": "string",
-          "description": "One line naming the symptom, e.g. \"Deploy fails with 'Tenant not authorized for cluster'\"."
+          "description":
+            "One line naming the thing. For a bug, the symptom: \"Deploy fails with 'Tenant not \
+authorized for cluster'\". For a feature, the capability: \"Let me rename a deployment after \
+creating it\". Don't prefix it with Bug or Feature — the app does that."
         },
         "body": {
           "type": "string",
           "description":
-            "Markdown with these sections: '### What happened' quoting the exact error and when it \
-started; '### Steps to reproduce' as a numbered list; '### What I expected'; and '### What I've \
-already tried' if anything was. Write it in the user's voice, as 'I'. Quote real values from the \
-logs, but never include secrets or tokens."
+            "Markdown in the user's voice, as 'I'.\n\nFor a bug, use these headings: '## Summary' \
+quoting the exact error and when it started; '## Steps to reproduce' as a numbered list; '## \
+Expected behavior'; '## Actual behavior'; and '## What I've already tried' if anything was. Quote \
+real values from the logs, but never secrets or tokens. Leave out version and system details — \
+the app adds them.\n\nFor a feature, use these headings instead: '## Problem or motivation' \
+saying what they are trying to do and why it's hard today; '## Proposed solution'; and '## \
+Alternatives considered' if they mentioned any. Don't invent steps to reproduce for a feature."
         }
       },
-      "required": ["title", "body"]
+      "required": ["kind", "title", "body"]
     }))
     .with_skip_permission(true)
     .with_handler(Arc::new(IssueTool(ctx)));
@@ -433,6 +462,18 @@ mod tests {
       assert!(action_ids().contains(id), "{id} is gated but not offered");
       assert!(NEEDS_PROJECT.contains(id), "{id} needs a project to act on");
     }
+  }
+
+  #[test]
+  fn an_issue_kind_falls_back_to_bug_but_recognises_a_feature() {
+    assert_eq!(issue_kind(Some("feature")), "feature");
+    assert_eq!(issue_kind(Some("  Feature  ")), "feature");
+    assert_eq!(issue_kind(Some("enhancement")), "feature");
+    assert_eq!(issue_kind(Some("bug")), "bug");
+    // A report the model mislabels should land as a bug, which is the safer
+    // default: it carries the diagnostics a maintainer needs.
+    assert_eq!(issue_kind(Some("nonsense")), "bug");
+    assert_eq!(issue_kind(None), "bug");
   }
 
   #[test]

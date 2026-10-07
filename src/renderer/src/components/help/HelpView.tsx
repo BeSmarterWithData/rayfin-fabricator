@@ -14,6 +14,7 @@ import { Codicon } from '../icons'
 import { FabricatorMark } from '../FabricatorMark'
 import { useSuppressPreview } from '../../overlay'
 import { useToast } from '../../toast'
+import { openDocs } from '../../docsLinks'
 import { errorMessage, reportError, reportThrown } from '../../errorReport'
 import { HelpComposer } from './HelpComposer'
 import { HelpWorkLog } from './HelpWorkLog'
@@ -355,6 +356,17 @@ export function HelpView({
             New
           </button>
         )}
+        {/* The escape hatch for someone who wants to read rather than ask.
+            Kept in the bar, not just the welcome screen, so it stays reachable
+            mid-conversation. */}
+        <button
+          className="help-bar-new"
+          onClick={() => openDocs('home')}
+          title="Open the Fabricator documentation in your browser"
+        >
+          <Codicon name="book" />
+          Docs
+        </button>
         <button className="help-bar-close" onClick={onClose} title="Close Help (Esc)">
           <Codicon name="close" />
         </button>
@@ -646,12 +658,18 @@ function IssueDraftCard({
   onReport: () => void
 }): JSX.Element {
   const [open, setOpen] = useState(false)
+  const feature = issue.kind === 'feature'
   return (
     <div className={`help-issue ${open ? 'is-open' : ''}`}>
       <div className="help-issue-head">
-        <Codicon name="bug" className="help-issue-icon" />
+        <Codicon
+          name={feature ? 'lightbulb' : 'bug'}
+          className={`help-issue-icon ${feature ? 'is-feature' : ''}`}
+        />
         <div className="help-issue-id">
-          <span className="help-issue-kind">Bug report ready</span>
+          <span className="help-issue-kind">
+            {feature ? 'Feature request ready' : 'Bug report ready'}
+          </span>
           <span className="help-issue-title">{issue.title}</span>
         </div>
       </div>
@@ -659,15 +677,18 @@ function IssueDraftCard({
         <div className="help-issue-body">
           <Markdown>{issue.body}</Markdown>
           <p className="help-issue-note">
-            Your Fabricator version, system details and a diagnostics file are added when you
-            report it. Review everything on GitHub before you submit.
+            {feature
+              ? 'Review it on GitHub before you submit.'
+              : 'Your Fabricator version, system details and a diagnostics file are added when you report it. Review everything on GitHub before you submit.'}
           </p>
         </div>
       )}
       <div className="help-issue-actions">
         <button className="help-action is-primary" onClick={onReport}>
           <Codicon name="github" className="help-action-icon" />
-          <span className="help-action-label">Report this on GitHub</span>
+          <span className="help-action-label">
+            {feature ? 'Suggest this on GitHub' : 'Report this on GitHub'}
+          </span>
           <Codicon name="link-external" className="help-action-go" />
         </button>
         <button className="help-issue-toggle" onClick={() => setOpen((v) => !v)}>
