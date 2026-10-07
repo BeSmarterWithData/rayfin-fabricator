@@ -61,8 +61,13 @@ import ModelTab from '../components/ModelTab'
 import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
 import { reportIssue as runReportIssue } from './reportIssue'
+import { branchLabel } from './statusbar'
 import { openDocs } from '../docsLinks'
-import { BookIcon, Codicon, InfoIcon } from '../components/icons'
+import { HelpView } from '../components/help/HelpView'
+import HelpUnavailableModal from '../components/help/HelpUnavailableModal'
+import { setErrorProject } from '../errorReport'
+import type { HelpAction, HelpIssueDraft } from '@shared/ipc'
+import { BookIcon, Codicon } from '../components/icons'
 import { FabricatorMark } from '../components/FabricatorMark'
 import AccountMenu from '../components/AccountMenu'
 import AccountsModal from '../components/AccountsModal'
@@ -191,6 +196,12 @@ export default function Workbench({
   const authActionRef = useRef(false)
   const mountedRef = useRef(false)
   const [showSettings, setShowSettings] = useState(false)
+  /** The full-screen Help assistant, opened from the status bar or Ctrl/Cmd+J. */
+  const [showHelp, setShowHelp] = useState(false)
+  /** The static fallback shown when the assistant can't run. */
+  const [showHelpOffline, setShowHelpOffline] = useState(false)
+  /** Bumped to ask DeploymentsControl to open its share dialog (Help's share action). */
+  const [shareRequest, setShareRequest] = useState(0)
   const [projects, setProjects] = useState<ProjectsState | null>(null)
   /** Fullscreen create/deploy flow: 'create' = new-project wizard, 'deploy' = first-deploy gate CTA. */
   const [createMode, setCreateMode] = useState<'create' | 'deploy' | null>(null)
@@ -1088,6 +1099,25 @@ export default function Workbench({
     void refreshAuthWithFeedback()
   }, [active?.id, refreshAuthWithFeedback])
 
+  // Attribute recorded errors to the project the user is working in, so Help
+  // can answer "why did *my* deploy fail?" without every call site passing an id.
+  useEffect(() => {
+    setErrorProject(active?.id)
+  }, [active?.id])
+
+  // Ctrl+J (Cmd+J on macOS) toggles Help from anywhere. Escape closing it is
+  // handled by the overlay itself, which also needs to stop a running answer.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const chord = (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey
+      if (!chord || event.key.toLowerCase() !== 'j' || event.defaultPrevented) return
+      event.preventDefault()
+      toggleHelpRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   // Reflect the active project in the OS window title so users running one
   // instance per project can tell them apart in the taskbar / Alt-Tab. The
   // project name leads so it stays visible when the title is truncated.
@@ -1326,8 +1356,135 @@ export default function Workbench({
     }
   }
 
+  // Write the diagnostics file and reveal it, without opening a bug report.
+  // Offered by Help when the user needs the file itself.
+  async function exportDiagnostics(): Promise<void> {
+    try {
+      await window.api.diagnostics.export()
+      toast.info('A diagnostics file was saved and the logs folder opened.', {
+        title: 'Diagnostics exported'
+      })
+    } catch (reason) {
+      toast.error(authErrorMessage(reason, 'The diagnostics file could not be written.'), {
+        title: "Couldn't export diagnostics"
+      })
+    }
+  }
+
   const fabricAuthBusy =
     signingIn || signingOut || refreshingAuth || Object.values(deploys).some((d) => d.running)
+
+  // Open Help. The assistant needs Copilot, and being signed out is exactly the
+  // kind of problem someone opens Help about — so instead of a dead end, show
+  // the static version of the same offer. `checking` means the background check
+  // hasn't finished: assume it will work rather than pre-empting with a dialog.
+  function openHelp(): void {
+    if (!auth.copilot.signedIn && !auth.copilot.checking) setShowHelpOffline(true)
+    else setShowHelp(true)
+  }
+
+  function toggleHelp(): void {
+    if (showHelp) setShowHelp(false)
+    else if (showHelpOffline) setShowHelpOffline(false)
+    else openHelp()
+  }
+  const toggleHelpRef = useRef(toggleHelp)
+  toggleHelpRef.current = toggleHelp
+
+  // Run an action the Help assistant offered. Each one maps to something the
+  // user could already do from the UI, so Help is a shortcut, never a new
+  // capability. Anything unrecognised is ignored rather than guessed at.
+  //
+  // Actions that move you somewhere in Fabricator close the overlay, because
+  // that is where you need to look. Actions that open a browser or a file
+  // manager leave it open, so you can come straight back and say it didn't
+  // work. Either way the conversation is kept.
+  function runHelpAction(action: HelpAction): void {
+    switch (action.id) {
+      case 'open-docs':
+        if (action.url) void window.api.openExternal(action.url)
+        break
+      case 'open-logs':
+        void window.api.openLogs()
+        break
+      case 'export-diagnostics':
+        void exportDiagnostics()
+        break
+      case 'report-issue':
+        void reportIssue()
+        break
+      case 'open-project': {
+        const target = projects?.projects.find((p) => p.id === action.target)
+        if (!target) break
+        setShowHelp(false)
+        void selectProject(target)
+        break
+      }
+      case 'open-home':
+        setShowHelp(false)
+        goHome()
+        break
+      case 'share-app':
+        setShowHelp(false)
+        setShowHome(false)
+        // DeploymentsControl owns the share dialog; bumping the nonce asks it
+        // to open for the active project's live deployment. It is only mounted
+        // for personal projects, which is why Help never offers this for a
+        // team app (see PERSONAL_ONLY in the Help tools).
+        setShareRequest((n) => n + 1)
+        break
+      case 'open-team-access': {
+        // A team app has no Share: an owner grants access to the whole
+        // workspace under App access in the overview.
+        const workspaceId = active?.team?.workspaceId
+        if (!workspaceId) break
+        setShowHelp(false)
+        setShowHome(false)
+        openTeamMap(workspaceId, 'project', active?.team?.folder, true)
+        break
+      }
+      case 'open-advisor':
+        setShowHelp(false)
+        setShowHome(false)
+        setViewMode('advisor')
+        break
+      case 'open-code':
+        setShowHelp(false)
+        setShowHome(false)
+        setViewMode('code')
+        break
+      case 'run-doctor':
+        setShowHelp(false)
+        onReviewSetup()
+        break
+      case 'refresh-fabric-auth':
+      case 'sign-in-copilot':
+      case 'open-accounts':
+        setShowHelp(false)
+        setShowAccounts(true)
+        break
+      case 'open-settings':
+        setShowHelp(false)
+        setShowSettings(true)
+        break
+    }
+  }
+
+  // Submit the bug report the Help assistant wrote. Nothing is sent from here:
+  // GitHub opens prefilled so the user reviews and submits it themselves.
+  function reportHelpIssue(issue: HelpIssueDraft): void {
+    setShowHelp(false)
+    void (async () => {
+      const bundlePath = await runReportIssue(window.api, versions, navigator.userAgent, issue)
+      if (bundlePath) {
+        toast.info(
+          'A diagnostics file was saved and the logs folder opened — attach it to your bug report.',
+          { title: 'Diagnostics exported' }
+        )
+      }
+    })()
+  }
+
   /** Identifies the attention bar's problems, so dismissing it lasts until they change. */
   const attentionKey = attention
     ? JSON.stringify([attention.tools, attention.signIns, attention.error ?? ''])
@@ -1392,6 +1549,7 @@ export default function Workbench({
                 project={active}
                 running={Boolean(deploys[active.id]?.running)}
                 reconciling={reconciling.has(active.id)}
+                shareRequest={shareRequest}
                 onCreate={(name, workspaceId) => {
                   setViewMode('build')
                   void (async () => {
@@ -1776,7 +1934,7 @@ export default function Workbench({
               >
                 <span className="codicon codicon-organization" aria-hidden="true" />
                 {activeTeamWorkspace?.name ?? 'Team'}
-                {active.team.branch ? ` · ${active.team.branch.split('/').pop()}` : ''}
+                {active.team.branch ? ` · ${branchLabel(active.team.branch)}` : ''}
               </span>
             ) : (
               <GitControl
@@ -1796,46 +1954,77 @@ export default function Workbench({
           </>
         )}
         <span className="statusbar-spacer" />
-        <select
-          className="statusbar-zoom"
-          value={String(settings?.uiScale ?? 1)}
-          onChange={(e) => {
-            const uiScale = Number(e.target.value)
-            applyUiScale(uiScale)
-            onSettingsChange({ uiScale })
-          }}
-          title="Interface zoom — scales the whole UI (and the design tools)"
-          aria-label="Interface zoom"
-        >
-          {UI_SCALES.map((s) => (
-            <option key={s} value={String(s)}>
-              {Math.round(s * 100)}%
-            </option>
-          ))}
-        </select>
-        <span className="statusbar-sep">·</span>
-        <span className="statusbar-item" title="Rayfin Fabricator version">
-          v{versions?.app ?? '—'}
+
+        {/* Passive readouts: what the app is, not what you can do. Kept quiet
+            and grouped so they don't read as actions. */}
+        <span className="statusbar-readouts">
+          <select
+            className="statusbar-zoom"
+            value={String(settings?.uiScale ?? 1)}
+            onChange={(e) => {
+              const uiScale = Number(e.target.value)
+              applyUiScale(uiScale)
+              onSettingsChange({ uiScale })
+            }}
+            title="Interface zoom — scales the whole UI (and the design tools)"
+            aria-label="Interface zoom"
+          >
+            {UI_SCALES.map((s) => (
+              <option key={s} value={String(s)}>
+                {Math.round(s * 100)}%
+              </option>
+            ))}
+          </select>
+          <span className="statusbar-item" title="Rayfin Fabricator version">
+            v{versions?.app ?? '—'}
+          </span>
         </span>
-        <span className="statusbar-sep">·</span>
-        <button
-          className="statusbar-report"
-          onClick={() => openDocs('home')}
-          title="Open the Fabricator docs in your browser"
-        >
-          <BookIcon />
-          Docs
-        </button>
-        <span className="statusbar-sep">·</span>
-        <button
-          className="statusbar-report"
-          onClick={() => void reportIssue()}
-          title="Report an issue on GitHub — opens a prefilled bug report with app & system info"
-        >
-          <InfoIcon />
-          Report an issue
-        </button>
+
+        {/* Actions. Their hover backdrops already separate them, so no dots.
+            Reporting a bug lives inside Help: it can write the report from what
+            it found, and falls back to a plain one when Copilot is unavailable. */}
+        <span className="statusbar-actions">
+          <button
+            className="statusbar-report"
+            onClick={() => openDocs('home')}
+            title="Open the Fabricator docs in your browser"
+          >
+            <BookIcon />
+            Docs
+          </button>
+          <button
+            className="statusbar-report statusbar-help"
+            onClick={openHelp}
+            title="Ask Help — debug a problem, or report it, using your logs and the docs (Ctrl+J)"
+          >
+            <Codicon name="comment-discussion" />
+            Help
+          </button>
+        </span>
       </footer>
+
+      {showHelpOffline && (
+        <HelpUnavailableModal
+          onSignIn={() => {
+            setShowHelpOffline(false)
+            setShowAccounts(true)
+          }}
+          onDocs={() => openDocs('home')}
+          onReportIssue={() => void reportIssue()}
+          onClose={() => setShowHelpOffline(false)}
+        />
+      )}
+
+      {showHelp && (
+        <HelpView
+          onClose={() => setShowHelp(false)}
+          projectId={active?.id}
+          projectName={active?.name}
+          appVersion={versions?.app}
+          onAction={runHelpAction}
+          onReportIssue={reportHelpIssue}
+        />
+      )}
 
       {showSettings && settings && (
         <SettingsModal

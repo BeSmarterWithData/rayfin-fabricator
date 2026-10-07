@@ -2269,6 +2269,159 @@ export interface PreviewAgentEvent {
 }
 
 /* ------------------------------------------------------------------ *
+ * Help assistant
+ * ------------------------------------------------------------------ */
+
+/** Where an error came from, used to group the error journal. */
+export type ErrorArea =
+  | 'setup'
+  | 'auth'
+  | 'chat'
+  | 'preview'
+  | 'deploy'
+  | 'git'
+  | 'team'
+  | 'advisor'
+  | 'project'
+  | 'ui'
+  | 'app'
+
+/** How an error reached the user. */
+export type ErrorSurface = 'toast' | 'inline' | 'boundary' | 'unhandled' | 'backend' | 'panic'
+
+/** One error, as recorded in the journal the Help assistant reads. */
+export interface ErrorReport {
+  area: ErrorArea
+  surface: ErrorSurface
+  /** The text the user saw. */
+  message: string
+  /** The operation that failed, e.g. `deploy_run`. */
+  operation?: string
+  /** A stack trace, stderr, or other context. */
+  detail?: string
+  projectId?: string
+}
+
+/**
+ * A safe app operation the Help assistant offered, shown as a button under its
+ * answer. Every id maps to something the user could already do from the UI.
+ */
+export interface HelpAction {
+  id:
+    | 'open-docs'
+    | 'open-project'
+    | 'open-home'
+    | 'share-app'
+    | 'open-team-access'
+    | 'open-advisor'
+    | 'open-code'
+    | 'run-doctor'
+    | 'refresh-fabric-auth'
+    | 'sign-in-copilot'
+    | 'export-diagnostics'
+    | 'open-logs'
+    | 'report-issue'
+    | 'open-settings'
+    | 'open-accounts'
+  label: string
+  /** Set for `open-docs` only. */
+  url?: string
+  /** Set for `open-project` only: the id of the project to open. */
+  target?: string
+}
+
+/**
+ * A bug report the assistant wrote from what it found, ready for the user to
+ * review and submit. The app appends version and system details.
+ */
+export interface HelpIssueDraft {
+  title: string
+  /** Markdown body, in the user's voice. */
+  body: string
+}
+
+/** A documentation page an answer rests on. */
+export interface HelpCitation {
+  title: string
+  url: string
+}
+
+/** One finished exchange, replayed to give the next question its context. */
+export interface HelpTurn {
+  question: string
+  answer: string
+}
+
+/** A completed answer. */
+export interface HelpAnswer {
+  text: string
+  actions: HelpAction[]
+  citations: HelpCitation[]
+  /** A bug report the assistant wrote for this answer, when it drafted one. */
+  issue?: HelpIssueDraft
+  elapsedMs: number
+}
+
+/**
+ * The message a stopped Help turn returns, so the overlay can tell a deliberate
+ * stop apart from a failure. Must match `commands::help::STOPPED` in Rust.
+ */
+export const HELP_STOPPED = 'Stopped.'
+
+/**
+ * The Help conversation as the overlay saved it, plus when. The shape of
+ * `exchanges` is owned by the renderer and stored opaquely, so adding a field
+ * to the UI never silently drops it.
+ */
+export interface HelpSavedSession {
+  /** RFC 3339 timestamp of the last save. */
+  savedAt: string
+  /** The renderer's conversation, as it was handed over. */
+  data: unknown
+}
+
+/** One question for the Help assistant. */
+export interface HelpAskRequest {
+  /** Routes the streamed events back to the question that produced them. */
+  askId: string
+  question: string
+  projectId?: string
+  /** Files and folders the user attached, which become readable for this turn. */
+  attachments?: string[]
+  /** The conversation so far, replayed so follow-up questions have context. */
+  history?: HelpTurn[]
+  model?: string
+}
+
+/** What the assistant has cached to reason from. */
+export interface HelpGrounding {
+  /** Fabricator's own source is available. */
+  sourceReady: boolean
+  /** The documentation mirror is available. */
+  docsReady: boolean
+  /** The git ref the cached source came from, e.g. `v1.9.5`. */
+  reference?: string
+  /** True when the cached source matches the running build exactly. */
+  pinned: boolean
+}
+
+/** Streamed Help events, tagged by `type`. */
+export type HelpEvent =
+  | { type: 'delta'; text: string }
+  | { type: 'activity'; tool: ChatToolCall }
+  | { type: 'action'; action: HelpAction }
+  | { type: 'citation'; citation: HelpCitation }
+  | { type: 'issue'; issue: HelpIssueDraft }
+  | { type: 'done'; answer: HelpAnswer }
+  | { type: 'error'; message: string }
+
+export interface HelpEventEnvelope {
+  /** Routes the event to the question that produced it. */
+  askId: string
+  event: HelpEvent
+}
+
+/* ------------------------------------------------------------------ *
  * IPC channels
  * ------------------------------------------------------------------ */
 
@@ -2363,6 +2516,7 @@ export const IpcChannels = {
   procLog: 'proc:log',
   chatEvent: 'chat:event',
   advisorEvent: 'advisor:event',
+  helpEvent: 'help:event',
   previewNav: 'preview:nav',
   previewAgent: 'preview:agent',
   updateProgress: 'update:progress',
@@ -2399,11 +2553,17 @@ export interface RayfinStudioApi {
    */
   diagnostics: {
     /**
-     * Build a single consolidated diagnostics file (environment + recent
-     * chat-turn diagnostics + crash/hang log tail), reveal it in the OS file
-     * manager, and return its path so it can be attached to a bug report.
+     * Build a single consolidated diagnostics file (environment + recent errors
+     * + recent chat-turn diagnostics + crash/hang log tail), reveal it in the OS
+     * file manager, and return its path so it can be attached to a bug report.
      */
     export: () => Promise<string>
+    /**
+     * Append one error to the journal the Help assistant reads. Best-effort:
+     * recording an error must never fail the operation that was already
+     * failing, so this never rejects.
+     */
+    record: (report: ErrorReport) => Promise<void>
   }
   /**
    * Open the project folder in VS Code (`code <dir>`). When VS Code's CLI isn't
@@ -2734,6 +2894,45 @@ export interface RayfinStudioApi {
    * Advisor: instant quick checks (run in the renderer over a project snapshot)
    * plus a read-only Copilot deep review on a throwaway session.
    */
+  /**
+   * The Help assistant: a read-only agent that debugs the user's problem from
+   * the error journal, the published docs, and a pinned copy of Fabricator's
+   * own source. It can't change anything.
+   */
+  help: {
+    /** What grounding is cached right now, for the overlay's status line. */
+    grounding: () => Promise<HelpGrounding>
+    /**
+     * Download or refresh the source checkout and the docs mirror. Resolves the
+     * resulting status; a failure leaves the assistant working with less, so it
+     * is reported through the status rather than thrown.
+     */
+    prepare: (force?: boolean) => Promise<HelpGrounding>
+    /**
+     * Ask one question. Streams `help:event` deltas, work-log activity, offered
+     * actions and citations keyed by `askId`, and resolves the finished answer.
+     */
+    ask: (request: HelpAskRequest) => Promise<HelpAnswer>
+    /** Stop the in-flight answer. Resolves true if one was running. */
+    cancel: () => Promise<boolean>
+    /**
+     * Let the user point the assistant at files or a folder. Whatever is picked
+     * becomes a readable root for the next question; nothing else is reachable.
+     */
+    pickPaths: (directory: boolean, title?: string) => Promise<string[]>
+    /**
+     * The saved conversation, when one is still fresh enough to resume.
+     * Resolves null when there is none, it has gone stale, or it is unreadable.
+     */
+    loadHistory: () => Promise<HelpSavedSession | null>
+    /** Persist the conversation so it survives closing Help and restarting. */
+    saveHistory: (data: unknown) => Promise<void>
+    /** Forget the saved conversation, for "New conversation". */
+    clearHistory: () => Promise<void>
+    /** Subscribe to streamed Help events. */
+    onEvent: (cb: (envelope: HelpEventEnvelope) => void) => () => void
+  }
+
   advisor: {
     /**
      * Gather everything the quick checks read in one round-trip: the file list

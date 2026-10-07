@@ -659,6 +659,40 @@ code {
   flex: 1;
 }
 
+/* The right of the bar reads as two things, not seven. Passive readouts (zoom,
+   app version) sit quietly together; the actions that follow are separated by
+   their own hover backdrops, so they need no dots between them. */
+.statusbar-readouts {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 12px;
+  border-right: 1px solid var(--border);
+  color: var(--text-faint);
+}
+
+.statusbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* These buttons carry negative side margins so the old `·` separators sat
+   evenly against their padding. Inside the action group there are no
+   separators, and those margins would pull the buttons into each other — the
+   gap does the spacing instead. */
+.statusbar-actions .statusbar-report {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+/* The team chip's icon needs breathing room from the workspace name. */
+.team-status-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* "Report an issue" moved here from the titlebar — sits on the far right, styled
    to blend with the bar's 12px dim type (a quiet link, not a heavy button). */
 .statusbar-report {

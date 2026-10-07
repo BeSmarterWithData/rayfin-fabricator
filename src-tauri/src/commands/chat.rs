@@ -32,6 +32,7 @@ use crate::commands::screenshot;
 use crate::services::copilot::{is_recoverable_session_error, PlanModeHandler};
 use crate::services::diagnostics;
 use crate::services::emit::emit_chat_event;
+use crate::services::errorlog;
 use crate::services::history;
 use crate::services::store;
 use crate::state::{AppState, TurnRoute};
@@ -525,7 +526,7 @@ fn record_turn_diagnostics(
     files_modified: ctx.files_modified.len(),
     ran_deploy: ctx.ran_deploy,
     outcome: outcome.to_string(),
-    error: error.map(|e| diagnostics::clip(&e)),
+    error: error.clone().map(|e| diagnostics::clip(&e)),
     lagged_events: ctx.lagged_events,
     stream_closed: ctx.stream_closed,
     tools: ctx
@@ -545,6 +546,25 @@ fn record_turn_diagnostics(
     },
   };
   diagnostics::record_turn(&rec);
+
+  // A turn that didn't finish is an error the user saw, so it also belongs in
+  // the error journal the Help assistant reads. Cancelling is a normal outcome,
+  // not a failure.
+  if !matches!(outcome, "ok" | "cancelled") {
+    let message = error.unwrap_or_else(|| match outcome {
+      "timed_out" => "The chat turn timed out.".to_string(),
+      "incomplete" => "The chat turn ended before it finished.".to_string(),
+      _ => "The chat turn failed.".to_string(),
+    });
+    errorlog::write(&errorlog::record(
+      errorlog::Area::Chat,
+      errorlog::Surface::Inline,
+      &message,
+      Some(format!("chat_turn:{outcome}")),
+      None,
+      Some(project_id.to_string()),
+    ));
+  }
 }
 
 #[tauri::command]

@@ -26,6 +26,7 @@ import {
   type CreateProjectInput,
   type CustomSkillSaveInput,
   type DevStateEvent,
+  type HelpEventEnvelope,
   type PreviewBounds,
   type PreviewNavState,
   type PreviewAgentEvent,
@@ -71,7 +72,16 @@ export const api: RayfinStudioApi = {
   openExternal: (url: string) => invoke('open_external', { url }),
   openLogs: () => invoke('open_logs'),
   diagnostics: {
-    export: () => invoke('diagnostics_export')
+    export: () => invoke('diagnostics_export'),
+    record: (report) =>
+      invoke('diagnostics_record', {
+        area: report.area,
+        surface: report.surface,
+        message: report.message,
+        operation: report.operation,
+        detail: report.detail,
+        projectId: report.projectId
+      })
   },
   openInEditor: (id: string) => invoke('open_in_editor', { id }),
   relaunch: () => invoke('relaunch'),
@@ -244,6 +254,20 @@ export const api: RayfinStudioApi = {
     verifyCancel: (projectId: string) => invoke('advisor_verify_cancel', { projectId }),
     onEvent: (cb: (envelope: AdvisorEventEnvelope) => void) =>
       subscribe<AdvisorEventEnvelope>(IpcChannels.advisorEvent, cb)
+  },
+
+  help: {
+    grounding: () => invoke('help_grounding'),
+    prepare: (force?: boolean) => invoke('help_prepare', { force: force ?? false }),
+    ask: (request) => invoke('help_ask', { request }),
+    cancel: () => invoke('help_cancel'),
+    pickPaths: (directory: boolean, title?: string) =>
+      invoke('help_pick_paths', { directory, title }),
+    loadHistory: () => invoke('help_history_load'),
+    saveHistory: (data: unknown) => invoke('help_history_save', { data }),
+    clearHistory: () => invoke('help_history_clear'),
+    onEvent: (cb: (envelope: HelpEventEnvelope) => void) =>
+      subscribe<HelpEventEnvelope>(IpcChannels.helpEvent, cb)
   },
 
   chat: {

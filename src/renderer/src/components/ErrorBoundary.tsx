@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { FabricatorMark } from './FabricatorMark'
+import { reportError } from '../errorReport'
 
 interface Props {
   children: ReactNode
@@ -11,9 +12,9 @@ interface State {
 
 /**
  * Catches render-time errors anywhere below it and shows a recoverable fallback
- * instead of a white screen. The error is logged (renderer console + forwarded
- * to the main-process log file is left to global handlers) and the user can
- * reload the window or open the logs folder.
+ * instead of a white screen. The error is logged to the renderer console and
+ * recorded in the error journal, so the Help assistant can explain the crash
+ * afterwards; the user can reload the window or open the logs folder.
  */
 export default class ErrorBoundary extends Component<Props, State> {
   state: State = { error: null }
@@ -24,6 +25,13 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error('Renderer error:', error, info.componentStack)
+    reportError({
+      surface: 'boundary',
+      area: 'ui',
+      message: error.message || 'The interface crashed.',
+      detail: [error.stack, info.componentStack].filter(Boolean).join('\n\n'),
+      operation: 'render'
+    })
   }
 
   render(): ReactNode {

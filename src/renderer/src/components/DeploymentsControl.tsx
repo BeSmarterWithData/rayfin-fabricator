@@ -34,6 +34,11 @@ interface Props {
   account?: { user?: string; tenant?: string }
   /** Open the Accounts dialog to change it. */
   onManageAccounts?: () => void
+  /**
+   * Bumped by an outside caller (the Help assistant's "share" action) to open
+   * the share dialog for the live deployment, the same as selecting Share here.
+   */
+  shareRequest?: number
 }
 
 /** "F-SKU · F2" style label for a workspace's capacity. */
@@ -61,7 +66,8 @@ export default function DeploymentsControl({
   onChanged,
   onSignedIn,
   account,
-  onManageAccounts
+  onManageAccounts,
+  shareRequest
 }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const toast = useToast()
@@ -287,6 +293,16 @@ export default function DeploymentsControl({
       setOpeningShare(false)
     }
   }
+
+  // An outside caller (Help's "share" action) asked to open the dialog. The
+  // nonce starts at 0 and is only bumped by a deliberate request, so the dialog
+  // never opens on mount.
+  const shareRef = useRef(openShareForActive)
+  shareRef.current = openShareForActive
+  useEffect(() => {
+    if (!shareRequest) return
+    void shareRef.current()
+  }, [shareRequest])
 
   return (
     <div className="dep-control" onClick={(e) => e.stopPropagation()}>

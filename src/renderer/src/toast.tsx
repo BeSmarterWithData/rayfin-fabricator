@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode
 } from 'react'
+import { inferArea, reportError } from './errorReport'
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -16,6 +17,13 @@ export interface ToastOptions {
   title?: string
   /** Milliseconds before auto-dismiss; `0` keeps it until dismissed. Defaults by kind. */
   duration?: number
+  /**
+   * Set `false` on an error that the caller already recorded (usually via
+   * `reportThrown`, which keeps the stack trace). Stops the same failure being
+   * written to the error journal twice, which would crowd out other errors in
+   * the recent window the Help assistant reads.
+   */
+  record?: boolean
 }
 
 interface Toast {
@@ -95,6 +103,16 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
 
   const show = useCallback(
     (kind: ToastKind, message: string, opts?: ToastOptions): number => {
+      // Every error the user is shown is recorded, so the Help assistant can
+      // explain it later. This is the one place they all pass through, unless
+      // the caller already recorded it with more detail.
+      if (kind === 'error' && opts?.record !== false) {
+        reportError({
+          surface: 'toast',
+          message: opts?.title ? `${opts.title}: ${message}` : message,
+          area: inferArea(opts?.title, message)
+        })
+      }
       const id = (idRef.current += 1)
       const duration = opts?.duration ?? DEFAULT_DURATION[kind]
       setToasts((list) => [...list, { id, kind, message, title: opts?.title, duration }].slice(-MAX_TOASTS))

@@ -169,7 +169,9 @@ fn build_bundle(dir: &Path, app_version: &str, extra_env: &[(&str, String)]) -> 
   for (k, v) in extra_env {
     out.push_str(&format!("- {k}: {v}\n"));
   }
-  out.push_str("\n## Recent chat-turn diagnostics\n\n```jsonl\n");
+  out.push_str("\n## Recent errors\n\n```jsonl\n");
+  out.push_str(&recent_lines(dir, "errors-", EXPORT_MAX_LINES));
+  out.push_str("\n```\n\n## Recent chat-turn diagnostics\n\n```jsonl\n");
   out.push_str(&recent_lines(dir, "diagnostics-", EXPORT_MAX_LINES));
   out.push_str("\n```\n\n## Recent crash / hang log\n\n```\n");
   out.push_str(&recent_lines(dir, "main-", EXPORT_MAX_LINES));
@@ -194,6 +196,7 @@ pub fn export_bundle(app_version: &str, extra_env: &[(&str, String)]) -> Result<
 /// window. Best-effort; intended to run once at startup so the logs directory
 /// stays bounded without adding per-turn I/O.
 pub fn prune() {
+  super::errorlog::prune(RETENTION_DAYS);
   let dir = paths::logs_dir();
   // `diagnostics-YYYY-MM-DD.jsonl`: the date sorts lexically, so compare the
   // embedded date string against the cutoff date string (no date parsing).
@@ -340,6 +343,7 @@ mod tests {
     assert!(body.contains("# Fabricator diagnostics"));
     assert!(body.contains("- app: 9.9.9"));
     assert!(body.contains("- tauri: 2.0.0"));
+    assert!(body.contains("Recent errors"));
     assert!(body.contains("Recent chat-turn diagnostics"));
     // The recorded turn is embedded in the bundle.
     assert!(body.contains("\"turnId\":\"turn-1\"") || body.contains("turn-1"));

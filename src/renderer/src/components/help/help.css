@@ -1,0 +1,939 @@
+/* The Help assistant overlay.
+ *
+ * A terminal, not a second chat: one column, monospace chrome, a prompt line at
+ * the bottom. Flat throughout — solid surfaces, 1px neutral borders, status as
+ * small dots and words. Motion is limited to the caret, the working dots and a
+ * short entrance, and every animation is dropped under reduced-motion.
+ */
+
+.help {
+  position: fixed;
+  inset: 0;
+  z-index: 60; /* above the standard modal backdrop (50) */
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  animation: helpIn 0.18s ease both;
+}
+
+@keyframes helpIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ----------------------------- title bar ----------------------------- */
+
+.help-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 38px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 12px;
+}
+
+.help-bar-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-dim);
+  letter-spacing: 0.02em;
+}
+
+.help-bar-spacer {
+  flex: 1;
+}
+
+.help-bar-ctx {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 280px;
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.help-bar-new {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.help-bar-new:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.help-bar-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.help-bar-close:hover {
+  border-color: var(--border);
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+/* ----------------------------- grounding badge ----------------------------- */
+
+.help-ground {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.help-ground:hover {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.help-ground--busy {
+  cursor: default;
+}
+
+.help-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-faint);
+}
+
+.help-ground--ok .help-dot,
+.help-dot--ok {
+  background: var(--ok);
+}
+
+.help-ground--partial .help-dot,
+.help-dot--busy {
+  background: var(--pending);
+}
+
+.help-dot--bad {
+  background: var(--danger);
+}
+
+/* ----------------------------- transcript ----------------------------- */
+
+.help-scroll {
+  overflow-y: auto;
+  padding: 22px 16px 10px;
+}
+
+.help-col {
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.help-x {
+  margin-bottom: 26px;
+  animation: helpRise 0.2s ease both;
+}
+
+/* The seam between a conversation picked up from earlier and what is being
+   asked now, so a resumed thread never looks like the app is confused. */
+.help-resumed {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 18px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.help-resumed::after {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  content: '';
+}
+
+.help-resumed--now {
+  margin-top: 4px;
+  color: var(--text-dim);
+}
+
+@keyframes helpRise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* The question, echoed as a shell line. */
+.help-q {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.help-q-caret {
+  flex: none;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.help-q-body {
+  min-width: 0;
+}
+
+.help-q-body p {
+  margin: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.help-q-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.help-q-files li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* The answer. Prose switches to the UI font; the frame stays monospace. */
+.help-a {
+  position: relative;
+  padding-left: 22px;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 13.5px;
+}
+
+.help-a .md > :first-child {
+  margin-top: 0;
+}
+
+.help-a .md > :last-child {
+  margin-bottom: 0;
+}
+
+/* The streaming caret, placed on the last rendered block so it sits inline with
+   the prose rather than dropping onto a line of its own. */
+.help-a.is-streaming .md > *:last-child::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 3px;
+  background: var(--accent);
+  vertical-align: text-bottom;
+  animation: helpBlink 1.05s steps(2, start) infinite;
+}
+
+@keyframes helpBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.help-thinking {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0 0 12px;
+  padding-left: 22px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.help-meta {
+  margin: 10px 0 0;
+  padding-left: 22px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.help-stopped {
+  margin: 8px 0 0;
+  padding-left: 22px;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.help-err {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 10px 0 0 22px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text);
+  font-size: 12px;
+}
+
+/* ----------------------------- working dots ----------------------------- */
+
+.help-spin {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+}
+
+.help-spin i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: helpPulse 1.1s ease-in-out infinite;
+}
+
+.help-spin i:nth-child(2) {
+  animation-delay: 0.16s;
+}
+
+.help-spin i:nth-child(3) {
+  animation-delay: 0.32s;
+}
+
+@keyframes helpPulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+  }
+  35% {
+    opacity: 1;
+  }
+}
+
+/* ----------------------------- work log ----------------------------- */
+
+.help-log {
+  margin: 0 0 12px 22px;
+}
+
+.help-log-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.help-log-head:hover {
+  border-color: var(--text-faint);
+  color: var(--text);
+}
+
+.help-log-steps {
+  margin: 8px 0 0;
+  padding: 0 0 0 4px;
+  list-style: none;
+  animation: helpRise 0.16s ease both;
+}
+
+.help-step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.help-step--success {
+  color: var(--text-dim);
+}
+
+.help-step--error {
+  color: var(--danger);
+}
+
+.help-step-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.help-step-state {
+  flex: none;
+  color: var(--text-faint);
+}
+
+/* ----------------------------- actions & citations ----------------------------- */
+
+/* Offered steps read as a short list of commands rather than loose buttons:
+   one per line, icon then label then an arrow, so the column stays calm no
+   matter how long the labels are. */
+.help-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 460px;
+  margin: 16px 0 0 22px;
+}
+
+.help-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.help-action:hover {
+  border-color: var(--accent);
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.help-action-icon {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 14px;
+}
+
+.help-action-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The arrow only appears on hover, so a resting list stays quiet. */
+.help-action-go {
+  flex: none;
+  color: var(--accent);
+  font-size: 12px;
+  opacity: 0;
+  transform: translateX(-3px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
+}
+
+.help-action:hover .help-action-go {
+  opacity: 1;
+  transform: none;
+}
+
+/* The recommended step: accent rule and icon, not a filled block, so two
+   offered actions never compete as equals. */
+.help-action.is-primary {
+  border-color: var(--border);
+  border-left: 2px solid var(--accent);
+  color: var(--text);
+}
+
+.help-action.is-primary .help-action-icon {
+  color: var(--accent);
+}
+
+.help-action.is-primary:hover {
+  border-color: var(--accent);
+}
+
+.help-cites {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+
+.help-cites button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.help-cites button:hover {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+/* ----------------------------- issue draft ----------------------------- */
+
+.help-issue {
+  max-width: 560px;
+  margin: 16px 0 0 22px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elev);
+  animation: helpRise 0.18s ease both;
+}
+
+.help-issue-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 13px;
+}
+
+.help-issue-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--pending);
+  font-size: 14px;
+}
+
+.help-issue-id {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.help-issue-kind {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.help-issue-title {
+  color: var(--text);
+  font-size: 12.5px;
+}
+
+.help-issue-body {
+  padding: 0 13px 4px;
+  border-top: 1px solid var(--border-soft);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size: 12.5px;
+  animation: helpRise 0.16s ease both;
+}
+
+.help-issue-note {
+  margin: 10px 0 12px;
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.help-issue-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 13px 12px;
+}
+
+.help-issue-actions .help-action {
+  width: auto;
+  flex: 1;
+}
+
+.help-issue-toggle {
+  flex: none;
+  padding: 9px 11px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.help-issue-toggle:hover {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* ----------------------------- welcome ----------------------------- */
+
+.help-welcome {
+  padding: 32px 0 8px;
+}
+
+.help-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 20px;
+  animation: helpRise 0.26s ease both;
+}
+
+.help-logo .brand-mark {
+  width: 30px;
+  height: 30px;
+}
+
+.help-logo-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.35;
+}
+
+.help-logo-name {
+  color: var(--text);
+  letter-spacing: 0.04em;
+}
+
+.help-logo-sub {
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.help-welcome-lead {
+  max-width: 62ch;
+  margin: 0 0 20px;
+  color: var(--text-dim);
+}
+
+.help-prompts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.help-prompts li {
+  margin-bottom: 6px;
+  animation: helpRise 0.22s ease both;
+}
+
+.help-prompts button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px 5px 6px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.help-prompts button:hover {
+  border-color: var(--border);
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+/* ----------------------------- composer ----------------------------- */
+
+.help-composer {
+  padding: 12px 16px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.help-composer.is-dropping {
+  background: var(--bg-elev-2);
+  outline: 1px dashed var(--accent);
+  outline-offset: -5px;
+}
+
+.help-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 860px;
+  margin: 0 auto 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.help-chips li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev-2);
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.help-chips button {
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.help-chips button:hover {
+  color: var(--danger);
+}
+
+.help-prompt {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 9px 10px 9px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.help-prompt:focus-within {
+  border-color: var(--accent);
+}
+
+.help-prompt-caret {
+  flex: none;
+  padding-top: 1px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.help-input {
+  flex: 1;
+  min-height: 21px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.6;
+  resize: none;
+  outline: none;
+}
+
+/* The prompt frame already shows focus via its accent border, so the input's
+   own ring (from the global :focus-visible rule) would be a second box. */
+.help-input:focus,
+.help-input:focus-visible {
+  outline: none;
+}
+
+.help-input::placeholder {
+  color: var(--text-faint);
+}
+
+.help-prompt-tools {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+
+.help-prompt-tools button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.help-prompt-tools button:hover:not(:disabled) {
+  border-color: var(--border);
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.help-prompt-tools button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.help-send:not(:disabled) {
+  border-color: var(--accent) !important;
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+}
+
+.help-stop {
+  border-color: var(--border) !important;
+  color: var(--danger) !important;
+}
+
+.help-hint {
+  max-width: 860px;
+  margin: 8px auto 0;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.help-hint kbd {
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-elev-2);
+  font-family: inherit;
+  font-size: 10px;
+}
+
+/* ----------------------------- status bar launcher ----------------------------- */
+
+.statusbar-help {
+  color: var(--accent);
+}
+
+/* ----------------------------- the offline fallback ----------------------------- */
+
+.help-offline-lead {
+  margin: 0 0 14px;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.help-offline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.help-offline-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.help-offline-item:hover {
+  border-color: var(--accent);
+  background: var(--bg-elev-2);
+  color: var(--text);
+}
+
+.help-offline-item.is-primary {
+  border-left: 2px solid var(--accent);
+  color: var(--text);
+}
+
+.help-offline-icon {
+  flex: none;
+  color: var(--accent);
+}
+
+.help-offline-text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.help-offline-title {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.help-offline-sub {
+  color: var(--text-faint);
+  font-size: 11.5px;
+}
+
+.help-offline-go {
+  flex: none;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+.help-offline-item:hover .help-offline-go {
+  color: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .help,
+  .help-x,
+  .help-logo,
+  .help-prompts li,
+  .help-log-steps {
+    animation: none;
+  }
+
+  .help-caret,
+  .help-a.is-streaming .md > *:last-child::after,
+  .help-spin i {
+    animation: none;
+    opacity: 1;
+  }
+}

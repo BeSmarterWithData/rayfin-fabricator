@@ -169,6 +169,7 @@ pub fn run() {
       commands::misc::relaunch,
       // diagnostics
       commands::diagnostics::diagnostics_export,
+      commands::diagnostics::diagnostics_record,
       // updates
       commands::updates::update_check,
       commands::updates::update_download,
@@ -324,6 +325,15 @@ pub fn run() {
       commands::advisor::advisor_explain_cancel,
       commands::advisor::advisor_verify,
       commands::advisor::advisor_verify_cancel,
+      // help assistant
+      commands::help::help_ask,
+      commands::help::help_cancel,
+      commands::help::help_grounding,
+      commands::help::help_history_clear,
+      commands::help::help_history_load,
+      commands::help::help_history_save,
+      commands::help::help_pick_paths,
+      commands::help::help_prepare,
       // chat
       commands::chat::chat_send,
       commands::chat::chat_steer,

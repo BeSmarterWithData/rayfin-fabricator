@@ -1,4 +1,4 @@
-import type { AppVersions, RayfinStudioApi } from '@shared/ipc'
+import type { AppVersions, HelpIssueDraft, RayfinStudioApi } from '@shared/ipc'
 import { formatCopilotCli } from '../copilotVersion'
 
 const REPO_URL = 'https://github.com/spatney/rayfin-fabricator'
@@ -8,20 +8,23 @@ const REPO_URL = 'https://github.com/spatney/rayfin-fabricator'
  * (versions + user agent) is filled in automatically. When a diagnostics bundle
  * was exported, its path is referenced in the body so the user can drag-and-drop
  * the file onto the issue.
+ *
+ * When the Help assistant drafted the report, its title and body replace the
+ * empty template: it has already read the logs, so the user reviews a filled-in
+ * report instead of writing one from memory.
  */
 export function buildReportIssueUrl(
   versions: AppVersions | null,
   bundlePath: string | null,
-  userAgent: string
+  userAgent: string,
+  draft?: HelpIssueDraft | null
 ): string {
+  const title = draft?.title?.trim() ? `[Bug] ${draft.title.trim()}` : '[Bug] '
+  const account = draft?.body?.trim()
+    ? [draft.body.trim(), '']
+    : ['### What happened?', '', '', '### Steps to reproduce', '', '1. ', '']
   const body = [
-    '### What happened?',
-    '',
-    '',
-    '### Steps to reproduce',
-    '',
-    '1. ',
-    '',
+    ...account,
     '### Environment',
     `- App: Fabricator ${versions?.app ?? 'unknown'}`,
     `- Tauri: ${versions?.tauri ?? 'unknown'}`,
@@ -36,7 +39,7 @@ export function buildReportIssueUrl(
         ]
       : [])
   ].join('\n')
-  return `${REPO_URL}/issues/new?labels=bug&title=${encodeURIComponent('[Bug] ')}&body=${encodeURIComponent(body)}`
+  return `${REPO_URL}/issues/new?labels=bug&title=${encodeURIComponent(title)}&body=${encodeURIComponent(body)}`
 }
 
 /**
@@ -46,9 +49,12 @@ export function buildReportIssueUrl(
  * path (or `null`) so the caller can hint the user to attach it.
  */
 export async function reportIssue(
-  api: Pick<RayfinStudioApi, 'diagnostics' | 'openExternal'>,
+  api: Pick<RayfinStudioApi, 'openExternal'> & {
+    diagnostics: Pick<RayfinStudioApi['diagnostics'], 'export'>
+  },
   versions: AppVersions | null,
-  userAgent: string = navigator.userAgent
+  userAgent: string = navigator.userAgent,
+  draft?: HelpIssueDraft | null
 ): Promise<string | null> {
   let bundlePath: string | null = null
   try {
@@ -56,6 +62,6 @@ export async function reportIssue(
   } catch {
     /* diagnostics export is best-effort — still open the issue without it */
   }
-  void api.openExternal(buildReportIssueUrl(versions, bundlePath, userAgent))
+  void api.openExternal(buildReportIssueUrl(versions, bundlePath, userAgent, draft))
   return bundlePath
 }

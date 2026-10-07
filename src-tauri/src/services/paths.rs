@@ -93,6 +93,19 @@ pub fn advisor_dir() -> PathBuf {
   d
 }
 
+/// Directory holding the Help assistant's saved conversation.
+pub fn help_dir() -> PathBuf {
+  let d = data_dir().join("help");
+  let _ = std::fs::create_dir_all(&d);
+  d
+}
+
+/// The Help assistant's saved conversation. One file: Help is a single
+/// app-wide surface, not a per-project one.
+pub fn help_session_file() -> PathBuf {
+  help_dir().join("session.json")
+}
+
 /// The saved-report file for one project. The id is sanitized so it is always a
 /// safe single path segment.
 pub fn advisor_file(project_id: &str) -> PathBuf {

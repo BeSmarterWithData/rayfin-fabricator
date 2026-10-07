@@ -10,6 +10,7 @@ use tauri::{AppHandle, Emitter};
 use super::exec::{OnData, Stream};
 use crate::types::{ChatEvent, ChatEventEnvelope, ProcLogEvent};
 use crate::types::{AdvisorEvent, AdvisorEventEnvelope};
+use crate::types::{HelpEvent, HelpEventEnvelope};
 
 /// Event name for streamed process output (matches `IpcChannels.procLog`).
 pub const PROC_LOG: &str = "proc:log";
@@ -17,6 +18,8 @@ pub const PROC_LOG: &str = "proc:log";
 pub const CHAT_EVENT: &str = "chat:event";
 /// Event name for streamed advisor events (matches `IpcChannels.advisorEvent`).
 pub const ADVISOR_EVENT: &str = "advisor:event";
+/// Event name for streamed Help assistant events (matches `IpcChannels.helpEvent`).
+pub const HELP_EVENT: &str = "help:event";
 /// Event name for update download progress (matches `IpcChannels.updateProgress`).
 pub const UPDATE_PROGRESS: &str = "update:progress";
 /// Event name for project-delete file-count progress (matches `IpcChannels.deleteProgress`).
@@ -132,6 +135,11 @@ pub fn emit_advisor_event(app: &AppHandle, project_id: &str, event: AdvisorEvent
       event,
     },
   );
+}
+
+/// Emit one Help assistant event, routed to the question that produced it.
+pub fn emit_help_event(app: &AppHandle, ask_id: &str, event: HelpEvent) {
+  let _ = app.emit(HELP_EVENT, HelpEventEnvelope { ask_id: ask_id.to_string(), event });
 }
 
 #[cfg(test)]

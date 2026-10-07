@@ -28,6 +28,9 @@ pub struct AppState {
   verify_cancels: Mutex<HashMap<String, CancelToken>>,
   /// Long team operations (publish, setup verification), keyed by project or workspace id.
   team_cancels: Mutex<HashMap<String, CancelToken>>,
+  /// The in-flight Help assistant turn. The Help overlay is a single
+  /// app-wide surface, so at most one turn runs at a time (no key needed).
+  help_cancel: Mutex<Option<CancelToken>>,
   /// Shared Copilot SDK client + per-thread session cache.
   pub copilot: CopilotManager,
   /// Bridges Plan-mode `exit_plan_mode` requests to the renderer's approval UI.
@@ -312,6 +315,38 @@ impl AppState {
   /// token was found and signalled.
   pub fn cancel_advisor(&self, project_id: &str) -> bool {
     if let Some(token) = self.advisor_cancels.lock().unwrap().remove(project_id) {
+      token.cancel();
+      true
+    } else {
+      false
+    }
+  }
+
+  /// Start a Help assistant turn, replacing (and cancelling) any turn still in
+  /// flight. The Help overlay shows one conversation, so a new question always
+  /// supersedes the previous one rather than queueing behind it.
+  pub fn begin_help(&self) -> CancelToken {
+    let mut slot = self.help_cancel.lock().unwrap();
+    if let Some(previous) = slot.take() {
+      previous.cancel();
+    }
+    let token = CancelToken::new();
+    *slot = Some(token.clone());
+    token
+  }
+
+  /// Clear a finished Help turn's token, but only when it still holds `token`,
+  /// so a turn that was superseded can't clear its replacement's slot.
+  pub fn end_help(&self, token: &CancelToken) {
+    let mut slot = self.help_cancel.lock().unwrap();
+    if slot.as_ref().is_some_and(|t| t.same(token)) {
+      *slot = None;
+    }
+  }
+
+  /// Stop an in-flight Help turn. Returns true when one was running.
+  pub fn cancel_help(&self) -> bool {
+    if let Some(token) = self.help_cancel.lock().unwrap().take() {
       token.cancel();
       true
     } else {

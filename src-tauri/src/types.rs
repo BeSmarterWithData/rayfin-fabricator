@@ -2938,6 +2938,134 @@ pub struct AdvisorEventEnvelope {
   pub project_id: String,
   pub event: AdvisorEvent,
 }
+
+/* --------------------------- help assistant --------------------------- */
+
+/// A safe app operation the assistant offered, rendered as a button under its
+/// answer. `id` is one of `commands::help::tools::ACTIONS`; the renderer owns
+/// what each one does.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpAction {
+  pub id: String,
+  pub label: String,
+  /// Set for `open-docs` only: the page to open.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub url: Option<String>,
+  /// Set for `open-project` only: the id of the project to open.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub target: Option<String>,
+}
+
+/// A bug report the assistant wrote from what it found, ready for the user to
+/// review and submit. The app appends version and system details.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpIssueDraft {
+  pub title: String,
+  /// Markdown body, in the user's voice.
+  pub body: String,
+}
+
+/// A documentation page the answer rests on.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpCitation {
+  pub title: String,
+  pub url: String,
+}
+
+/// One finished exchange, replayed to give the next question its context.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpTurn {
+  pub question: String,
+  pub answer: String,
+}
+
+/// A completed answer.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpAnswer {
+  pub text: String,
+  #[serde(default)]
+  pub actions: Vec<HelpAction>,
+  #[serde(default)]
+  pub citations: Vec<HelpCitation>,
+  /// A bug report the assistant wrote for this answer, when it drafted one.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub issue: Option<HelpIssueDraft>,
+  pub elapsed_ms: u64,
+}
+
+/// One question for the Help assistant.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpAskRequest {
+  /// Routes the streamed events back to the question that produced them.
+  pub ask_id: String,
+  pub question: String,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub project_id: Option<String>,
+  /// Files and folders the user attached, which become readable for this turn.
+  #[serde(default)]
+  pub attachments: Vec<String>,
+  /// The conversation so far, replayed so follow-up questions have context.
+  #[serde(default)]
+  pub history: Vec<HelpTurn>,
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub model: Option<String>,
+}
+
+/// What the assistant has cached to reason from.
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpGrounding {
+  /// Fabricator's own source is available.
+  pub source_ready: bool,
+  /// The documentation mirror is available.
+  pub docs_ready: bool,
+  /// The git ref the cached source came from.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub reference: Option<String>,
+  /// True when the cached source matches the running build exactly.
+  pub pinned: bool,
+}
+
+/// Streamed Help events (main -> renderer), tagged by `type`.
+#[derive(Serialize, Clone)]
+#[serde(tag = "type")]
+pub enum HelpEvent {
+  /// A chunk of the streaming answer.
+  #[serde(rename = "delta")]
+  Delta { text: String },
+  /// A tool call the assistant made, for the work log (start, then end).
+  #[serde(rename = "activity")]
+  Activity { tool: ChatToolCall },
+  /// An action the user can take, offered as a button.
+  #[serde(rename = "action")]
+  Action { action: HelpAction },
+  /// A documentation page the answer relies on.
+  #[serde(rename = "citation")]
+  Citation { citation: HelpCitation },
+  /// A bug report the assistant wrote, for the user to review and submit.
+  #[serde(rename = "issue")]
+  Issue { issue: HelpIssueDraft },
+  /// Terminal: the finished answer.
+  #[serde(rename = "done")]
+  Done { answer: HelpAnswer },
+  /// Terminal: the turn failed.
+  #[serde(rename = "error")]
+  Error { message: String },
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct HelpEventEnvelope {
+  /// Routes the event to the question that produced it.
+  pub ask_id: String,
+  pub event: HelpEvent,
+}
 /* --------------------------- suggestions --------------------------- */
 
 /// One Copilot-generated starter suggestion shown on the empty Build chat: a

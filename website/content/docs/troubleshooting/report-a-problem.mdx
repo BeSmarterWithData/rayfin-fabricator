@@ -5,15 +5,26 @@ description: "Create a useful Fabricator bug report with diagnostics, logs, vers
 
 Use this page when the troubleshooting fix did not work or Fabricator shows an error that is not covered.
 
-## Use Report an issue
+## Ask Help before reporting
 
-The fastest report starts in Fabricator.
+In the status bar, select **Help** and describe the problem. Help reads the same error history that goes into a diagnostics export and often explains the cause directly.
 
-1. In the status bar, select **Report an issue**.
-2. Fabricator exports a diagnostics bundle and opens a prefilled GitHub issue.
-3. The issue body includes app, Tauri, WebView2, Copilot CLI, and user-agent versions.
-4. If Fabricator saved a diagnostics file, drag that file from the opened logs folder onto the GitHub issue before submitting.
-5. Add what happened, numbered steps to reproduce it, and what you expected instead.
+If it turns out to be a fault in Fabricator, Help writes the bug report for you from what it found, so you don't have to reconstruct it. See [Ask Help](/docs/troubleshooting/help).
+
+## Let Help report it
+
+The fastest report starts in Fabricator, and Help writes most of it for you.
+
+1. In the status bar, select **Help**.
+2. Describe the problem, or say "report this for me".
+3. Help reads your error history and shows **Bug report ready** with the problem written up.
+4. Select **Review it first** to read it, then **Report this on GitHub**.
+5. The issue opens prefilled, with app, Tauri, WebView2, Copilot CLI, and user-agent versions added.
+6. Drag the diagnostics file from the opened logs folder onto the GitHub issue before submitting.
+
+Nothing is submitted until you select the submit button on GitHub yourself.
+
+If you aren't signed in to GitHub Copilot, **Help** offers **Report an issue** instead, which opens the same prefilled issue with an empty description for you to fill in.
 
 The public issue tracker is [https://github.com/spatney/rayfin-fabricator/issues](https://github.com/spatney/rayfin-fabricator/issues).
 
@@ -38,8 +49,11 @@ A diagnostics export is a Markdown file named like `fabricator-diagnostics-20261
 - Tauri version.
 - WebView2 version when available.
 - Copilot CLI version.
+- Recent errors as JSON lines.
 - Recent chat-turn diagnostics as JSON lines.
 - Recent crash or hang log entries.
+
+Each recorded error includes the time, the part of the app it came from, how you saw it, and the message. Credentials and token-like values are masked before anything is written.
 
 By default, chat-turn diagnostics are lightweight metadata: timing, model or mode when present, attachment count, files modified count, tool names and success, deploy involvement, outcome, and errors.
 

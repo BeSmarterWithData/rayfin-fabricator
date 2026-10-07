@@ -1,15 +1,42 @@
-//! Diagnostics commands: export a shareable diagnostics bundle for bug reports.
+//! Diagnostics commands: export a shareable diagnostics bundle for bug reports,
+//! and record renderer errors into the structured error journal.
 
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::error::{AppError, AppResult};
+use crate::services::errorlog::{self, Area, Surface};
 use crate::services::{diagnostics, paths};
 
-/// Build a single consolidated diagnostics file (environment + recent chat-turn
-/// diagnostics + crash/hang log tail), reveal the containing logs folder in the
-/// OS file manager, and return the file's path. The renderer references this
-/// path in the prefilled GitHub issue so the user can attach it.
+/// Record one renderer error in the error journal.
+///
+/// Called from the renderer's single error chokepoint (`reportError`), which
+/// every error toast, error boundary, unhandled rejection and `window.onerror`
+/// funnels through. Best-effort by design: recording an error must never fail
+/// the operation that was already failing, so this always returns `Ok`.
+#[tauri::command]
+pub fn diagnostics_record(
+  area: String,
+  surface: String,
+  message: String,
+  operation: Option<String>,
+  detail: Option<String>,
+  project_id: Option<String>,
+) {
+  errorlog::write(&errorlog::record(
+    Area::parse(&area),
+    Surface::parse(&surface),
+    &message,
+    operation,
+    detail,
+    project_id,
+  ));
+}
+
+/// Build a single consolidated diagnostics file (environment + recent errors +
+/// recent chat-turn diagnostics + crash/hang log tail), reveal the containing
+/// logs folder in the OS file manager, and return the file's path. The renderer
+/// references this path in the prefilled GitHub issue so the user can attach it.
 #[tauri::command]
 pub async fn diagnostics_export(app: AppHandle) -> AppResult<String> {
   let app_version = app.package_info().version.to_string();
