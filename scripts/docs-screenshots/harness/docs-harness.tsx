@@ -8,16 +8,22 @@ import './assets/main.css'
 import { useEffect, type ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
 import type {
+  AuthStatus,
   ChatPlanArtifact,
+  DoctorReport,
   RayfinVersionInfo,
   SecretsState,
   SkillInfo,
   StudioProject,
   TeamResourceRequest,
-  TeamSessionStatus
+  TeamSessionStatus,
+  ToolStatus
 } from '@shared/ipc'
 import { OverlayProvider } from './overlay'
+import { ToastProvider } from './toast'
 import { applyTheme } from './theme'
+import SetupScreen from './screens/SetupScreen'
+import { HelpView } from './components/help/HelpView'
 import TeamMapView from './components/team/map/TeamMapView'
 import { sampleMap, sampleResources, sampleRun, sampleWorkspace } from './components/team/map/fixtures'
 import TeamPublishControl from './components/team/TeamPublishControl'
@@ -29,6 +35,17 @@ import SecretsView from './components/SecretsView'
 import './components/chat/chat.css'
 
 const ok = <T,>(value: T) => (): Promise<T> => Promise.resolve(value)
+
+const tool = (id: string, name: string, version: string): ToolStatus => ({
+  id: id as ToolStatus['id'],
+  name,
+  found: true,
+  satisfied: true,
+  version,
+  installHint: '',
+  autoInstallable: true,
+  required: true
+})
 
 const builtIn = (id: string, title: string, description: string, category: string, active = false): SkillInfo => ({
   id,
@@ -184,6 +201,16 @@ function installApi(): void {
       fabricAccess: ok({ ok: true, people: [] }),
       diff: ok({ ok: true, truncated: false, files: [] }),
       onProgress: () => () => {}
+    },
+    help: {
+      grounding: ok(groundedHelp),
+      prepare: ok(groundedHelp),
+      loadHistory: ok(helpConversation),
+      saveHistory: ok(undefined),
+      clearHistory: ok(undefined),
+      cancel: ok(undefined),
+      onEvent: () => () => {},
+      ask: ok({ text: '', actions: [], citations: [], elapsedMs: 0 })
     }
   }
   const fallback = (target: Record<string, unknown>): unknown =>
@@ -287,6 +314,63 @@ const plan: ChatPlanArtifact = {
     { todoId: 'sample-data', dependsOn: 'expense-status' }
   ],
   questions: []
+}
+
+/** A completed setup: every tool installed, both accounts connected. */
+const setupDoctor: DoctorReport = {
+  ready: true,
+  tools: [
+    tool('node', 'Node.js', '24.13.0'),
+    tool('npm', 'npm', '11.16.0'),
+    tool('git', 'Git', '2.49.0'),
+    tool('az', 'Azure CLI', '2.83.0'),
+    { ...tool('gh', 'GitHub CLI (gh)', '2.95.0'), required: false }
+  ]
+}
+
+const setupAuth: AuthStatus = {
+  copilot: { signedIn: true, user: 'averychen', host: 'github.com' },
+  rayfin: { signedIn: true, user: 'avery.chen@contoso.com' },
+  az: { signedIn: true, user: 'avery.chen@contoso.com' }
+}
+
+const groundedHelp = { sourceReady: true, docsReady: true, reference: 'v1.11.0', pinned: true }
+
+/**
+ * One finished Help exchange: a deploy that failed, diagnosed from the journal
+ * and the docs, with the button that fixes it. `savedAt` is empty so the shot
+ * doesn't show the "picking up where you left off" seam.
+ */
+const helpConversation = {
+  savedAt: '',
+  data: [
+    {
+      id: 'ask-1',
+      question: 'why did my deploy fail?',
+      attachments: [],
+      answer:
+        'Your Fabric sign-in expired part way through the deploy, so Fabricator could not upload the app.\n\n' +
+        'The deploy stopped with "The access token has expired". Contoso Expenses is still running on the version you deployed on Tuesday — nothing was lost.\n\n' +
+        '1. In the account menu, select **Refresh Fabric authentication** and finish signing in.\n' +
+        '2. In the app bar, select **Redeploy**.\n\n' +
+        'If it stops again at the same point, the workspace may no longer be assigned to a Fabric capacity. ' +
+        'See [Deploy problems](https://spatney.github.io/rayfin-fabricator/docs/troubleshooting/deploy).',
+      tools: [
+        { id: 't1', name: 'read', title: 'Read the activity journal', status: 'done' },
+        { id: 't2', name: 'grep', title: 'Searched the documentation for "access token has expired"', status: 'done' },
+        { id: 't3', name: 'read', title: 'Read troubleshooting/deploy', status: 'done' }
+      ],
+      actions: [{ id: 'refresh-fabric-auth', label: 'Refresh Fabric authentication' }],
+      citations: [
+        {
+          title: 'Deploy problems',
+          url: 'https://spatney.github.io/rayfin-fabricator/docs/troubleshooting/deploy'
+        }
+      ],
+      status: 'done',
+      elapsedMs: 6300
+    }
+  ]
 }
 
 /** Clicks `selector` once the shot has rendered, to open a menu or popover. */
@@ -400,6 +484,18 @@ function Shot({ id }: { id: string | null }): JSX.Element {
           />
         </SelectSecret>
       )
+    case 'setup':
+      return (
+        <SetupScreen
+          doctor={setupDoctor}
+          auth={setupAuth}
+          refreshing={false}
+          onRefresh={noopAsync}
+          onEnter={noop}
+        />
+      )
+    case 'help':
+      return <HelpView onClose={noop} onAction={noop} onReportIssue={noop} appVersion="1.11.0" />
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>
   }
@@ -409,8 +505,10 @@ installApi()
 applyTheme('dark')
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <OverlayProvider>
-    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
-      <Shot id={new URLSearchParams(location.search).get('shot')} />
-    </div>
+    <ToastProvider>
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
+        <Shot id={new URLSearchParams(location.search).get('shot')} />
+      </div>
+    </ToastProvider>
   </OverlayProvider>
 )

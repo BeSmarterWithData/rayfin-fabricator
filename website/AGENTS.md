@@ -140,7 +140,8 @@ in `.md`.
 | Image | What it shows | Used on |
 | --- | --- | --- |
 | `workbench` | Build view: a finished chat turn and the running sample app in the preview | `/docs`, `/docs/start/tour`, `/docs/start/first-app`, landing page |
-| `setup` | Setup screen with every tool installed and both accounts signed in | `/docs/start/setup` |
+| `setup` | Setup screen with all three steps complete and the `You're all set` block | `/docs/start/setup` |
+| `help` | The Help assistant answering a failed deploy, with its action button and citation | `/docs/troubleshooting/help` |
 | `home` | Home with the project actions and recent projects | `/docs/start/tour`, `/docs/build/projects` |
 | `new-project` | New project screen with a name entered | `/docs/start/first-app`, `/docs/build/projects` |
 | `first-deploy` | The Deploy your app step of a new project | `/docs/start/first-app`, `/docs/ship/deploy` |

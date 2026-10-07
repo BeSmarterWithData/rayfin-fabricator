@@ -5,6 +5,8 @@ description: "Open the built-in Help assistant to find out why something failed,
 
 Use Help when something went wrong and you want to know why. Help reads what Fabricator recorded on your computer, checks it against the documentation, and tells you what to do next in plain language.
 
+![The Help assistant answering "why did my deploy fail?" with a cause, numbered steps, a Refresh Fabric authentication button and a link to the deploy troubleshooting page.](/screenshots/help.webp)
+
 ## Open Help
 
 1. In the status bar, select **Help**. You can also press `Ctrl+J` (`Cmd+J` on macOS).
@@ -12,6 +14,8 @@ Use Help when something went wrong and you want to know why. Help reads what Fab
 3. Press `Esc` to close Help, or to stop an answer that is still being written.
 
 Help opens full screen over the app. Your project and chat stay exactly as you left them.
+
+Help is also available during setup: connect GitHub Copilot in step 1 and a **Help** button appears at the bottom of the setup screen. It answers the same way, but only offers the actions setup can actually carry out — re-checking your tools, signing in to Copilot, opening the logs or the documentation — because the rest of the app isn't running yet.
 
 Describe the problem the way you would to a colleague. These all work:
 
@@ -71,6 +75,8 @@ When a problem turns out to be a fault in Fabricator rather than something you c
 4. Select **Report this on GitHub** to open it, prefilled, in your browser.
 
 Help fills in what happened, the steps that led to it, and what you already tried, using the history it found on your computer, so you don't have to remember any of it. Your Fabricator version and system details are added automatically, and a diagnostics file is saved for you to attach. Nothing is submitted until you select the submit button on GitHub yourself.
+
+Ask for something that doesn't exist yet — "it should let me rename a deployment" — and Help writes it up as a feature request instead. It shows **Feature request ready** and **Suggest this on GitHub**, with no diagnostics file, because a suggestion isn't a fault to investigate.
 
 > [!NOTE]
 > Review the report before submitting. It quotes your own error messages, which can include workspace or file names. Secret-looking values are masked, but the rest is yours to check.
