@@ -122,6 +122,11 @@ export interface CopilotAuthStatus {
   host?: string
   /** Why authentication could not be verified by the bundled chat engine. */
   error?: string
+  /**
+   * Renderer-only: not verified yet this session (a background check is still
+   * running). Treat the account as unknown, not signed out.
+   */
+  checking?: boolean
 }
 
 export interface RayfinAuthStatus {
@@ -129,13 +134,19 @@ export interface RayfinAuthStatus {
   user?: string
   tenant?: string
   error?: string
+  /** Renderer-only: not verified yet this session (see {@link CopilotAuthStatus.checking}). */
+  checking?: boolean
 }
 
 export interface AzAuthStatus {
   signedIn: boolean
   user?: string
   tenant?: string
+  /** The directory's display name (or default domain) for `tenant`. */
+  tenantName?: string
   error?: string
+  /** Renderer-only: not verified yet this session (see {@link CopilotAuthStatus.checking}). */
+  checking?: boolean
 }
 
 export interface AuthStatus {
@@ -143,6 +154,9 @@ export interface AuthStatus {
   rayfin: RayfinAuthStatus
   az: AzAuthStatus
 }
+
+/** A sign-in `auth.check` can verify on its own (`rayfin` is Microsoft Fabric). */
+export type AuthProvider = keyof AuthStatus
 
 /* ------------------------------------------------------------------ *
  * GitHub (optional gh CLI: clone-from-GitHub)
@@ -155,6 +169,58 @@ export interface GithubStatus {
   /** True only after the GitHub API verifies the CLI's active identity. */
   signedIn: boolean
   user?: string
+}
+
+/** A github.com account the GitHub CLI is signed in to. */
+export interface GithubAccount {
+  login: string
+  /** The CLI's active account: Clone from GitHub and the terminal use it. */
+  active: boolean
+  /** Its stored sign-in still works. */
+  signedIn: boolean
+}
+
+export interface GithubAccountsResult {
+  ghInstalled: boolean
+  /** Active account first. */
+  accounts: GithubAccount[]
+  error?: string
+}
+
+/** A Microsoft Fabric account signed in on this computer. */
+export interface FabricAccount {
+  id: string
+  user: string
+  tenant?: string
+  /** The account deploys, workspace lists, sharing and secrets use. */
+  active: boolean
+  /** The Rayfin CLI's own sign-in, which `rayfin` in a terminal also uses. */
+  shared: boolean
+}
+
+export interface FabricAccountsResult {
+  /** Active account first. */
+  accounts: FabricAccount[]
+  /** One OS keychain entry holds every account's tokens (macOS), so signing out of one signs all out. */
+  sharedTokenStore: boolean
+}
+
+/** An account (a user in a tenant) the Azure CLI is signed in to. */
+export interface AzureAccount {
+  user: string
+  tenant: string
+  tenantName?: string
+  /** The subscription (or tenant-level entry) that selects it. */
+  subscription: string
+  /** The Azure CLI's current account, which Fabricator and the terminal use. */
+  active: boolean
+}
+
+export interface AzureAccountsResult {
+  azInstalled: boolean
+  /** Active account first. */
+  accounts: AzureAccount[]
+  error?: string
 }
 
 /** One repository from `gh repo list` (fields normalized for the picker). */
@@ -2374,14 +2440,47 @@ export interface RayfinStudioApi {
 
   auth: {
     status: () => Promise<AuthStatus>
+    /**
+     * Verify only `providers`; the others are omitted from the result. Lets a
+     * caller show each sign-in as soon as it's known instead of waiting for the
+     * slowest one (the Fabric check runs a project's Rayfin CLI).
+     */
+    check: (providers: AuthProvider[]) => Promise<Partial<AuthStatus>>
     loginCopilot: (host?: string) => Promise<ProcResult>
     loginRayfin: (tenant?: string, projectId?: string) => Promise<ProcResult>
     /** Explicitly reset the shared CLI credentials, sign in, and verify Fabric access. */
     refreshRayfin: (projectId: string, tenant?: string) => Promise<ProcResult>
-    loginAz: () => Promise<ProcResult>
+    /**
+     * Sign in to Azure (`tenant`: an organization's id or domain). Accounts already
+     * signed in stay signed in; this one becomes the Azure CLI's current account.
+     */
+    loginAz: (tenant?: string) => Promise<ProcResult>
     logoutCopilot: () => Promise<ProcResult>
+    /** Sign the Fabric account in use out; another signed-in account takes over. */
     logoutRayfin: () => Promise<ProcResult>
+    /** Sign the Azure CLI's current account out; another signed-in account takes over. */
     logoutAz: () => Promise<ProcResult>
+  }
+
+  /** Several Microsoft Fabric and Azure CLI accounts on this computer. */
+  accounts: {
+    /** Every Fabric account signed in here, the one in use first. */
+    fabric: () => Promise<FabricAccountsResult>
+    /**
+     * Sign in to another Fabric account and use it (streams on `login:rayfin`).
+     * `tenant` picks the organization; `projectId` whose Rayfin CLI to run.
+     */
+    addFabric: (tenant?: string, projectId?: string) => Promise<ProcResult>
+    /** Use another signed-in Fabric account for deploys, sharing and secrets. */
+    useFabric: (id: string) => Promise<ProcResult>
+    /** Sign a Fabric account out (streams on `logout:rayfin`). */
+    signOutFabric: (id: string, projectId?: string) => Promise<ProcResult>
+    /** Every account the Azure CLI is signed in to, the current one first. */
+    azure: () => Promise<AzureAccountsResult>
+    /** Make another signed-in account the Azure CLI's current one. */
+    useAzure: (user: string, subscription: string) => Promise<ProcResult>
+    /** Sign an account out of the Azure CLI (streams on `logout:az`). */
+    signOutAzure: (user: string) => Promise<ProcResult>
   }
 
   /** Optional GitHub integration (backed by the `gh` CLI) for cloning repos. */
@@ -2390,6 +2489,17 @@ export interface RayfinStudioApi {
     status: () => Promise<GithubStatus>
     /** Launch an external terminal running `gh auth login --web` (browser flow). */
     login: () => Promise<ProcResult>
+    /** Every github.com account the GitHub CLI is signed in to, active first. */
+    accounts: () => Promise<GithubAccountsResult>
+    /**
+     * Open a terminal to sign in to another account; poll {@link accounts}. The
+     * CLI's active account stays the same.
+     */
+    addAccount: () => Promise<ProcResult>
+    /** Make `login` the CLI's active account (Clone from GitHub and the terminal use it). */
+    switchAccount: (login: string) => Promise<ProcResult>
+    /** Remove `login`'s sign-in from the GitHub CLI on this computer. */
+    signOutAccount: (login: string) => Promise<ProcResult>
     /** List the signed-in user's repositories. */
     listRepos: () => Promise<GithubReposResult>
     /**

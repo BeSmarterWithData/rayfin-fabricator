@@ -887,102 +887,54 @@
   flex: 1;
 }
 
-/* App bar: workspace overview (icon) and the team app's split Publish control */
-
-.team-map-btn {
+/* App bar: the team app's control — what's waiting, Publish, and the workspace
+   overview — is the same toolbar group as the deploy control (.seg--toolbar in
+   main.css), so team and solo projects get the same bar. Only what's specific
+   to it lives here. Codicon sizes need two classes: codicon.css's own 16px rule
+   loads after this file. */
+.team-split {
   position: relative;
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  font-size: 15px;
-  color: var(--text-dim);
-  background: transparent;
-  border: 0;
-  border-radius: 7px;
-  cursor: pointer;
 }
 
-.team-map-btn:hover {
-  color: var(--text);
-  background: var(--bg-elev-2);
+.team-split-status {
+  max-width: 220px;
+  padding: 0 9px 0 11px;
+}
+
+.seg--toolbar .team-split-status[aria-expanded='true'] {
+  background: var(--bg-elev-3);
+}
+
+.team-split-status .codicon.codicon-git-branch {
+  font-size: var(--bar-ico, 14px);
+}
+
+.team-split-status .codicon.team-split-caret {
+  margin-left: -1px;
+  font-size: var(--bar-caret, 12px);
+  color: var(--text-faint);
+}
+
+/* The overview segment; its activity dot rides on the icon. */
+.team-map-btn-ico {
+  position: relative;
+  display: inline-flex;
+}
+
+.team-map-btn-ico .codicon.codicon-type-hierarchy-sub {
+  font-size: var(--bar-ico, 14px);
 }
 
 .team-map-btn-dot {
   position: absolute;
-  top: 5px;
-  right: 5px;
+  top: -3px;
+  right: -4px;
   width: 6px;
   height: 6px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 2px var(--bg);
+  box-shadow: 0 0 0 2px var(--bg-elev-2);
   animation: team-blink 1.2s ease-in-out infinite;
-}
-
-.team-split {
-  position: relative;
-  display: inline-flex;
-  align-items: stretch;
-  height: 30px;
-  overflow: hidden;
-  background: var(--bg-elev-2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.team-split-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  max-width: 220px;
-  padding: 0 8px 0 10px;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  cursor: pointer;
-}
-
-.team-split-status:hover,
-.team-split-status[aria-expanded='true'] {
-  background: var(--bg-elev-3);
-}
-
-.team-split-status .codicon-git-branch {
-  font-size: 14px;
-  color: var(--text-dim);
-}
-
-.team-split-caret {
-  font-size: 12px;
-  color: var(--text-faint);
-}
-
-.team-split-publish {
-  padding: 0 12px;
-  font: inherit;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-faint);
-  background: transparent;
-  border: 0;
-  border-left: 1px solid var(--border);
-  cursor: default;
-}
-
-/* Something to publish: Publish becomes the one primary action. */
-.team-split--ready .team-split-publish {
-  color: var(--on-accent);
-  background: var(--accent);
-  border-left-color: var(--accent);
-  cursor: pointer;
-}
-
-.team-split--ready .team-split-publish:hover {
-  background: color-mix(in srgb, var(--accent) 88%, white);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1002,6 +954,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
 }
 
 /* The team app's menu, under the split control */

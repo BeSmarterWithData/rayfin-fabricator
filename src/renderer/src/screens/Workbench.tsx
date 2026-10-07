@@ -44,7 +44,6 @@ import PreviewPane, { type DeployUiState, type PendingShot } from '../components
 import DeploymentsControl from '../components/DeploymentsControl'
 import GitControl from '../components/GitControl'
 import TeamPublishControl from '../components/team/TeamPublishControl'
-import TeamMapButton from '../components/team/TeamMapButton'
 import TeamMapView from '../components/team/map/TeamMapView'
 import { useTeamActivity } from '../components/team/useTeamActivity'
 import { withActivity } from '../components/team/appRun'
@@ -63,9 +62,13 @@ import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
 import { reportIssue as runReportIssue } from './reportIssue'
 import { openDocs } from '../docsLinks'
-import { BookIcon, InfoIcon, GearIcon } from '../components/icons'
+import { BookIcon, Codicon, InfoIcon } from '../components/icons'
 import { FabricatorMark } from '../components/FabricatorMark'
 import AccountMenu from '../components/AccountMenu'
+import AccountsModal from '../components/AccountsModal'
+import SetupAttentionBar from '../components/SetupAttentionBar'
+import { tenantLabel } from '../accounts'
+import type { SetupAttention } from '../startup'
 import {
   BackToProject,
   ProjectSwitcher,
@@ -151,7 +154,10 @@ function toStored(messages: UIChatMessage[]): ChatMessage[] {
 
 interface Props {
   auth: AuthStatus
-  onSignOut: () => Promise<void> | void
+  /** What the launch's background check found that setup would have caught. */
+  attention?: SetupAttention | null
+  /** Leave for the setup screen (to fix tools); it re-checks everything. */
+  onReviewSetup: () => void
   /** Recheck live auth without leaving the workbench; reject when verification fails. */
   onAuthChanged: () => Promise<void> | void
   settings: AppSettings | null
@@ -160,7 +166,8 @@ interface Props {
 
 export default function Workbench({
   auth,
-  onSignOut,
+  attention = null,
+  onReviewSetup,
   onAuthChanged,
   settings,
   onSettingsChange
@@ -170,6 +177,9 @@ export default function Workbench({
   const [signingOut, setSigningOut] = useState(false)
   const [signingIn, setSigningIn] = useState(false)
   const [refreshingAuth, setRefreshingAuth] = useState(false)
+  const [showAccounts, setShowAccounts] = useState(false)
+  /** The attention bar was dismissed for these problems (it returns for new ones). */
+  const [dismissedAttention, setDismissedAttention] = useState<string | null>(null)
   const [authRefreshTarget, setAuthRefreshTarget] = useState<{
     projectId: string
     name: string
@@ -1214,8 +1224,8 @@ export default function Workbench({
           authErrorMessage(result.error, 'Fabric sign-out did not complete. Please try again.')
         )
       }
-      // Only a verified sign-out may leave the workbench and its unsent drafts.
-      await onSignOut()
+      // Stay in the workbench (and keep unsent drafts): only Fabric changed.
+      await refreshAuthWithFeedback()
     } catch (reason) {
       if (!mountedRef.current) return
       toast.error(authErrorMessage(reason, 'Fabric sign-out did not complete. Please try again.'), {
@@ -1318,6 +1328,10 @@ export default function Workbench({
 
   const fabricAuthBusy =
     signingIn || signingOut || refreshingAuth || Object.values(deploys).some((d) => d.running)
+  /** Identifies the attention bar's problems, so dismissing it lasts until they change. */
+  const attentionKey = attention
+    ? JSON.stringify([attention.tools, attention.signIns, attention.error ?? ''])
+    : null
   /** The active project's own screen — not the launcher or a fullscreen flow. */
   const onProjectScreen = Boolean(active) && !showHome && !createMode && !showClone && !teamMap
   // The active team app's status, with the run deploying it from the workspace
@@ -1355,12 +1369,6 @@ export default function Workbench({
             )}
           </div>
           <div className="app-bar-end">
-            {active && projectToolsReady && active.team && (
-              <TeamMapButton
-                runs={teamRuns}
-                onClick={() => openTeamMap(active.team?.workspaceId ?? '', 'project', active.team?.folder)}
-              />
-            )}
             {active && projectToolsReady && active.team && (
               <TeamPublishControl
                 project={active}
@@ -1402,33 +1410,52 @@ export default function Workbench({
                 onSwitch={(workspace, byId) => switchDeployment(active.id, workspace, byId)}
                 onChanged={() => void refreshProjects()}
                 onSignedIn={onAuthChanged}
+                account={
+                  auth.rayfin.signedIn
+                    ? { user: auth.rayfin.user, tenant: tenantLabel(auth.rayfin.tenant, auth.az) }
+                    : undefined
+                }
+                onManageAccounts={() => setShowAccounts(true)}
               />
             )}
-            <button
-              type="button"
-              className="icon-btn app-bar-settings"
-              onClick={() => setShowSettings(true)}
-              title="Settings"
-              aria-label="Settings"
-            >
-              <GearIcon className="app-bar-settings-icon" />
-            </button>
-            <AccountMenu
-              signedIn={auth.rayfin.signedIn}
-              user={auth.rayfin.user}
-              busy={fabricAuthBusy}
-              signingIn={signingIn}
-              signingOut={signingOut}
-              refreshing={refreshingAuth}
-              canRefresh={Boolean(active)}
-              onSignIn={() => void signIn()}
-              onSignOut={() => void signOut()}
-              onRefresh={() => {
-                if (active) openAuthRefresh(active)
-              }}
-            />
+            <div className="app-bar-global">
+              <button
+                type="button"
+                className="app-bar-icon"
+                onClick={() => setShowSettings(true)}
+                title="Settings"
+                aria-label="Settings"
+              >
+                <Codicon name="settings-gear" />
+              </button>
+              <AccountMenu
+                signedIn={auth.rayfin.signedIn}
+                user={auth.rayfin.user}
+                tenant={tenantLabel(auth.rayfin.tenant, auth.az)}
+                checking={auth.rayfin.checking}
+                busy={fabricAuthBusy}
+                signingIn={signingIn}
+                signingOut={signingOut}
+                refreshing={refreshingAuth}
+                canRefresh={Boolean(active)}
+                onSignIn={() => void signIn()}
+                onSignOut={() => void signOut()}
+                onRefresh={() => {
+                  if (active) openAuthRefresh(active)
+                }}
+                onManageAccounts={() => setShowAccounts(true)}
+              />
+            </div>
           </div>
         </div>
+        {attention && attentionKey !== dismissedAttention && (
+          <SetupAttentionBar
+            attention={attention}
+            onManageAccounts={() => setShowAccounts(true)}
+            onReviewSetup={onReviewSetup}
+            onDismiss={() => setDismissedAttention(attentionKey)}
+          />
+        )}
       </header>
 
       {showClone ? (
@@ -1595,6 +1622,7 @@ export default function Workbench({
                           team={Boolean(active.team)}
                           localBackend={devServers[active.id]?.backend}
                           teamRun={activeTeamStatus?.run}
+                          teamView={activeTeamStatus?.view ?? active.team?.view ?? 'preview'}
                           onOpenTeamMap={
                             active.team
                               ? () => openTeamMap(active.team?.workspaceId ?? '', 'project', active.team?.folder)
@@ -1815,6 +1843,39 @@ export default function Workbench({
           versions={versions}
           onChange={onSettingsChange}
           onClose={() => setShowSettings(false)}
+          onManageAccounts={() => {
+            setShowSettings(false)
+            setShowAccounts(true)
+          }}
+          onReviewSetup={() => {
+            setShowSettings(false)
+            onReviewSetup()
+          }}
+        />
+      )}
+
+      {showAccounts && (
+        <AccountsModal
+          auth={auth}
+          onAuthChanged={onAuthChanged}
+          fabric={{
+            busy: fabricAuthBusy,
+            signingIn,
+            signingOut,
+            canRefresh: Boolean(active),
+            projectId: active?.id,
+            onSignIn: () => void signIn(),
+            onSignOut: () => void signOut(),
+            onRefresh: () => {
+              setShowAccounts(false)
+              if (active) openAuthRefresh(active)
+            }
+          }}
+          onReviewSetup={() => {
+            setShowAccounts(false)
+            onReviewSetup()
+          }}
+          onClose={() => setShowAccounts(false)}
         />
       )}
 

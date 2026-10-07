@@ -241,7 +241,8 @@ export default function ChatPanel({
   const authFailed = Boolean(
     latestAssistant?.turnId && !latestAssistant.authResolved && isCopilotAuthError(latestAssistant.error)
   )
-  const needsCopilotSignIn = copilotAuth?.signedIn === false || authFailed
+  // Still being verified at launch is unknown, not signed out.
+  const needsCopilotSignIn = (copilotAuth?.signedIn === false && !copilotAuth.checking) || authFailed
   useEffect(() => {
     setSending((s) => (s === hasLiveTurn ? s : hasLiveTurn))
   }, [hasLiveTurn])

@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useState, type ReactNode } from 'react'
 import type { AppSettings, AppVersions, ThemePreference } from '@shared/ipc'
 import { applyTheme, applyUiScale, UI_SCALES } from '../theme'
 import { useSuppressPreview } from '../overlay'
@@ -6,6 +6,7 @@ import { useModalFocus } from '../modalFocus'
 import { useUpdates } from '../update'
 import { formatCopilotCli } from '../copilotVersion'
 import { openDocs } from '../docsLinks'
+import { Codicon } from './icons'
 
 interface Props {
   settings: AppSettings
@@ -13,6 +14,10 @@ interface Props {
   /** Persist a settings patch; the parent re-applies theme + stores it. */
   onChange: (patch: Partial<AppSettings>) => void
   onClose: () => void
+  /** Open the Accounts dialog. */
+  onManageAccounts?: () => void
+  /** Leave for the setup screen to re-check tools and sign-ins. */
+  onReviewSetup?: () => void
 }
 
 const THEMES: Array<{ value: ThemePreference; label: string }> = [
@@ -20,6 +25,44 @@ const THEMES: Array<{ value: ThemePreference; label: string }> = [
   { value: 'dark', label: 'Dark' },
   { value: 'light', label: 'Light' }
 ]
+
+/** A group of settings: a quiet heading over a card of rows. */
+function Section({ title, children }: { title: string; children: ReactNode }): JSX.Element {
+  const id = useId()
+  return (
+    <section className="set-section" aria-labelledby={id}>
+      <h3 className="set-section-title" id={id}>
+        {title}
+      </h3>
+      <div className="set-card">{children}</div>
+    </section>
+  )
+}
+
+/** One setting: its name and what it does, with its control at the end. */
+function Item({
+  title,
+  desc,
+  extra,
+  children
+}: {
+  title: string
+  desc?: ReactNode
+  /** Full-width detail under the row, such as a folder path. */
+  extra?: ReactNode
+  children?: ReactNode
+}): JSX.Element {
+  return (
+    <div className="set-item">
+      <div className="set-item-text">
+        <span className="set-item-title">{title}</span>
+        {desc ? <span className="set-item-desc">{desc}</span> : null}
+      </div>
+      {children ? <div className="set-item-control">{children}</div> : null}
+      {extra}
+    </div>
+  )
+}
 
 function ToggleRow({
   label,
@@ -33,10 +76,10 @@ function ToggleRow({
   onChange: (value: boolean) => void
 }): JSX.Element {
   return (
-    <label className="set-row">
-      <span className="set-row-text">
-        <span className="set-row-label">{label}</span>
-        <span className="field-hint">{hint}</span>
+    <label className="set-item set-item--toggle">
+      <span className="set-item-text">
+        <span className="set-item-title">{label}</span>
+        <span className="set-item-desc">{hint}</span>
       </span>
       <span className={`switch${checked ? ' switch--on' : ''}`}>
         <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
@@ -50,7 +93,9 @@ export default function SettingsModal({
   settings,
   versions,
   onChange,
-  onClose
+  onClose,
+  onManageAccounts,
+  onReviewSetup
 }: Props): JSX.Element {
   useSuppressPreview()
   const { status: updateStatus, info: updateInfo, checkNow } = useUpdates()
@@ -59,6 +104,9 @@ export default function SettingsModal({
   const [exporting, setExporting] = useState(false)
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const titleId = useId()
+  const experimentsId = useId()
+  const experimentsTitleId = useId()
+  const experimentsDescId = useId()
   const dialogRef = useModalFocus<HTMLDivElement>()
 
   useEffect(() => {
@@ -123,7 +171,7 @@ export default function SettingsModal({
     <>
       <div className="modal-backdrop" onClick={onClose}>
         <div
-          className="modal"
+          className="modal settings-modal"
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
@@ -141,67 +189,81 @@ export default function SettingsModal({
             </button>
           </div>
 
-          <div className="modal-body">
-            <div className="field">
-              <span className="field-label">Theme</span>
-              <div className="seg">
-                {THEMES.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    className={`seg-btn${settings.theme === t.value ? ' seg-btn--active' : ''}`}
-                    onClick={() => pickTheme(t.value)}
-                  >
-                    {t.label}
+          <div className="modal-body settings-body">
+            <Section title="General">
+              {onManageAccounts && (
+                <Item
+                  title="Accounts"
+                  desc="See who you’re signed in as for GitHub Copilot, Microsoft Fabric, the Azure CLI, and GitHub, and sign in or out."
+                >
+                  <button type="button" className="btn btn--sm" onClick={onManageAccounts}>
+                    Manage accounts
                   </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="field">
-              <span className="field-label">Text size</span>
-              <div className="seg">
-                {UI_SCALES.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className={`seg-btn${(settings.uiScale ?? 1) === s ? ' seg-btn--active' : ''}`}
-                    onClick={() => pickScale(s)}
-                  >
-                    {Math.round(s * 100)}%
+                </Item>
+              )}
+              {onReviewSetup && (
+                <Item
+                  title="Setup"
+                  desc="Check the tools Fabricator needs and install missing ones, such as the GitHub CLI."
+                >
+                  <button type="button" className="btn btn--sm" onClick={onReviewSetup}>
+                    Open setup
                   </button>
-                ))}
-              </div>
-              <span className="field-hint">Scale the whole interface — handy on large monitors.</span>
-            </div>
-
-            <label className="field">
-              <span className="field-label">Workspace folder</span>
-              <div className="settings-row">
-                <code className="settings-path" title={workspaceRoot ?? ''}>
-                  {workspaceRoot ?? '…'}
-                </code>
-                <button className="btn btn--sm btn--ghost" onClick={() => void changeRoot()}>
+                </Item>
+              )}
+              <Item
+                title="Workspace folder"
+                desc="New projects are created here."
+                extra={
+                  <code className="set-path" title={workspaceRoot ?? ''}>
+                    {workspaceRoot ?? '…'}
+                  </code>
+                }
+              >
+                <button type="button" className="btn btn--sm" onClick={() => void changeRoot()}>
                   Change…
                 </button>
-              </div>
-              <span className="field-hint">New projects are created here.</span>
-            </label>
+              </Item>
+            </Section>
 
-            <div className="field">
-              <span className="field-label">Usage stats</span>
-              <span className="field-hint">
-                We send your sign-in domain and a hashed email so we can see how the product is
-                used. Your email, code, and apps stay on this device.
-              </span>
-            </div>
+            <Section title="Appearance">
+              <Item title="Theme" desc="System follows your computer’s light or dark setting.">
+                <div className="seg" role="group" aria-label="Theme">
+                  {THEMES.map((t) => (
+                    <button
+                      key={t.value}
+                      type="button"
+                      className={`seg-btn${settings.theme === t.value ? ' seg-btn--active' : ''}`}
+                      aria-pressed={settings.theme === t.value}
+                      onClick={() => pickTheme(t.value)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </Item>
+              <Item title="Text size" desc="Scale the whole interface — handy on large monitors.">
+                <div className="seg" role="group" aria-label="Text size">
+                  {UI_SCALES.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className={`seg-btn${(settings.uiScale ?? 1) === s ? ' seg-btn--active' : ''}`}
+                      aria-pressed={(settings.uiScale ?? 1) === s}
+                      onClick={() => pickScale(s)}
+                    >
+                      {Math.round(s * 100)}%
+                    </button>
+                  ))}
+                </div>
+              </Item>
+            </Section>
 
-            <div className="field">
-              <span className="field-label">Updates</span>
-              <div className="settings-row">
-                <span className="field-hint">{updateMsg}</span>
+            <Section title="Updates & help">
+              <Item title="Updates" desc={updateMsg || undefined}>
                 <button
-                  className="btn btn--sm btn--ghost"
+                  type="button"
+                  className="btn btn--sm"
                   disabled={updateBusy}
                   onClick={() => {
                     setCheckedUpdates(true)
@@ -210,95 +272,95 @@ export default function SettingsModal({
                 >
                   {updateBusy ? 'Checking…' : 'Check for updates'}
                 </button>
-              </div>
-            </div>
+              </Item>
+              <Item
+                title="Help"
+                desc="Guides for every part of Fabricator, and fixes for common problems."
+              >
+                <button type="button" className="btn btn--sm" onClick={() => openDocs('home')}>
+                  Documentation
+                  <Codicon name="link-external" className="set-ext" />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={() => openDocs('troubleshooting')}
+                >
+                  Troubleshooting
+                  <Codicon name="link-external" className="set-ext" />
+                </button>
+              </Item>
+            </Section>
 
-            <div className="field">
-              <span className="field-label">Help</span>
-              <div className="settings-row">
-                <span className="field-hint">
-                  Guides for every part of Fabricator, and fixes for common problems.
-                </span>
-                <span className="diagnostics-actions">
-                  <button className="btn btn--sm btn--ghost" onClick={() => openDocs('home')}>
-                    Documentation
-                  </button>
-                  <button
-                    className="btn btn--sm btn--ghost"
-                    onClick={() => openDocs('troubleshooting')}
-                  >
-                    Troubleshooting
-                  </button>
-                </span>
-              </div>
-            </div>
-
-            <div className="field">
-              <span className="field-label">Diagnostics</span>
+            <Section title="Diagnostics">
+              <Item
+                title="Usage stats"
+                desc="We send your sign-in domain and a hashed email so we can see how the product is used. Your email, code, and apps stay on this device."
+              />
               <ToggleRow
                 label="Full diagnostics"
                 hint="Also capture prompts, responses, and tool output for each chat turn. Off by default — only lightweight metadata (timing, tools used, errors) is recorded. Turn on to include more detail in a bug report."
                 checked={Boolean(settings.fullDiagnostics)}
                 onChange={(v) => onChange({ fullDiagnostics: v })}
               />
-              <div className="settings-row">
-                <span className="field-hint">
-                  Diagnostics for your chat sessions are saved on this device. Export them to
-                  attach to a bug report.
-                </span>
-                <span className="diagnostics-actions">
-                  <button
-                    className="btn btn--sm btn--ghost"
-                    disabled={exporting}
-                    onClick={() => void exportDiagnostics()}
-                  >
-                    {exporting ? 'Exporting…' : 'Export diagnostics'}
-                  </button>
-                  <button
-                    className="btn btn--sm btn--ghost"
-                    onClick={() => void window.api.openLogs()}
-                  >
-                    Open logs folder
-                  </button>
-                </span>
-              </div>
-            </div>
-
-            <div
-              className={`field settings-experiments${showExperiments ? ' settings-experiments--open' : ''}`}
-            >
-              <button
-                type="button"
-                className={`settings-disclosure${showExperiments ? ' settings-disclosure--open' : ''}`}
-                aria-expanded={showExperiments}
-                onClick={() => setShowExperiments((s) => !s)}
+              <Item
+                title="Logs"
+                desc="Diagnostics for your chat sessions are saved on this device. Export them to attach to a bug report."
               >
-                <span
-                  className="codicon codicon-chevron-right settings-disclosure-caret"
-                  aria-hidden="true"
-                />
-                <span className="field-label">
-                  Experiments <span className="settings-beta">Beta</span>
-                </span>
-              </button>
-              {showExperiments && (
-                <div className="settings-disclosure-body">
-                  <div className="settings-warn" role="note">
-                    <span className="codicon codicon-warning" aria-hidden="true" />
-                    <span>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  disabled={exporting}
+                  onClick={() => void exportDiagnostics()}
+                >
+                  {exporting ? 'Exporting…' : 'Export diagnostics'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--sm"
+                  onClick={() => void window.api.openLogs()}
+                >
+                  Open logs folder
+                </button>
+              </Item>
+            </Section>
+
+            <section className="set-section">
+              <div
+                className={`set-card set-expander${showExperiments ? ' set-expander--open' : ''}`}
+              >
+                <button
+                  type="button"
+                  className="set-item set-expander-head"
+                  aria-expanded={showExperiments}
+                  aria-controls={showExperiments ? experimentsId : undefined}
+                  aria-labelledby={experimentsTitleId}
+                  aria-describedby={experimentsDescId}
+                  onClick={() => setShowExperiments((s) => !s)}
+                >
+                  <span className="set-item-text">
+                    <span className="set-item-title set-expander-title" id={experimentsTitleId}>
+                      Experiments <span className="settings-beta">Beta</span>
+                    </span>
+                    <span className="set-item-desc" id={experimentsDescId}>
                       These features are experimental and off by default. They may be unstable,
                       change, or be removed in a future update.
                     </span>
+                  </span>
+                  <Codicon name="chevron-down" className="set-expander-caret" />
+                </button>
+                {showExperiments && (
+                  <div className="set-expander-body" id={experimentsId}>
+                    <ToggleRow
+                      label="Team workspaces"
+                      hint="Build apps with your team in a private GitHub repository. Everyone works on their own copy, and a pipeline publishes to Fabric with a deploy identity that Fabricator sets up. Team apps never deploy from this computer. Needs the GitHub CLI."
+                      checked={Boolean(settings.experiments?.teamWorkspaces)}
+                      onChange={(v) => onChange({ experiments: { teamWorkspaces: v } })}
+                    />
                   </div>
-                  <ToggleRow
-                    label="Team workspaces"
-                    hint="Build apps with your team in a private GitHub repository. Everyone works on their own copy, and a pipeline publishes to Fabric with a deploy identity that Fabricator sets up. Team apps never deploy from this computer. Needs the GitHub CLI."
-                    checked={Boolean(settings.experiments?.teamWorkspaces)}
-                    onChange={(v) => onChange({ experiments: { teamWorkspaces: v } })}
-                  />
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            </section>
           </div>
 
           <div className="modal-footer settings-footer">

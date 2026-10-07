@@ -1,5 +1,26 @@
 import type { ThemePreference } from '@shared/ipc'
 
+// The last applied theme and zoom, so the first frame of a launch paints in them
+// before settings load (the app opens without a splash once setup has passed).
+const THEME_KEY = 'fabricator.theme'
+const SCALE_KEY = 'fabricator.uiScale'
+
+function remember(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value)
+  } catch {
+    /* best-effort: only the first frame of the next launch depends on it */
+  }
+}
+
+function recall(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
 const media = (): MediaQueryList => window.matchMedia('(prefers-color-scheme: light)')
 
 /** Resolve a preference to a concrete theme, consulting the OS for 'system'. */
@@ -19,6 +40,7 @@ export function applyTheme(pref: ThemePreference): void {
  */
 export function watchTheme(pref: ThemePreference): () => void {
   applyTheme(pref)
+  remember(THEME_KEY, pref)
   if (pref !== 'system') return () => {}
   const mq = media()
   const onChange = (): void => applyTheme('system')
@@ -36,4 +58,13 @@ export function applyUiScale(scale: number | undefined): void {
   // `zoom` also multiplies vh units, so expose the factor for layouts that cap
   // their height to the viewport (e.g. modals) to divide it back out.
   document.documentElement.style.setProperty('--ui-scale', String(value))
+  remember(SCALE_KEY, String(value))
+}
+
+/** Paint the last-used theme and zoom before the first render. */
+export function applyRememberedAppearance(): void {
+  const theme = recall(THEME_KEY)
+  if (theme === 'dark' || theme === 'light' || theme === 'system') applyTheme(theme)
+  const scale = Number(recall(SCALE_KEY))
+  if (Number.isFinite(scale) && scale > 0) applyUiScale(scale)
 }

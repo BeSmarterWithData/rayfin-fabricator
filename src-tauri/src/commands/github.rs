@@ -19,7 +19,10 @@ use crate::commands::util::is_rayfin_project;
 use crate::services::emit::proc_streamer;
 use crate::services::exec::{self, OnData, RunOptions, Stream};
 use crate::services::store;
-use crate::types::{GithubRepo, GithubReposResult, GithubStatus, ProcResult, ProjectActionResult};
+use crate::services::team::gh;
+use crate::types::{
+  GithubAccount, GithubAccountsResult, GithubRepo, GithubReposResult, GithubStatus, ProcResult, ProjectActionResult,
+};
 
 /// Streaming channel for `gh repo clone` output (matches `IpcChannels.githubClone` consumer).
 const CLONE_CHANNEL: &str = "clone:project";
@@ -82,6 +85,125 @@ fn status_from_result(res: &exec::RunResult) -> GithubStatus {
 pub async fn github_status() -> GithubStatus {
   let res = exec::run("gh", AUTH_PROBE_ARGS, gh_options(20_000)).await;
   status_from_result(&res)
+}
+
+/* -------------------------------- accounts -------------------------------- */
+
+/// Every github.com account the GitHub CLI is signed in to, active first.
+#[tauri::command]
+pub async fn github_accounts() -> GithubAccountsResult {
+  match gh::accounts().await {
+    Ok(list) => GithubAccountsResult {
+      gh_installed: true,
+      accounts: list
+        .into_iter()
+        .map(|a| GithubAccount { login: a.login, active: a.active, signed_in: a.signed_in })
+        .collect(),
+      error: None,
+    },
+    Err(e) => GithubAccountsResult {
+      gh_installed: !e.missing_cli,
+      accounts: Vec::new(),
+      error: (!e.missing_cli).then(|| e.describe("Couldn't list your GitHub accounts")),
+    },
+  }
+}
+
+/// The terminal command that signs in to another account. `gh auth login` makes
+/// the new account active, so the previous one is switched back afterwards —
+/// even when sign-in is cancelled — and adding an account never changes which
+/// one the terminal and Clone from GitHub use.
+fn add_account_command(active: Option<&str>, windows: bool) -> String {
+  let (clear, always) = if windows {
+    ("set \"GH_TOKEN=\" && set \"GITHUB_TOKEN=\" && ", " & ")
+  } else {
+    ("unset GH_TOKEN GITHUB_TOKEN; ", "; ")
+  };
+  let mut cmd = format!("{clear}gh auth login --web --git-protocol https --hostname github.com");
+  if let Some(login) = active {
+    cmd.push_str(always);
+    cmd.push_str(&format!("gh auth switch --hostname github.com --user {login}"));
+  }
+  cmd
+}
+
+/// Open a terminal to sign in to another GitHub account; the renderer polls
+/// [`github_accounts`] to see it arrive.
+#[tauri::command]
+pub async fn github_add_account() -> ProcResult {
+  if which::which("gh").is_err() {
+    return ProcResult {
+      ok: false,
+      exit_code: None,
+      error: Some("The GitHub CLI (gh) isn't installed. Install it from setup, then try again.".into()),
+    };
+  }
+  let active = gh::accounts()
+    .await
+    .ok()
+    .and_then(|list| list.into_iter().find(|a| a.active))
+    .map(|a| a.login)
+    .filter(|login| gh::is_login(login));
+  crate::commands::team::forget_viewer();
+  let cmd = add_account_command(active.as_deref(), cfg!(target_os = "windows"));
+  let ok = launch_in_terminal(&cmd);
+  ProcResult {
+    ok,
+    exit_code: None,
+    error: (!ok).then(|| format!("Couldn't open a terminal. Run `{cmd}` yourself, then come back.")),
+  }
+}
+
+fn checked_login(login: &str) -> Result<&str, ProcResult> {
+  let login = login.trim();
+  if gh::is_login(login) {
+    Ok(login)
+  } else {
+    Err(ProcResult { ok: false, exit_code: None, error: Some(format!("{login} isn't a GitHub account name.")) })
+  }
+}
+
+/// Make `login` the GitHub CLI's active account (what Clone from GitHub and the
+/// terminal use). Team workspaces keep the account they remember.
+#[tauri::command]
+pub async fn github_switch_account(login: String) -> ProcResult {
+  let login = match checked_login(&login) {
+    Ok(login) => login,
+    Err(failure) => return failure,
+  };
+  let res = exec::run(
+    "gh",
+    &["auth", "switch", "--hostname", "github.com", "--user", login],
+    gh_options(20_000),
+  )
+  .await;
+  crate::commands::team::forget_viewer();
+  ProcResult {
+    ok: res.ok,
+    exit_code: res.exit_code,
+    error: (!res.ok).then(|| command_error(&format!("Couldn't switch to {login}"), &res)),
+  }
+}
+
+/// Remove `login`'s sign-in from the GitHub CLI on this computer.
+#[tauri::command]
+pub async fn github_sign_out_account(login: String) -> ProcResult {
+  let login = match checked_login(&login) {
+    Ok(login) => login,
+    Err(failure) => return failure,
+  };
+  let res = exec::run(
+    "gh",
+    &["auth", "logout", "--hostname", "github.com", "--user", login],
+    gh_options(30_000),
+  )
+  .await;
+  crate::commands::team::forget_viewer();
+  ProcResult {
+    ok: res.ok,
+    exit_code: res.exit_code,
+    error: (!res.ok).then(|| command_error(&format!("Couldn't sign out of {login}"), &res)),
+  }
 }
 
 /* ---------------------------------- login --------------------------------- */
@@ -419,6 +541,32 @@ mod tests {
     assert!(status_from_result(&res).user.is_none());
     res.not_found = true;
     assert!(!status_from_result(&res).gh_installed);
+  }
+
+  #[test]
+  fn adding_an_account_keeps_the_default_account_active() {
+    assert_eq!(
+      add_account_command(Some("octo"), true),
+      "set \"GH_TOKEN=\" && set \"GITHUB_TOKEN=\" && gh auth login --web --git-protocol https --hostname github.com & gh auth switch --hostname github.com --user octo"
+    );
+    assert_eq!(
+      add_account_command(Some("octo"), false),
+      "unset GH_TOKEN GITHUB_TOKEN; gh auth login --web --git-protocol https --hostname github.com; gh auth switch --hostname github.com --user octo"
+    );
+    // The first account has nothing to switch back to.
+    assert_eq!(
+      add_account_command(None, false),
+      "unset GH_TOKEN GITHUB_TOKEN; gh auth login --web --git-protocol https --hostname github.com"
+    );
+  }
+
+  #[test]
+  fn account_commands_reject_names_that_are_not_logins() {
+    for bad in ["", "  ", "octo; rm -rf", "-octo", "octo cat", "octo&calc"] {
+      let failure = checked_login(bad).unwrap_err();
+      assert!(!failure.ok, "{bad:?}");
+    }
+    assert_eq!(checked_login(" octo_contoso ").ok(), Some("octo_contoso"));
   }
 
   #[test]

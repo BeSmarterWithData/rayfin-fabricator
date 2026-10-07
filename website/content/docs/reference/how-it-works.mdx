@@ -91,6 +91,17 @@ Fabricator stores settings, project lists, chat history, Advisor state, logs, di
 
 The desktop app uses Tauri v2: a Rust core with a React renderer. On Windows, the embedded preview uses WebView2. On macOS, it uses the system web view.
 
+## Accounts
+
+Fabricator doesn't keep credentials itself; each tool keeps its own.
+
+- **GitHub Copilot**: the bundled Copilot engine stores the sign-in.
+- **Microsoft Fabric**: the Rayfin CLI keeps one signed-in account per config folder, `~/.rayfin` by default. Fabricator gives each Fabric account added after the first its own folder under the app data folder, and points every Rayfin CLI and helper process it starts at the account in use with `RAYFIN_CONFIG_DIR`. Sign-in, sign-out and sign-in checks run the project's pinned Rayfin CLI outside the project folder, because the CLI reads the project's `rayfin.yml` at startup. The project's Fabric environment overrides in `rayfin/.env` still apply.
+- **Azure CLI**: the Azure CLI keeps every account you sign in to. Fabricator lists them with `az account list`, switches with `az account set`, signs one out with `az logout --username`, and signs in with `az login --allow-no-subscriptions`, so accounts without an Azure subscription work.
+- **GitHub**: the GitHub CLI keeps every account you sign in to. **Add account** runs `gh auth login` in a terminal and then switches back to your default account.
+
+When you open Fabricator after setup has passed, it shows your work at once and checks tools and accounts in the background. Each check runs separately, so a slow one, such as Fabric's, doesn't delay the others.
+
 ## What goes over the network
 
 Fabricator and the tools it runs can contact these services:

@@ -197,6 +197,19 @@ function AuthHarness({ onAuthChanged }: { onAuthChanged?: () => Promise<void> })
 }
 
 describe('ChatPanel authentication recovery', () => {
+  it('does not ask for a Copilot sign-in while the launch check is still running', async () => {
+    installApi()
+    const { rerender } = render(
+      <ChatPanel project={makeProject('p1')} messages={[]} onChange={() => {}}
+        copilotAuth={{ signedIn: false, checking: true }} />
+    )
+    expect(screen.queryByRole('button', { name: 'Sign in to Copilot' })).toBeNull()
+    rerender(
+      <ChatPanel project={makeProject('p1')} messages={[]} onChange={() => {}}
+        copilotAuth={{ signedIn: false, error: 'Session expired' }} />
+    )
+    expect(await screen.findByRole('button', { name: 'Sign in to Copilot' })).toBeTruthy()
+  })
   it('handles a failed result without streamed events and signs in without losing drafts or replaying', async () => {
     const api = installApi()
     api.chat.send.mockResolvedValue({ ok: false, error: 'Not logged in', filesModified: [], ranDeploy: false })

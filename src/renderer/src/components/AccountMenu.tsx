@@ -17,6 +17,10 @@ interface Props {
   /** The shared Rayfin CLI (Fabric) session. */
   signedIn: boolean
   user?: string
+  /** Readable name of the tenant (directory) the Fabric account signs in to. */
+  tenant?: string
+  /** The Fabric sign-in hasn't been verified yet this launch. */
+  checking?: boolean
   /** A Fabric sign-in, sign-out, credential refresh, or deploy is running. */
   busy: boolean
   signingIn: boolean
@@ -27,19 +31,24 @@ interface Props {
   onSignIn: () => void
   onSignOut: () => void
   onRefresh: () => void
+  /** Open the Accounts dialog: every account Fabricator uses. */
+  onManageAccounts: () => void
 }
 
 const ITEM = '[role="menuitem"]'
 
 /**
- * The app bar's Fabric account control. Signed in, it's the user's avatar and
- * opens a menu with the rarely-needed account actions (refresh credentials, sign
- * out). Signed out, "Sign in to Fabric" stays one click away, with the refresh
- * behind its caret when a project is open.
+ * The app bar's account control. Signed in to Fabric, it's the user's avatar and
+ * opens a menu with the account actions (manage every account, refresh
+ * credentials, sign out). Signed out, "Sign in to Fabric" stays one click away,
+ * with the rest behind its caret. While the launch check runs it's a neutral
+ * placeholder rather than a premature sign-in prompt.
  */
 export default function AccountMenu({
   signedIn,
   user,
+  tenant,
+  checking = false,
   busy,
   signingIn,
   signingOut,
@@ -47,14 +56,15 @@ export default function AccountMenu({
   canRefresh,
   onSignIn,
   onSignOut,
-  onRefresh
+  onRefresh,
+  onManageAccounts
 }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const menuId = useId()
-  const hasMenu = signedIn || canRefresh
-  const isOpen = open && hasMenu
+  const isOpen = open
+  const pending = checking && !signedIn
 
   // The menu drops over the preview, whose native surface paints above all HTML.
   useSuppressPreview(isOpen)
@@ -117,40 +127,44 @@ export default function AccountMenu({
         moveMenuFocus(e, ITEM)
       }}
     >
-      {signedIn ? (
+      {signedIn || pending ? (
         <button
           ref={triggerRef}
           type="button"
-          className={`account-trigger${isOpen ? ' is-open' : ''}`}
+          className={`account-trigger${isOpen ? ' is-open' : ''}${pending ? ' account-trigger--checking' : ''}`}
           aria-haspopup="menu"
           aria-expanded={isOpen}
           aria-controls={isOpen ? menuId : undefined}
-          aria-label={user ? `Account: ${user}` : 'Account'}
-          title={user ? `Signed in to Fabric as ${user}` : 'Signed in to Fabric'}
+          aria-label={pending ? 'Account: checking sign-in' : user ? `Account: ${user}` : 'Account'}
+          title={
+            pending
+              ? 'Checking your Microsoft Fabric sign-in…'
+              : [user ? `Signed in to Fabric as ${user}` : 'Signed in to Fabric', tenant]
+                  .filter(Boolean)
+                  .join(' · ')
+          }
           onClick={() => setOpen((o) => !o)}
         >
-          {avatarInitials(user)}
+          {pending ? <span className="account-trigger-dots" aria-hidden="true" /> : avatarInitials(user)}
         </button>
       ) : (
         <div className="seg seg--toolbar account-signin">
           <button className="seg-btn" disabled={busy} onClick={onSignIn}>
             {signingIn ? 'Signing in…' : 'Sign in to Fabric'}
           </button>
-          {canRefresh && (
-            <button
-              ref={triggerRef}
-              type="button"
-              className="seg-btn seg-btn--icon account-signin-more"
-              aria-haspopup="menu"
-              aria-expanded={isOpen}
-              aria-controls={isOpen ? menuId : undefined}
-              aria-label="More sign-in options"
-              title="More sign-in options"
-              onClick={() => setOpen((o) => !o)}
-            >
-              <Codicon name="chevron-down" />
-            </button>
-          )}
+          <button
+            ref={triggerRef}
+            type="button"
+            className="seg-btn seg-btn--icon account-signin-more"
+            aria-haspopup="menu"
+            aria-expanded={isOpen}
+            aria-controls={isOpen ? menuId : undefined}
+            aria-label="More sign-in options"
+            title="More sign-in options"
+            onClick={() => setOpen((o) => !o)}
+          >
+            <Codicon name="chevron-down" />
+          </button>
         </div>
       )}
 
@@ -165,21 +179,35 @@ export default function AccountMenu({
                 <span className="account-pop-user" title={user}>
                   {user ?? 'Signed in'}
                 </span>
-                <span className="account-pop-sub">Microsoft Fabric</span>
+                <span className="account-pop-sub">
+                  Microsoft Fabric{tenant ? ` · ${tenant}` : ''}
+                </span>
               </span>
             </div>
           ) : (
             <div className="account-pop-head">
               <span className="account-pop-id">
-                <span className="account-pop-user">Not signed in to Fabric</span>
-                <span className="account-pop-sub">
-                  Refresh clears stale credentials, then signs you in again.
+                <span className="account-pop-user">
+                  {pending ? 'Checking your Fabric sign-in…' : 'Not signed in to Fabric'}
                 </span>
+                {!pending && canRefresh && (
+                  <span className="account-pop-sub">
+                    Refresh clears stale credentials, then signs you in again.
+                  </span>
+                )}
               </span>
             </div>
           )}
           <div className="account-pop-items" role="menu" id={menuId} aria-label="Fabric account">
-            {refreshItem}
+            <MenuItem
+              disabled={false}
+              onClick={() => pick(onManageAccounts)}
+              icon={<Codicon name="account" />}
+              title="See and change every account Fabricator uses"
+            >
+              Manage accounts…
+            </MenuItem>
+            {!pending && refreshItem}
             {signedIn && (
               <MenuItem disabled={busy} onClick={() => pick(onSignOut)} icon={<SignOutIcon />}>
                 {signingOut ? 'Signing out…' : 'Sign out'}

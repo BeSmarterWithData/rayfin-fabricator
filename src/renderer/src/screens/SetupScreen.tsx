@@ -26,9 +26,11 @@ interface Props {
   error?: string
   onRefresh: () => Promise<void> | void
   onEnter: () => void
+  /** Return to the app without finishing setup (offered once setup has passed on this computer). */
+  onBack?: () => void
 }
 
-export default function SetupScreen({ doctor, auth, refreshing, error, onRefresh, onEnter }: Props): JSX.Element {
+export default function SetupScreen({ doctor, auth, refreshing, error, onRefresh, onEnter, onBack }: Props): JSX.Element {
   const [copilotHost, setCopilotHost] = useState(() => auth?.copilot.host ?? getCopilotHost())
   const [log, setLog] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
@@ -463,6 +465,11 @@ export default function SetupScreen({ doctor, auth, refreshing, error, onRefresh
               <ReloadIcon className={`btn-ico ${refreshing ? 'icon-spin' : ''}`} />
               {refreshing ? 'Checking…' : 'Re-check'}
             </button>
+            {onBack && !allReady && (
+              <button className="btn btn--ghost" disabled={busy !== null} onClick={onBack}>
+                Back to Fabricator
+              </button>
+            )}
             <button
               className="btn btn--primary setup-enter"
               disabled={!allReady || busy !== null || needsRelaunch}

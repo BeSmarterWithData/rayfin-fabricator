@@ -14,6 +14,7 @@ import { serializePreviewMutations } from './previewSurface'
 import {
   IpcChannels,
   type AppSettings,
+  type AuthProvider,
   type AdvisorEventEnvelope,
   type AdvisorFinding,
   type AdvisorRunRequest,
@@ -91,20 +92,38 @@ export const api: RayfinStudioApi = {
 
   auth: {
     status: () => invoke('auth_status'),
+    check: (providers: AuthProvider[]) => invoke('auth_check', { providers }),
     loginCopilot: (host?: string) => invoke('auth_login_copilot', { host }),
     loginRayfin: (tenant?: string, projectId?: string) =>
       invoke('auth_login_rayfin', { tenant, projectId }),
     refreshRayfin: (projectId: string, tenant?: string) =>
       invoke('auth_refresh_rayfin', { projectId, tenant }),
-    loginAz: () => invoke('auth_login_az'),
+    loginAz: (tenant?: string) => invoke('auth_login_az', { tenant }),
     logoutCopilot: () => invoke('auth_logout_copilot'),
     logoutRayfin: () => invoke('auth_logout_rayfin'),
     logoutAz: () => invoke('auth_logout_az')
   },
 
+  accounts: {
+    fabric: () => invoke('fabric_accounts'),
+    addFabric: (tenant?: string, projectId?: string) =>
+      invoke('fabric_add_account', { tenant, projectId }),
+    useFabric: (id: string) => invoke('fabric_use_account', { id }),
+    signOutFabric: (id: string, projectId?: string) =>
+      invoke('fabric_sign_out_account', { id, projectId }),
+    azure: () => invoke('azure_accounts'),
+    useAzure: (user: string, subscription: string) =>
+      invoke('azure_use_account', { user, subscription }),
+    signOutAzure: (user: string) => invoke('azure_sign_out_account', { user })
+  },
+
   github: {
     status: () => invoke('github_status'),
     login: () => invoke('github_login'),
+    accounts: () => invoke('github_accounts'),
+    addAccount: () => invoke('github_add_account'),
+    switchAccount: (login: string) => invoke('github_switch_account', { login }),
+    signOutAccount: (login: string) => invoke('github_sign_out_account', { login }),
     listRepos: () => invoke('github_list_repos'),
     clone: (repo: string) => invoke('github_clone', { input: repo })
   },

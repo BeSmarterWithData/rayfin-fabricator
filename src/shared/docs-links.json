@@ -4,6 +4,7 @@
     "home": "/docs",
     "troubleshooting": "/docs/troubleshooting",
     "setup": "/docs/troubleshooting/setup-and-sign-in",
+    "accounts": "/docs/start/accounts",
     "copilotSignIn": "/docs/troubleshooting/setup-and-sign-in#copilot-asks-you-to-sign-in-again",
     "previewPorts": "/docs/troubleshooting/preview#all-preview-ports-are-busy",
     "deployFailed": "/docs/troubleshooting/deploy#a-deploy-failed",

@@ -22,7 +22,7 @@ afterEach(() => {
 })
 
 describe('DeploymentsControl chip', () => {
-  it('labels the chip “Deployment:” (the workspace name now lives in the footer)', () => {
+  it('names the chip “Deployment:” for screen readers and marks it with a cloud (the workspace name lives in the footer)', () => {
     render(
       <OverlayProvider>
         <DeploymentsControl
@@ -38,7 +38,9 @@ describe('DeploymentsControl chip', () => {
         />
       </OverlayProvider>
     )
-    expect(screen.getByText('Deployment:')).toBeTruthy()
+    const chip = screen.getByRole('button', { name: /^Deployment:\s*Rayfin Apps$/ })
+    expect(chip.querySelector('.codicon-cloud')).toBeTruthy()
+    expect(screen.getByText('Deployment:').classList.contains('sr-only')).toBe(true)
     expect(screen.queryByText('Workspace:')).toBeNull()
   })
 
@@ -173,6 +175,36 @@ describe('DeploymentsControl chip', () => {
       </OverlayProvider>
     )
     expect(screen.queryByRole('button', { name: 'Copy app URL' })).toBeNull()
+  })
+
+  describe('DeploymentsControl deploy identity', () => {
+    it('says which Fabric account deploys, with a way to change it', async () => {
+      const api = installApi()
+      api.deploy.list.mockResolvedValue([{ workspaceName: 'Sales', workspaceId: 'ws1', active: true }])
+      const onManageAccounts = vi.fn()
+      render(
+        <ToastProvider>
+          <OverlayProvider>
+            <DeploymentsControl
+              project={makeProject()}
+              running={false}
+              onCreate={vi.fn()}
+              onRedeploy={vi.fn()}
+              onSwitch={vi.fn()}
+              onChanged={vi.fn()}
+              account={{ user: 'alice@contoso.com', tenant: 'Contoso' }}
+              onManageAccounts={onManageAccounts}
+            />
+          </OverlayProvider>
+        </ToastProvider>
+      )
+      fireEvent.click(screen.getByRole('button', { name: /Deployment:/ }))
+      const line = await screen.findByText('alice@contoso.com')
+      expect(line.closest('.dep-account')?.textContent).toBe('Deploys as alice@contoso.com · ContosoChange')
+      fireEvent.click(screen.getByRole('button', { name: 'Change' }))
+      expect(onManageAccounts).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('dialog', { name: 'Deployments' })).toBeNull()
+    })
   })
 
   describe('DeploymentsControl share', () => {

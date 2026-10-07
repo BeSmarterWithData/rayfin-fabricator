@@ -46,21 +46,21 @@ Copilot credentials can expire or the engine can lose a saved session handle. Cu
 2. Complete the browser or device-code flow.
 3. Retry your message. Fabricator does not automatically replay prompts after work has started.
 4. If you are on an older Fabricator version and see repeated "Session not found" errors, update to the latest version.
-5. If you were switching accounts, use **Sign out** on the **GitHub Copilot** setup card, then sign in again. Credentials supplied by environment variables or GitHub CLI must be removed outside Fabricator.
+5. If you were switching accounts, open **Accounts** (your account avatar, then **Manage accounts…**), select **Sign out** under **GitHub Copilot**, then sign in again. Credentials supplied by environment variables or GitHub CLI must be removed outside Fabricator.
 
 If the notice returns immediately after sign-in, [Report a problem](/docs/troubleshooting/report-a-problem).
 
 ## Azure CLI is signed in to the wrong account
 
-Setup shows **Azure CLI** as connected to the wrong user or tenant, or Azure sign-in works but later Fabric operations use the wrong tenant.
+**Accounts** or setup shows **Azure CLI** signed in as the wrong user or tenant, or Azure sign-in works but sharing or connecting data looks in the wrong organization. **Accounts** may also warn that Microsoft Fabric and the Azure CLI are signed in to different organizations.
 
-Fabricator checks Azure CLI by running token and account commands. Azure CLI credentials are shared with your terminal and are separate from Fabric/Rayfin credentials and the preview browser.
+The Azure CLI can be signed in to several accounts and uses one of them at a time. Its accounts are shared with your terminal and are separate from Fabric/Rayfin credentials and the preview browser.
 
-1. In setup, select **Sign out** on the **Azure CLI** card.
-2. If more than one Azure account remains, open a terminal and run `az logout`.
-3. Select **Sign in** on the **Azure CLI** card and complete the browser sign-in for the tenant you need.
-4. Select **Re-check**.
-5. If you need a different Fabric/Rayfin account for deploy, also use **Refresh Fabric authentication** from the account menu after opening the project.
+1. Open **Accounts**: select your account avatar in the app bar, then select **Manage accounts…**.
+2. If the account you need is under **Other Azure accounts**, select **Use** next to it.
+3. Otherwise, under **Azure CLI**, select **Add account**. In **Organization (optional)**, enter the organization you need, such as `contoso.onmicrosoft.com`, select **Continue**, and complete the browser sign-in.
+4. To remove an account you don't need, select **Sign out** next to it.
+5. If you also need a different Fabric account for deploying, change it under **Microsoft Fabric** the same way. See [Manage your accounts](/docs/start/accounts).
 
 If Azure still reports the wrong account, [Report a problem](/docs/troubleshooting/report-a-problem).
 
@@ -68,7 +68,7 @@ If Azure still reports the wrong account, [Report a problem](/docs/troubleshooti
 
 You select **Sign in to Fabric**, **Refresh Fabric authentication**, or a deploy triggers sign-in, but no browser appears, the button returns to normal, or workspace listing does not continue. You may see a Rayfin CLI line such as "❌ Login failed: OS keychain is not available and plaintext token storage is not enabled."
 
-Fabricator runs the selected project's Rayfin CLI with `rayfin login --select`, then verifies the credential against Fabric. On locked-down machines the OS keychain can block token storage; current Fabricator versions allow Rayfin's plaintext fallback so sign-in can finish. On macOS, some passwordless SSO flows can still be limited by the embedded browser and system account setup.
+Fabricator runs the project's Rayfin CLI with `rayfin login --select` outside the project folder, then verifies the credential against Fabric. Running outside the project means a setting your app's `rayfin.yml` can't resolve doesn't stop you signing in. On locked-down machines the OS keychain can block token storage; current Fabricator versions allow Rayfin's plaintext fallback so sign-in can finish. On macOS, some passwordless SSO flows can still be limited by the embedded browser and system account setup.
 
 1. Update to the latest Fabricator version.
 2. Look for a browser sign-in window behind Fabricator or minimized on the taskbar or Dock.

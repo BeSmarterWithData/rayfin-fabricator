@@ -18,6 +18,7 @@ function makeProps(overrides: Partial<Props> = {}): Props {
     onSignIn: vi.fn(),
     onSignOut: vi.fn(),
     onRefresh: vi.fn(),
+    onManageAccounts: vi.fn(),
     ...overrides
   }
 }
@@ -62,22 +63,32 @@ describe('avatarInitials', () => {
 
 describe('AccountMenu', () => {
   it('opens a menu with the account identity and its actions', async () => {
-    const props = renderMenu()
+    const props = renderMenu({ tenant: 'Contoso' })
     expect(trigger().textContent).toBe('FL')
     expect(trigger().getAttribute('aria-expanded')).toBe('false')
+    expect(trigger().title).toBe('Signed in to Fabric as first.last@example.com · Contoso')
     expect(screen.queryByRole('menu')).toBeNull()
 
     fireEvent.click(trigger())
     expect(trigger().getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByRole('menu', { name: 'Fabric account' })).toBeTruthy()
     expect(screen.getByText('first.last@example.com')).toBeTruthy()
+    expect(screen.getByText('Microsoft Fabric · Contoso')).toBeTruthy()
     await frame()
-    expect(document.activeElement).toBe(item('Refresh Fabric authentication'))
+    expect(document.activeElement).toBe(item('Manage accounts…'))
 
     fireEvent.click(item('Sign out'))
     expect(props.onSignOut).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('menu')).toBeNull()
     expect(document.activeElement).toBe(trigger())
+  })
+
+  it('opens every account from the menu', () => {
+    const props = renderMenu()
+    fireEvent.click(trigger())
+    fireEvent.click(item('Manage accounts…'))
+    expect(props.onManageAccounts).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menu')).toBeNull()
   })
 
   it('offers credential refresh only when a project is open', () => {
@@ -139,14 +150,17 @@ describe('AccountMenu', () => {
     renderMenu()
     fireEvent.click(trigger())
     await frame()
+    const manage = item('Manage accounts…')
     const refresh = item('Refresh Fabric authentication')
     const signOut = item('Sign out')
+    expect(document.activeElement).toBe(manage)
+    fireEvent.keyDown(manage, { key: 'ArrowDown' })
     expect(document.activeElement).toBe(refresh)
     fireEvent.keyDown(refresh, { key: 'ArrowDown' })
     expect(document.activeElement).toBe(signOut)
     fireEvent.keyDown(signOut, { key: 'ArrowDown' })
-    expect(document.activeElement).toBe(refresh)
-    fireEvent.keyDown(refresh, { key: 'End' })
+    expect(document.activeElement).toBe(manage)
+    fireEvent.keyDown(manage, { key: 'End' })
     expect(document.activeElement).toBe(signOut)
   })
 
@@ -173,10 +187,27 @@ describe('AccountMenu', () => {
     expect(props.onRefresh).toHaveBeenCalledTimes(1)
   })
 
-  it('shows only the sign-in button when signed out with no project open', () => {
-    renderMenu({ signedIn: false, user: undefined, canRefresh: false, signingIn: true, busy: true })
+  it('offers account management behind the caret even with no project open', () => {
+    const props = renderMenu({ signedIn: false, user: undefined, canRefresh: false, signingIn: true, busy: true })
     const signIn = screen.getByRole('button', { name: 'Signing in…' }) as HTMLButtonElement
     expect(signIn.disabled).toBe(true)
-    expect(screen.queryByRole('button', { name: 'More sign-in options' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'More sign-in options' }))
+    expect(screen.queryByRole('menuitem', { name: 'Refresh Fabric authentication' })).toBeNull()
+    fireEvent.click(item('Manage accounts…'))
+    expect(props.onManageAccounts).toHaveBeenCalledTimes(1)
+  })
+
+  it('stays neutral while the launch check runs instead of asking to sign in', async () => {
+    const props = renderMenu({ signedIn: false, user: undefined, checking: true })
+    expect(screen.queryByRole('button', { name: 'Sign in to Fabric' })).toBeNull()
+    const pending = screen.getByRole('button', { name: 'Account: checking sign-in' })
+    expect(pending.title).toBe('Checking your Microsoft Fabric sign-in…')
+    fireEvent.click(pending)
+    expect(screen.getByText('Checking your Fabric sign-in…')).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Refresh Fabric authentication' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: 'Sign out' })).toBeNull()
+    await frame()
+    fireEvent.click(item('Manage accounts…'))
+    expect(props.onManageAccounts).toHaveBeenCalledTimes(1)
   })
 })

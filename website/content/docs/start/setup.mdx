@@ -1,9 +1,9 @@
 ---
 title: "Set up and sign in"
-description: "Use Fabricator setup to check tools, sign in to Copilot and Azure CLI, and enter the app."
+description: "Use Fabricator setup the first time you open it: check tools, sign in to GitHub Copilot and the Azure CLI, and enter the app."
 ---
 
-Setup prepares your computer for Fabricator. Complete the required tool checks, sign in to the two required accounts, then choose **Enter Fabricator**.
+Setup prepares your computer for Fabricator the first time you open it. Complete the required tool checks, sign in to the two required accounts, then choose **Enter Fabricator**. If everything is already in place, Fabricator skips setup and opens straight to Home. After that, Fabricator opens straight to your work.
 
 ![The setup screen with all five tools installed and both GitHub Copilot and the Azure CLI connected, ready to enter Fabricator.](/screenshots/setup.webp)
 
@@ -41,22 +41,32 @@ Choose **Sign in**, then finish the browser or device-code instructions shown by
 
 ### Azure CLI
 
-Azure CLI sign-in lets Fabricator verify your Azure account. Choose **Sign in**, then complete `az login` in the browser. The Azure CLI row stays disabled until the Azure CLI tool check passes.
+Azure CLI sign-in lets Fabricator find people when you share an app, connect Fabric data, and set up team workspaces. Choose **Sign in**, then complete `az login` in the browser. The Azure CLI row stays disabled until the Azure CLI tool check passes.
 
 ## What each account is for
 
 - GitHub Copilot writes code, edits files, and answers chat prompts.
-- Azure CLI verifies Azure account access during setup.
+- The Azure CLI finds people to share with, connects Fabric data, and sets up team workspaces.
 - Fabric sign-in is separate. Fabricator asks you to **Sign in to Fabric** later when it needs the project's Rayfin CLI to list workspaces, deploy, share, or refresh Fabric credentials.
+
+You can see and change all of these later, including adding more Fabric and Azure CLI accounts. See [Manage your accounts](/docs/start/accounts).
 
 ## Sign out and re-check
 
-When an account is signed in, its row offers **Sign out**. Copilot sign-out removes the current Copilot account from the bundled engine. Azure sign-out runs `az logout` and verifies that Azure has no signed-in accounts left.
+When an account is signed in, its row offers **Sign out**. Copilot sign-out removes the current Copilot account from the bundled engine. Azure sign-out runs `az logout` for the account in use and verifies that it's gone. Any other accounts the Azure CLI is signed in to stay signed in, and one of them becomes the one in use.
 
 After signing out, installing a tool, or changing account state, choose **Re-check**.
 
 ## Enter Fabricator
 
 When required tools are installed and both setup accounts are verified, setup says **All checks passed** and enables **Enter Fabricator**. Choose it to open Home.
+
+## Later launches
+
+Once setup has passed, Fabricator opens straight to your work and checks your tools and accounts in the background. Until the check finishes, the account control in the app bar shows a spinner instead of **Sign in to Fabric**.
+
+If the check finds a problem, a bar under the app bar says what it is, for example "Not signed in to GitHub Copilot." Select **Manage accounts** to sign in, or **Review setup** to fix a missing tool. The bar doesn't stop you working; close it with its ✕ button.
+
+To open setup yourself, open **Settings** and select **Open setup**. Until every check passes, setup offers **Back to Fabricator** to return without finishing.
 
 If setup does not pass, see [Setup and sign-in troubleshooting](/docs/troubleshooting/setup-and-sign-in).

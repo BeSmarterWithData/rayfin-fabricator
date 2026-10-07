@@ -18,7 +18,7 @@ use crate::services::exec::{self, OnData, RunOptions};
 use crate::services::store;
 use crate::services::telemetry::{self, TelemetryIdentity};
 use crate::state::AppState;
-use crate::types::{AuthStatus, AzAuthStatus, CopilotAuthStatus, ProcResult, RayfinAuthStatus};
+use crate::types::{AuthCheck, AuthStatus, AzAuthStatus, CopilotAuthStatus, ProcResult, RayfinAuthStatus};
 
 /// Last-known signed-in identity, cached so telemetry can attach a stable hashed
 /// user without re-spawning the CLI.
@@ -26,12 +26,19 @@ static CACHED_IDENTITY: Lazy<Mutex<Option<TelemetryIdentity>>> = Lazy::new(|| Mu
 /// Guard so the "active at startup" signin event fires at most once per process.
 static STARTUP_SIGNIN_SENT: AtomicBool = AtomicBool::new(false);
 static COPILOT_AUTH_ACTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-static RAYFIN_AUTH_ACTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One Fabric sign-in, sign-out, refresh or account change at a time.
+pub(crate) static RAYFIN_AUTH_ACTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 static RAYFIN_AUTH_USE: tokio::sync::RwLock<()> = tokio::sync::RwLock::const_new(());
-static AZ_AUTH_ACTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// One Azure CLI sign-in, sign-out or account change at a time.
+pub(crate) static AZ_AUTH_ACTION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 fn set_identity(identity: Option<TelemetryIdentity>) {
   *CACHED_IDENTITY.lock().unwrap() = identity;
+}
+
+/// Drop the cached Fabric identity after the account in use changed.
+pub(crate) fn forget_identity() {
+  set_identity(None);
 }
 
 fn cached_identity() -> Option<TelemetryIdentity> {
@@ -53,35 +60,104 @@ pub(crate) async fn rayfin_auth_read() -> tokio::sync::RwLockReadGuard<'static, 
   RAYFIN_AUTH_USE.read().await
 }
 
-fn rayfin_project_dir(project_id: Option<&str>) -> Result<Option<PathBuf>, String> {
-  let project = match project_id {
-    Some(id) => Some(store::find_project(id).ok_or_else(|| "Project not found.".to_string())?),
-    None => store::active_project(),
-  };
-  Ok(project.map(|p| PathBuf::from(p.path)))
+/// Wait for running deploys and checks, then hold off new ones while the
+/// Fabric credentials (or the account in use) change.
+pub(crate) async fn rayfin_auth_write() -> tokio::sync::RwLockWriteGuard<'static, ()> {
+  RAYFIN_AUTH_USE.write().await
 }
 
-/// Run the Rayfin CLI for Fabric auth, preferring the selected project's
-/// locally-installed CLI (so no global install is required) and falling back to a
-/// global `rayfin` on PATH when there's no active project. The MSAL token cache is
-/// shared across installs, so either resolves the same signed-in session.
-async fn run_rayfin(project_dir: Option<&Path>, args: &[&str], opts: RunOptions) -> exec::RunResult {
+/// The project whose Rayfin CLI runs Fabric sign-in commands: the one asked
+/// for, else the open project, else any project with its CLI installed — so
+/// accounts can be managed from Home too.
+pub(crate) fn rayfin_project_dir(project_id: Option<&str>) -> Result<Option<PathBuf>, String> {
+  if let Some(id) = project_id {
+    let project = store::find_project(id).ok_or_else(|| "Project not found.".to_string())?;
+    return Ok(Some(PathBuf::from(project.path)));
+  }
+  Ok(store::active_project().map(|p| PathBuf::from(p.path)).or_else(installed_project_dir))
+}
+
+fn installed_project_dir() -> Option<PathBuf> {
+  store::get_state()
+    .projects
+    .into_iter()
+    .map(|p| PathBuf::from(p.path))
+    .find(|dir| exec::project_rayfin_cli_installed(dir))
+}
+
+/// Run the Rayfin CLI for Fabric auth, preferring a project's locally-installed
+/// CLI (so no global install is required) and falling back to a global `rayfin`
+/// on PATH when there's no project. The token cache is shared across installs,
+/// so either resolves the same signed-in session.
+pub(crate) async fn run_rayfin(project_dir: Option<&Path>, args: &[&str], opts: RunOptions) -> exec::RunResult {
   match project_dir {
     Some(dir) => exec::run_project_rayfin(dir, args, opts).await,
     None => exec::run("rayfin", args, opts).await,
   }
 }
 
+/// Rayfin's environment-override variables (an alternate Fabric environment).
+/// The CLI loads them from a project's `rayfin/.env` along with the rest of it.
+const RAYFIN_ENV_CONFIG_VARS: [&str; 5] = [
+  "RAYFIN_AUTHORITY_HOST",
+  "RAYFIN_CLIENT_ID",
+  "RAYFIN_FABRIC_SCOPE",
+  "RAYFIN_FABRIC_API_URL",
+  "RAYFIN_FABRIC_PORTAL_URL",
+];
+
+/// Options for an account command (`login`, `login status`, `logout`) run with
+/// a project's CLI. They run outside the project: at startup the CLI reads the
+/// project's `rayfin.yml`, so an app setting it can't resolve — a variable the
+/// file references that isn't set — would otherwise stop you signing in at all.
+/// The project's Fabric environment overrides in `rayfin/.env` still apply.
+pub(crate) fn account_command_options(project_dir: Option<&Path>, mut opts: RunOptions) -> RunOptions {
+  opts.cwd = Some(std::env::temp_dir());
+  if let Some(text) = project_dir.and_then(|dir| std::fs::read_to_string(dir.join("rayfin").join(".env")).ok()) {
+    for (key, value) in env_overrides(&text) {
+      // The shell wins over the file, as in the CLI.
+      if std::env::var_os(&key).is_none() && !opts.env.iter().any(|(k, _)| *k == key) {
+        opts.env.push((key, value));
+      }
+    }
+  }
+  opts
+}
+
+/// Rayfin's environment overrides set in a `.env` file's text.
+fn env_overrides(text: &str) -> Vec<(String, String)> {
+  text
+    .lines()
+    .filter_map(|line| {
+      let line = line.trim();
+      let (key, value) = line.strip_prefix("export ").unwrap_or(line).split_once('=')?;
+      let key = key.trim();
+      if !RAYFIN_ENV_CONFIG_VARS.contains(&key) {
+        return None;
+      }
+      let value = value.trim();
+      let unquoted = ['"', '\''].iter().find_map(|q| value.strip_prefix(*q).and_then(|v| v.strip_suffix(*q)));
+      let value = unquoted.unwrap_or_else(|| value.split(" #").next().unwrap_or(value).trim());
+      (!value.is_empty()).then(|| (key.to_string(), value.to_string()))
+    })
+    .collect()
+}
+
 /// Read the CLI identity, then verify its token against Fabric before reporting
 /// a connection. Cached `login status` output alone cannot prove access.
 pub async fn get_rayfin_auth() -> RayfinAuthStatus {
   let _guard = rayfin_auth_read().await;
-  let project_dir = store::active_project().map(|p| PathBuf::from(p.path));
+  let project_dir = rayfin_project_dir(None).ok().flatten();
   get_rayfin_auth_for(project_dir.as_deref()).await
 }
 
 async fn get_rayfin_auth_for(project_dir: Option<&Path>) -> RayfinAuthStatus {
-  let res = run_rayfin(project_dir, &["login", "status"], RunOptions::timeout(30_000)).await;
+  let res = run_rayfin(
+    project_dir,
+    &["login", "status"],
+    account_command_options(project_dir, RunOptions::timeout(30_000)),
+  )
+  .await;
   let text = format!("{}\n{}", res.stdout, res.stderr);
   let signed_in = res.ok && !NOT_SIGNED_IN_RE.is_match(&text) && SIGNED_IN_RE.is_match(&text);
   if !signed_in {
@@ -129,16 +205,22 @@ async fn get_rayfin_auth_for(project_dir: Option<&Path>) -> RayfinAuthStatus {
 ///
 /// `az account show` reads the on-disk profile and keeps reporting a signed-in
 /// account even after the refresh token has expired (AADSTS700082), so it can't
-/// be trusted on its own. We first probe `az account get-access-token`, which
-/// actually exercises the token, and only then read `az account show` for the
-/// display name + tenant.
+/// be trusted on its own: `az account get-access-token` must succeed too, since
+/// it actually exercises the token. `az account show` supplies the display name
+/// and tenant. Both are read-only, so they run together.
 pub async fn get_az_auth() -> AzAuthStatus {
-  let token = exec::run(
-    "az",
-    &["account", "get-access-token", "--output", "none"],
-    RunOptions::timeout(30_000),
-  )
-  .await;
+  let (token, show) = tokio::join!(
+    exec::run(
+      "az",
+      &["account", "get-access-token", "--output", "none"],
+      RunOptions::timeout(30_000),
+    ),
+    exec::run(
+      "az",
+      &["account", "show", "--output", "json"],
+      RunOptions::timeout(30_000),
+    ),
+  );
   if !token.ok {
     return AzAuthStatus {
       error: Some(cli_failure_detail(
@@ -149,27 +231,55 @@ pub async fn get_az_auth() -> AzAuthStatus {
       ..Default::default()
     };
   }
-
-  let show = exec::run(
-    "az",
-    &["account", "show", "--output", "json"],
-    RunOptions::timeout(30_000),
-  )
-  .await;
   parse_az_account(&show)
+}
+
+/// Verify the requested providers concurrently.
+async fn check_providers(
+  state: &AppState,
+  copilot: bool,
+  rayfin: bool,
+  az: bool,
+) -> (Option<CopilotAuthStatus>, Option<RayfinAuthStatus>, Option<AzAuthStatus>) {
+  let (copilot, rayfin, az) = tokio::join!(
+    async {
+      if copilot { Some(get_copilot_auth(state).await) } else { None }
+    },
+    async {
+      if rayfin { Some(get_rayfin_auth().await) } else { None }
+    },
+    async {
+      if az { Some(get_az_auth().await) } else { None }
+    },
+  );
+  if rayfin.as_ref().is_some_and(|r| r.signed_in) && !STARTUP_SIGNIN_SENT.swap(true, Ordering::SeqCst) {
+    telemetry::track_signin(cached_identity().as_ref(), "startup");
+  }
+  (copilot, rayfin, az)
 }
 
 #[tauri::command]
 pub async fn auth_status(state: State<'_, AppState>) -> Result<AuthStatus, String> {
-  let (copilot, rayfin, az) = tokio::join!(
-    get_copilot_auth(state.inner()),
-    get_rayfin_auth(),
-    get_az_auth(),
-  );
-  if rayfin.signed_in && !STARTUP_SIGNIN_SENT.swap(true, Ordering::SeqCst) {
-    telemetry::track_signin(cached_identity().as_ref(), "startup");
+  let (copilot, rayfin, az) = check_providers(state.inner(), true, true, true).await;
+  Ok(AuthStatus {
+    copilot: copilot.unwrap_or_default(),
+    rayfin: rayfin.unwrap_or_default(),
+    az: az.unwrap_or_default(),
+  })
+}
+
+/// Verify only `providers` (`copilot`, `rayfin`, `az`), so the renderer can show
+/// each result as it arrives instead of waiting for the slowest check (the
+/// Fabric check runs a project's Rayfin CLI and calls Fabric).
+#[tauri::command]
+pub async fn auth_check(state: State<'_, AppState>, providers: Vec<String>) -> Result<AuthCheck, String> {
+  if let Some(unknown) = providers.iter().find(|p| !matches!(p.as_str(), "copilot" | "rayfin" | "az")) {
+    return Err(format!("Unknown sign-in provider: {unknown}."));
   }
-  Ok(AuthStatus { copilot, rayfin, az })
+  let wants = |name: &str| providers.iter().any(|p| p == name);
+  let (copilot, rayfin, az) =
+    check_providers(state.inner(), wants("copilot"), wants("rayfin"), wants("az")).await;
+  Ok(AuthCheck { copilot, rayfin, az })
 }
 
 #[tauri::command]
@@ -314,12 +424,12 @@ pub async fn auth_logout_copilot(app: AppHandle, state: State<'_, AppState>) -> 
   })
 }
 
-fn auth_failure(context: &str, exit_code: Option<i32>, error: String) -> ProcResult {
+pub(crate) fn auth_failure(context: &str, exit_code: Option<i32>, error: String) -> ProcResult {
   crashlog::log_error(context, &one_line(&error));
   ProcResult { ok: false, exit_code, error: Some(error) }
 }
 
-fn verified_login(
+pub(crate) fn verified_login(
   context: &str,
   provider: &str,
   res: &exec::RunResult,
@@ -351,16 +461,46 @@ fn login_verification_result(
   }
 }
 
-fn cli_failure_detail(res: &exec::RunResult, action: &str, hint: &str) -> String {
-  let detail = res.stderr.lines().rev().map(str::trim).find(|line| !line.is_empty())
-    .or_else(|| res.stdout.lines().rev().map(str::trim).find(|line| {
-      let lower = line.to_ascii_lowercase();
-      lower.contains("error") || lower.contains("failed")
-    }));
+/// The last message a CLI printed in `text`: its last top-level line that
+/// reports a failure (or, unless `failures_only`, its last top-level line),
+/// joined with the indented lines that continue it. The Rayfin CLI prints
+/// two-line errors like
+///
+/// ```text
+/// Environment variable 'X' referenced in rayfin.yml (…) is not defined.
+///    Set it in rayfin/.env or shell environment.
+/// ```
+///
+/// and the first line, which says what's wrong, must not be lost. Stack frames
+/// (`at …`) are never part of a message.
+fn cli_message(text: &str, failures_only: bool) -> Option<String> {
+  let lines: Vec<&str> = text.lines().map(str::trim_end).filter(|l| !l.trim().is_empty()).collect();
+  let indented = |l: &str| l.starts_with(char::is_whitespace);
+  let frame = |l: &str| l.trim_start().starts_with("at ");
+  let reports_failure = |l: &str| {
+    let low = l.to_lowercase();
+    l.trim_start().starts_with('❌') || low.contains("failed") || low.contains("error")
+  };
+  let heads: Vec<usize> = (0..lines.len()).filter(|&i| !indented(lines[i]) && !frame(lines[i])).collect();
+  let start = match heads.iter().rev().find(|&&i| reports_failure(lines[i])) {
+    Some(&i) => i,
+    None if failures_only => return None,
+    None => *heads.last()?,
+  };
+  let mut message = lines[start].trim().to_string();
+  for line in lines[start + 1..].iter().take_while(|l| indented(l) && !frame(l)) {
+    message.push(' ');
+    message.push_str(line.trim());
+  }
+  Some(message.chars().take(500).collect())
+}
+
+pub(crate) fn cli_failure_detail(res: &exec::RunResult, action: &str, hint: &str) -> String {
+  let detail = cli_message(&res.stderr, false).or_else(|| cli_message(&res.stdout, true));
   let reason = if res.not_found {
     "The required CLI could not be found.".to_string()
   } else if let Some(detail) = detail {
-    detail.chars().take(500).collect()
+    detail
   } else if let Some(code) = res.exit_code {
     format!("The CLI exited with code {code}.")
   } else {
@@ -382,7 +522,8 @@ fn parse_az_account(res: &exec::RunResult) -> AzAuthStatus {
       v.as_str().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
     };
     if let (Some(user), Some(tenant)) = (nonempty(&account["user"]["name"]), nonempty(&account["tenantId"])) {
-      return AzAuthStatus { signed_in: true, user: Some(user), tenant: Some(tenant), error: None };
+      let tenant_name = nonempty(&account["tenantDisplayName"]).or_else(|| nonempty(&account["tenantDefaultDomain"]));
+      return AzAuthStatus { signed_in: true, user: Some(user), tenant: Some(tenant), tenant_name, error: None };
     }
   }
   log::warn!("Azure account check returned an invalid or incomplete profile");
@@ -416,24 +557,12 @@ fn login_failure_detail(res: &exec::RunResult) -> String {
     return "The Rayfin CLI could not be found. Open the project so its dependencies install (or install Node.js and the Rayfin CLI), then try signing in again."
       .to_string();
   }
-  let pick = |text: &str| -> Option<String> {
-    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
-    // Prefer an explicit failure/error line (the CLI logs `❌ Login failed: …`
-    // last), else the final non-empty line.
-    lines
-      .iter()
-      .rev()
-      .find(|l| {
-        let low = l.to_lowercase();
-        low.contains("login failed") || low.contains("failed") || low.contains("error")
-      })
-      .or_else(|| lines.last())
-      .map(|l| l.chars().take(500).collect::<String>())
-  };
-  if let Some(msg) = pick(&res.stderr).filter(|m| !m.is_empty()) {
+  // Prefer the CLI's failure message (it logs `❌ Login failed: …` last), with
+  // the lines that continue it; else its last message.
+  if let Some(msg) = cli_message(&res.stderr, false) {
     return msg;
   }
-  if let Some(msg) = pick(&res.stdout).filter(|m| !m.is_empty()) {
+  if let Some(msg) = cli_message(&res.stdout, false) {
     return msg;
   }
   match res.exit_code {
@@ -459,7 +588,7 @@ pub async fn auth_login_rayfin(app: AppHandle, tenant: Option<String>, project_i
   login_rayfin(project_dir.as_deref(), tenant, on_data).await
 }
 
-async fn login_rayfin(project_dir: Option<&Path>, tenant: Option<String>, on_data: OnData) -> ProcResult {
+pub(crate) async fn login_rayfin(project_dir: Option<&Path>, tenant: Option<String>, on_data: OnData) -> ProcResult {
   on_data(exec::Stream::Stdout, "Starting Fabric / Rayfin sign-in…\n");
   let mut args: Vec<String> = vec!["login".into(), "--select".into()];
   let tenant_label = tenant
@@ -475,11 +604,14 @@ async fn login_rayfin(project_dir: Option<&Path>, tenant: Option<String>, on_dat
   let res = run_rayfin(
     project_dir,
     &arg_refs,
-    RunOptions {
-      on_data: Some(on_data.clone()),
-      timeout_ms: Some(5 * 60_000),
-      ..Default::default()
-    },
+    account_command_options(
+      project_dir,
+      RunOptions {
+        on_data: Some(on_data.clone()),
+        timeout_ms: Some(5 * 60_000),
+        ..Default::default()
+      },
+    ),
   )
   .await;
   if res.ok {
@@ -543,11 +675,14 @@ async fn refresh_rayfin(project_dir: &Path, tenant: Option<String>, on_data: OnD
   let res = run_rayfin(
     Some(project_dir),
     &["logout"],
-    RunOptions {
-      on_data: Some(on_data.clone()),
-      timeout_ms: Some(60_000),
-      ..Default::default()
-    },
+    account_command_options(
+      Some(project_dir),
+      RunOptions {
+        on_data: Some(on_data.clone()),
+        timeout_ms: Some(60_000),
+        ..Default::default()
+      },
+    ),
   )
   .await;
   if !res.ok {
@@ -563,118 +698,44 @@ async fn refresh_rayfin(project_dir: &Path, tenant: Option<String>, on_data: OnD
   login_rayfin(Some(project_dir), tenant, on_data).await
 }
 
+/// Sign in to Azure. The Azure CLI keeps the accounts it was already signed in
+/// to; the one just signed in becomes current. `tenant` (an id or domain) picks
+/// the organization, e.g. one you're a guest in.
 #[tauri::command]
-pub async fn auth_login_az(app: AppHandle) -> ProcResult {
+pub async fn auth_login_az(app: AppHandle, tenant: Option<String>) -> ProcResult {
   let Ok(_guard) = AZ_AUTH_ACTION.try_lock() else {
-    return auth_failure("azure-login", None, "An Azure sign-in or sign-out is already in progress.".into());
+    return auth_failure("azure-login", None, "An Azure sign-in, sign-out, or account change is already in progress.".into());
+  };
+  let tenant = match crate::commands::accounts::checked_tenant(tenant) {
+    Ok(tenant) => tenant,
+    Err(error) => return auth_failure("azure-login", None, error),
   };
   let on_data = proc_streamer(&app, "login:az");
-  on_data(exec::Stream::Stdout, "Starting Azure sign-in…\n");
-  let res = exec::run(
-    "az",
-    &["login"],
-    RunOptions {
-      on_data: Some(on_data),
-      timeout_ms: Some(5 * 60_000),
-      ..Default::default()
-    },
-  )
-  .await;
-  if !res.ok {
-    return auth_failure(
-      "azure-login",
-      res.exit_code,
-      cli_failure_detail(&res, "Azure sign-in", "Complete the browser sign-in and try again."),
-    );
-  }
-  let auth = get_az_auth().await;
-  verified_login("azure-login", "Azure", &res, auth.signed_in, auth.error)
+  crate::commands::accounts::login_az(on_data, tenant.as_deref()).await
 }
 
+/// Sign the Azure CLI's current account out; any other accounts stay signed in
+/// and one of them becomes current.
 #[tauri::command]
 pub async fn auth_logout_az(app: AppHandle) -> ProcResult {
   let Ok(_guard) = AZ_AUTH_ACTION.try_lock() else {
-    return auth_failure("azure-logout", None, "An Azure sign-in or sign-out is already in progress.".into());
+    return auth_failure("azure-logout", None, "An Azure sign-in, sign-out, or account change is already in progress.".into());
   };
   let on_data = proc_streamer(&app, "logout:az");
-  on_data(exec::Stream::Stdout, "Signing out of Azure...\n");
-  let res = exec::run(
-    "az",
-    &["logout"],
-    RunOptions {
-      on_data: Some(on_data.clone()),
-      timeout_ms: Some(60_000),
-      ..Default::default()
-    },
-  )
-  .await;
-  if !res.ok {
-    return auth_failure(
-      "azure-logout",
-      res.exit_code,
-      cli_failure_detail(&res, "Azure sign-out", "Try signing out again."),
-    );
-  }
-  let accounts = exec::run(
-    "az",
-    &["account", "list", "--output", "json"],
-    RunOptions::timeout(30_000),
-  )
-  .await;
-  if let Err(error) = verify_azure_signed_out(&accounts) {
-    return auth_failure("azure-logout", res.exit_code, error);
-  }
-  on_data(exec::Stream::Stdout, "Signed out of Azure.\n");
-  ProcResult { ok: true, exit_code: res.exit_code, error: None }
+  crate::commands::accounts::sign_out_azure(on_data, None).await
 }
 
-fn verify_azure_signed_out(accounts: &exec::RunResult) -> Result<(), String> {
-  if !accounts.ok {
-    return Err(cli_failure_detail(
-      accounts,
-      "Azure sign-out verification",
-      "Re-check your account status or try signing out again.",
-    ));
-  }
-  let accounts: Vec<serde_json::Value> = serde_json::from_str(&accounts.stdout)
-    .map_err(|_| "Azure returned an invalid account list after sign-out. Re-check your account status.".to_string())?;
-  if !accounts.is_empty() {
-    return Err("Azure still has signed-in accounts. Try signing out again.".into());
-  }
-  Ok(())
-}
-
+/// Sign the Fabric account in use out; when another account is signed in here,
+/// Fabricator switches to it.
 #[tauri::command]
 pub async fn auth_logout_rayfin(app: AppHandle) -> ProcResult {
   let Ok(_guard) = RAYFIN_AUTH_ACTION.try_lock() else {
     return auth_failure("fabric-logout", None, "A Fabric sign-in, sign-out, or credential refresh is already in progress.".into());
   };
-  let project_dir = store::active_project().map(|p| PathBuf::from(p.path));
   let on_data = proc_streamer(&app, "logout:rayfin");
   let _access = RAYFIN_AUTH_USE.write().await;
-  let res = run_rayfin(
-    project_dir.as_deref(),
-    &["logout"],
-    RunOptions {
-      on_data: Some(on_data),
-      timeout_ms: Some(60_000),
-      ..Default::default()
-    },
-  )
-  .await;
-  if !res.ok {
-    return auth_failure(
-      "fabric-logout",
-      res.exit_code,
-      cli_failure_detail(&res, "Fabric sign-out", "Try signing out again."),
-    );
-  }
-  set_identity(None);
-  ProcResult {
-    ok: true,
-    exit_code: res.exit_code,
-    error: None,
-  }
+  let active = crate::services::fabric_accounts::active_id();
+  crate::commands::accounts::sign_out_fabric(&active, None, on_data).await
 }
 
 /// The most recently resolved signed-in identity (used by deploy telemetry).
@@ -697,9 +758,12 @@ mod tests {
       std::fs::write(cli.join("dist").join("auth").join("index.js"), "").unwrap();
       std::fs::write(cli.join("scripts").join("main.js"), r#"
 const fs = require('node:fs');
+const path = require('node:path');
+const root = path.resolve(__dirname, '..', '..', '..', '..');
 const args = process.argv.slice(2);
-const config = JSON.parse(fs.readFileSync('fixture.json', 'utf8'));
-fs.appendFileSync('calls.jsonl', JSON.stringify(args) + '\n');
+const config = JSON.parse(fs.readFileSync(path.join(root, 'fixture.json'), 'utf8'));
+fs.appendFileSync(path.join(root, 'calls.jsonl'), JSON.stringify(args) + '\n');
+fs.appendFileSync(path.join(root, 'cwds.txt'), process.cwd() + '\n');
 if (args[0] === 'logout') {
   if (config.logoutExit) console.error('Error: token-cache lock is still held by a live process');
   else console.warn('Removed a stale token-cache lock left by an interrupted sign-in');
@@ -767,6 +831,30 @@ process.exit(config.loginExit);
     assert!(!result.ok);
     assert!(result.error.unwrap().contains("authentication could not be verified"));
     assert_eq!(fixture.calls(), vec![vec!["logout"], vec!["login", "--select"], vec!["login", "status"]]);
+    // Account commands never run inside the project, where the CLI would first
+    // parse its rayfin.yml.
+    let cwds = std::fs::read_to_string(fixture.0.join("cwds.txt")).unwrap();
+    assert_eq!(cwds.lines().count(), 3);
+    assert!(cwds.lines().all(|cwd| !Path::new(cwd).starts_with(&fixture.0)), "{cwds}");
+  }
+
+  #[test]
+  fn account_commands_keep_the_projects_fabric_environment_overrides() {
+    let env = "RAYFIN_PUBLIC_API_URL=https://app.example\n\
+      RAYFIN_FABRIC_API_URL=\"https://api.example\"\n\
+      # RAYFIN_CLIENT_ID=commented-out\n\
+      export RAYFIN_FABRIC_PORTAL_URL=https://portal.example # the portal\n\
+      RAYFIN_AUTHORITY_HOST='https://login.example'\n\
+      RAYFIN_FABRIC_SCOPE=\n\
+      MISSION_CONTROL_TELEMETRY_ITEM_ID=item\n";
+    assert_eq!(
+      env_overrides(env),
+      vec![
+        ("RAYFIN_FABRIC_API_URL".to_string(), "https://api.example".to_string()),
+        ("RAYFIN_FABRIC_PORTAL_URL".to_string(), "https://portal.example".to_string()),
+        ("RAYFIN_AUTHORITY_HOST".to_string(), "https://login.example".to_string()),
+      ]
+    );
   }
 
   fn res(exit_code: Option<i32>, not_found: bool, stdout: &str, stderr: &str) -> exec::RunResult {
@@ -825,20 +913,6 @@ process.exit(config.loginExit);
   }
 
   #[test]
-  fn azure_logout_requires_a_successful_empty_account_list() {
-    let mut empty = res(Some(0), false, "[]", "");
-    assert!(verify_azure_signed_out(&empty).is_err());
-    empty.ok = true;
-    assert!(verify_azure_signed_out(&empty).is_ok());
-    for stdout in ["", "not json", "{}", "null", r#"[{"user":{"name":"still-signed-in"}}]"#] {
-      let mut result = res(Some(0), false, stdout, "");
-      result.ok = true;
-      assert!(verify_azure_signed_out(&result).is_err(), "{stdout}");
-    }
-    assert!(verify_azure_signed_out(&res(None, false, "", "")).unwrap_err().contains("timed out"));
-  }
-
-  #[test]
   fn azure_account_requires_a_successful_complete_profile() {
     let valid = r#"{"user":{"name":"signed-in-user"},"tenantId":"tenant"}"#;
     assert!(!parse_az_account(&res(Some(1), false, valid, "Profile unavailable")).signed_in);
@@ -855,6 +929,16 @@ process.exit(config.loginExit);
     assert!(status.signed_in);
     assert_eq!(status.user.as_deref(), Some("signed-in-user"));
     assert_eq!(status.tenant.as_deref(), Some("tenant"));
+    assert_eq!(status.tenant_name, None);
+
+    for (profile, name) in [
+      (r#"{"user":{"name":"u"},"tenantId":"t","tenantDisplayName":"Contoso","tenantDefaultDomain":"contoso.com"}"#, "Contoso"),
+      (r#"{"user":{"name":"u"},"tenantId":"t","tenantDisplayName":" ","tenantDefaultDomain":"contoso.com"}"#, "contoso.com"),
+    ] {
+      let mut result = res(Some(0), false, profile, "");
+      result.ok = true;
+      assert_eq!(parse_az_account(&result).tenant_name.as_deref(), Some(name), "{profile}");
+    }
   }
 
   #[test]
@@ -895,6 +979,28 @@ process.exit(config.loginExit);
     let detail = login_failure_detail(&r);
     assert!(detail.contains("Login failed"), "got: {detail}");
     assert!(detail.contains("AADSTS50020"), "got: {detail}");
+  }
+
+  #[test]
+  fn failure_details_keep_the_line_that_says_what_is_wrong() {
+    // Real Rayfin CLI output when a project's rayfin.yml references an unset variable.
+    let config_error = "Environment variable 'MISSION_CONTROL_TELEMETRY_WORKSPACE_ID' referenced in rayfin.yml (connectors[0].config.workspaceId) is not defined.\n   Set it in rayfin/.env or shell environment.\n";
+    let expected = "Environment variable 'MISSION_CONTROL_TELEMETRY_WORKSPACE_ID' referenced in rayfin.yml (connectors[0].config.workspaceId) is not defined. Set it in rayfin/.env or shell environment.";
+    assert_eq!(login_failure_detail(&res(Some(1), false, "", config_error)), expected);
+    assert!(cli_failure_detail(&res(Some(1), false, "", config_error), "Fabric authentication check", "Retry.")
+      .contains(expected));
+
+    // An uncaught exception: the error and its continuation, without code or stack frames.
+    let crash = "file:///C:/x/interpolation.js:40\n        throw new Error(`Environment variable ${varName}`);\n              ^\n\nError: Environment variable 'X' referenced in rayfin.yml (a.b) is not defined.\n   Set it in rayfin/.env or shell environment.\n    at file:///C:/x/interpolation.js:40:15\n    at String.replace (<anonymous>)\n\nNode.js v24.14.1\n";
+    assert_eq!(
+      login_failure_detail(&res(Some(1), false, "", crash)),
+      "Error: Environment variable 'X' referenced in rayfin.yml (a.b) is not defined. Set it in rayfin/.env or shell environment."
+    );
+
+    // The Azure CLI's expired sign-in names its cause first, not the command to run.
+    let az = "ERROR: AADSTS700082: The refresh token has expired due to inactivity.\nTrace ID: 1\nTo re-authenticate, please run:\naz login --scope https://graph.microsoft.com//.default\n";
+    assert!(cli_failure_detail(&res(Some(1), false, "", az), "Azure authentication check", "Sign in again.")
+      .contains("AADSTS700082"));
   }
 
   #[test]

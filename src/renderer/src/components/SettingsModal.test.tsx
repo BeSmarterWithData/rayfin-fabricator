@@ -68,6 +68,26 @@ afterEach(() => {
   delete (window as unknown as { api?: unknown }).api
 })
 
+describe('SettingsModal accounts and setup', () => {
+  it('opens Accounts and setup when the workbench offers them', async () => {
+    installApi()
+    const onManageAccounts = vi.fn()
+    const onReviewSetup = vi.fn()
+    await renderModal({ onManageAccounts, onReviewSetup })
+    fireEvent.click(screen.getByRole('button', { name: 'Manage accounts' }))
+    expect(onManageAccounts).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Open setup' }))
+    expect(onReviewSetup).toHaveBeenCalledTimes(1)
+  })
+
+  it('hides them otherwise', async () => {
+    installApi()
+    await renderModal()
+    expect(screen.queryByRole('button', { name: 'Manage accounts' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Open setup' })).toBeNull()
+  })
+})
+
 describe('SettingsModal diagnostics', () => {
   it('renders the Full diagnostics toggle plus Export and Open-logs buttons', async () => {
     installApi()

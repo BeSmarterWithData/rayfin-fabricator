@@ -186,9 +186,20 @@ code {
    the view tabs (centred) and the deploy + account cluster. It is its own query
    container so the bar sheds secondary text as it narrows (see the tiers below).
    It deliberately creates no stacking context: its popovers (z-index 30) share
-   the root layer with the workbench's own overlays, as the old header's did. */
+   the root layer with the workbench's own overlays, as the old header's did.
+   Every control on it shares the --bar-* metrics below (team.css reads them too),
+   so the switcher, tabs, deploy/publish groups and icon buttons line up as one set.
+   Codicon sizes need two-class selectors: codicon.css's own 16px rule outranks
+   a single class. */
 .app-bar {
   container: appbar / inline-size;
+  --bar-h: 30px;
+  --bar-radius: 8px;
+  --bar-font: 12.5px;
+  /* Icons beside a label, alone on a button, and menu carets. */
+  --bar-ico: 14px;
+  --bar-ico-lg: 16px;
+  --bar-caret: 12px;
   padding: 6px 12px;
   background: var(--bg-elev);
   border-bottom: 1px solid var(--border);
@@ -201,7 +212,7 @@ code {
   grid-template-columns: minmax(0, 1fr) auto 1fr;
   align-items: center;
   gap: 12px;
-  min-height: 32px;
+  min-height: var(--bar-h);
 }
 
 .app-bar-start,
@@ -224,6 +235,56 @@ code {
   justify-content: center;
 }
 
+/* App-wide controls (Settings, account), set off from the project's own by a
+   hairline when there are any. */
+.app-bar-global {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.app-bar-end > * + .app-bar-global {
+  margin-left: 4px;
+}
+
+.app-bar-end > * + .app-bar-global::before {
+  content: '';
+  width: 1px;
+  height: 18px;
+  margin-right: 6px;
+  background: var(--border);
+}
+
+/* Icon-only bar buttons (Settings, Workspace overview): quiet until hovered. */
+.app-bar-icon {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--bar-h);
+  height: var(--bar-h);
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--bar-radius);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition:
+    color 0.12s ease,
+    background 0.12s ease,
+    border-color 0.12s ease;
+}
+
+.app-bar-icon:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+}
+
+.app-bar-icon .codicon[class*='codicon-'] {
+  font-size: var(--bar-ico-lg);
+}
+
 /* The project's identity is the switcher: initial + name + unfold caret. */
 .project-switcher {
   display: inline-flex;
@@ -231,10 +292,10 @@ code {
   gap: 8px;
   min-width: 0;
   max-width: 100%;
-  height: 32px;
-  padding: 0 8px 0 4px;
+  height: var(--bar-h);
+  padding: 0 8px 0 3px;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--bar-radius);
   background: transparent;
   color: var(--text);
   font: inherit;
@@ -258,11 +319,11 @@ code {
   display: grid;
   place-items: center;
   flex: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
   color: var(--accent);
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 650;
   user-select: none;
   background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev-2));
@@ -274,19 +335,19 @@ code {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13.5px;
-  font-weight: 650;
+  font-size: 13px;
+  font-weight: 600;
   line-height: 1.2;
 }
 
-.project-switcher-caret {
+.project-switcher .codicon.project-switcher-caret {
   flex: none;
-  font-size: 13px;
+  font-size: var(--bar-caret);
   color: var(--text-faint);
   transition: color 0.15s ease;
 }
 
-.project-switcher:hover .project-switcher-caret {
+.project-switcher:hover .codicon.project-switcher-caret {
   color: var(--text-dim);
 }
 
@@ -297,31 +358,29 @@ code {
   gap: 6px;
   min-width: 0;
   max-width: 100%;
-  height: 28px;
-  padding: 0 10px 0 8px;
+  height: var(--bar-h);
+  padding: 0 12px 0 9px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--bar-radius);
   background: var(--bg-elev-2);
   color: var(--text-dim);
   font: inherit;
-  font-size: 12px;
-  font-weight: 550;
+  font-size: var(--bar-font);
+  font-weight: 500;
   cursor: pointer;
   transition:
     background 0.15s ease,
-    color 0.15s ease,
-    border-color 0.15s ease;
+    color 0.15s ease;
 }
 
 .app-bar-back:hover {
   background: var(--bg-elev-3);
   color: var(--text);
-  border-color: var(--accent);
 }
 
-.app-bar-back .codicon {
+.app-bar-back .codicon[class*='codicon-'] {
   flex: none;
-  font-size: 14px;
+  font-size: var(--bar-ico);
 }
 
 .app-bar-back-label {
@@ -331,9 +390,10 @@ code {
   white-space: nowrap;
 }
 
-.app-bar-settings-icon {
-  width: 16px;
-  height: 16px;
+/* Grouped bar controls (deploy, sign-in): the bar's type size; their 28px
+   segments plus the group's border make the bar height. */
+.app-bar .seg--toolbar .seg-btn {
+  font-size: var(--bar-font);
 }
 
 /* The brand mark (inline SVG) — sizing comes from the class each call site passes. */
@@ -912,7 +972,7 @@ code {
 }
 
 .account-signin .account-signin-more .codicon {
-  font-size: 12px;
+  font-size: var(--bar-caret, 12px);
 }
 
 .account-pop {
@@ -2882,28 +2942,34 @@ code {
   text-overflow: ellipsis;
 }
 
-/* App-bar view tabs, sized to sit level with the bar's 28–32px controls. */
+/* App-bar view tabs: a recessed track the height of every other bar control. */
 .project-tabs {
   display: inline-flex;
   gap: 2px;
+  height: var(--bar-h, 30px);
   padding: 2px;
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--bar-radius, 8px);
 }
 
 .project-tab {
+  display: inline-flex;
+  align-items: center;
   border: none;
   background: transparent;
   color: var(--text-dim);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--bar-font, 12.5px);
   font-weight: 500;
-  line-height: 18px;
+  line-height: 1;
   white-space: nowrap;
-  padding: 4px 14px;
-  border-radius: 7px;
+  padding: 0 14px;
+  border-radius: calc(var(--bar-radius, 8px) - 2px);
   cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .project-tab:hover {
@@ -2913,6 +2979,12 @@ code {
 .project-tab--active {
   background: var(--bg-elev-2);
   color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Light theme: the track is the grey canvas, so the active tab lifts to white. */
+[data-theme='light'] .project-tab--active {
+  background: var(--bg-elev);
 }
 
 /* Open high/medium Advisor issues, on the Advisor tab. */
@@ -5489,20 +5561,21 @@ code {
   align-items: center;
   gap: 8px;
 }
-.dep-chip-prefix {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-dim);
-  margin-right: 1px;
+/* The chip names the current deployment; the cloud says what it is (the
+   "Deployment:" prefix stays for screen readers only). */
+.dep-select .codicon.dep-chip-ico {
+  font-size: var(--bar-ico, 14px);
 }
 .dep-chip-label {
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  color: var(--text);
 }
-.dep-chip-caret {
-  font-size: 9px;
+.dep-select .codicon.dep-chip-caret {
+  margin-left: -1px;
+  font-size: var(--bar-caret, 12px);
   color: var(--text-faint);
 }
 .dep-deploy {
@@ -5635,8 +5708,8 @@ code {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dep-share-btn .codicon {
-  font-size: 13px;
+.dep-share-btn .codicon[class*='codicon-'] {
+  font-size: var(--bar-ico, 14px);
 }
 /* Share pressed; the deployment it targets is still loading. */
 .seg--toolbar .dep-share-btn.is-busy,
@@ -5665,20 +5738,9 @@ code {
    Keyed to the bar's own width, so UI zoom counts too. Secondary text goes first
    — visually only (sr-only clipping), so accessible names keep it — while the
    project name simply truncates; below ~700px the tabs wrap to a second row. */
-@container appbar (max-width: 1180px) {
-  .app-bar .dep-chip-prefix {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-  }
-}
-
 @container appbar (max-width: 1000px) {
-  .app-bar .dep-share-label {
+  .app-bar .dep-share-label,
+  .app-bar .team-map-btn-label {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -5687,7 +5749,8 @@ code {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
   }
-  .app-bar .dep-share-btn {
+  .app-bar .dep-share-btn,
+  .app-bar .team-map-btn {
     width: 30px;
     padding: 0;
   }
@@ -5699,7 +5762,7 @@ code {
 /* Only reachable with UI zoom. */
 @container appbar (max-width: 860px) {
   .app-bar .project-tab {
-    padding: 4px 10px;
+    padding: 0 10px;
   }
 }
 
@@ -7415,48 +7478,119 @@ code {
   padding: 1px 7px;
 }
 
-/* Settings modal */
-.settings-row {
+/* Settings modal — grouped like the Accounts dialog: a quiet heading over a card
+   of rows, each row a setting's name and explanation with its control at the
+   end. Controls sit raised on the card (--set-raised). */
+.settings-modal {
+  --set-raised: var(--bg-elev-3);
+  max-width: 600px;
+}
+[data-theme='light'] .settings-modal {
+  --set-raised: var(--bg-elev);
+}
+.settings-body {
+  gap: 22px;
+  padding: 18px 20px 22px;
+}
+.set-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.set-section-title {
+  margin: 0 0 0 2px;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.set-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius);
+}
+.set-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 12px 14px;
+}
+.set-item + .set-item {
+  border-top: 1px solid var(--border);
+}
+.set-item--toggle {
+  cursor: pointer;
+}
+.set-item-text {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.set-item-title {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--text);
+}
+.set-item-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+.set-item-control {
+  flex: none;
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
-}
-.diagnostics-actions {
-  margin-left: auto;
-  display: inline-flex;
   gap: 8px;
-  flex: none;
 }
-.settings-path {
-  flex: 1;
+.set-card .btn {
+  background: var(--set-raised);
+}
+.set-card .btn .codicon.set-ext {
+  margin-right: -2px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+/* Segmented pickers (Theme, Text size), the height of the row's buttons. */
+.set-card .seg {
+  margin: 0;
+  padding: 2px;
+  border-radius: 8px;
+}
+.set-card .seg-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 12px;
+  border-radius: 6px;
+  line-height: 1;
+}
+.set-card .seg-btn--active {
+  background: var(--set-raised);
+  box-shadow: var(--shadow-sm);
+}
+/* The workspace folder, on its own line under its row. */
+.set-path {
+  flex: 1 0 100%;
   min-width: 0;
+  padding: 6px 10px;
+  font-family: var(--font-mono);
   font-size: 12px;
   color: var(--text-dim);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 9px;
+  border-radius: 7px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.set-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 2px 0;
-  cursor: pointer;
-}
-.set-row-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.set-row-label {
-  font-size: 13px;
-  color: var(--text);
 }
 .switch {
   position: relative;
@@ -7536,63 +7670,51 @@ code {
   color: var(--text-dim);
 }
 
-/* Collapsible section header (Experiments) — keeps risky toggles tucked away. */
-.settings-disclosure {
-  all: unset;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+/* Experiments: a card whose first row opens it (an expander), so risky toggles
+   stay tucked away while the section still reads like every other card. */
+.set-expander {
+  overflow: hidden;
+}
+.set-expander-head {
+  width: 100%;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
   cursor: pointer;
-  border-radius: 6px;
+  transition: background 0.12s ease;
 }
-.settings-disclosure:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
+.set-expander-head:hover {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
 }
-.settings-disclosure-caret {
+.set-expander-head:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: -2px;
+}
+.set-expander-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.set-expander-title .settings-beta {
+  margin-left: 0;
+}
+.set-expander-head .codicon.set-expander-caret {
+  flex: none;
   font-size: 14px;
   color: var(--text-faint);
   transition: transform 0.15s ease;
 }
-.settings-disclosure--open .settings-disclosure-caret {
-  transform: rotate(90deg);
+.set-expander--open .codicon.set-expander-caret {
+  transform: rotate(180deg);
 }
-/* Once open, the whole Experiments section becomes a bordered, tinted panel so
-   it's obvious which controls are experimental — the section now sits at the
-   very bottom of the list, just above the footer, and the container keeps its
-   toggles from blending into the plain settings rows above. Collapsed, it reads
-   as a plain header with no chrome. */
-.settings-experiments {
-  border: 1px solid transparent;
-  border-radius: 10px;
-  transition:
-    background 0.16s ease,
-    border-color 0.16s ease;
+.set-expander-body {
+  border-top: 1px solid var(--border);
+  animation: set-expander-in 160ms ease both;
 }
-.settings-experiments--open {
-  gap: 10px;
-  padding: 12px;
-  border-color: color-mix(in srgb, var(--accent) 24%, var(--border));
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-/* Center the Beta pill against the uppercase label (vertical-align is unreliable
-   next to all-caps text). */
-.settings-disclosure .field-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-.settings-disclosure .settings-beta {
-  margin-left: 0;
-}
-.settings-disclosure-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
-  animation: settings-disclosure-in 160ms ease both;
-}
-@keyframes settings-disclosure-in {
+@keyframes set-expander-in {
   from {
     opacity: 0;
     transform: translateY(-4px);
@@ -7601,24 +7723,6 @@ code {
     opacity: 1;
     transform: translateY(0);
   }
-}
-.settings-warn {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 11px;
-  border-radius: 8px;
-  font-size: 12px;
-  line-height: 1.45;
-  color: var(--text-dim);
-  background: color-mix(in srgb, var(--pending) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--pending) 34%, transparent);
-}
-.settings-warn .codicon {
-  flex-shrink: 0;
-  margin-top: 1px;
-  font-size: 14px;
-  color: var(--pending);
 }
 
 .field-input {
@@ -7776,26 +7880,6 @@ select.ws-input:disabled {
 .seg--toolbar .seg-btn--icon .btn-ico {
   width: 16px;
   height: 16px;
-}
-/* Small status dot rendered inside a segment (e.g. the deployment selector). */
-.seg-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-faint);
-  flex: none;
-}
-.seg-dot--set {
-  background: var(--accent);
-}
-.seg-dot--ok {
-  background: var(--ok);
-}
-.seg-dot--busy {
-  background: var(--pending);
-}
-.seg-dot--err {
-  background: var(--danger);
 }
 
 /* Community-template URL inputs */
@@ -11277,5 +11361,382 @@ select.ws-input:disabled {
   }
   .chat-plan-progress-fill {
     transition: none !important;
+  }
+}
+
+/* ----------------------------------------------------------------------- *
+ * Accounts: the app bar's checking state, the attention bar, the deploy
+ * identity line, and the Accounts dialog.
+ * ----------------------------------------------------------------------- */
+
+/* The account control while the launch's Fabric check runs: a neutral avatar. */
+.account-trigger--checking {
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-color: var(--border);
+}
+
+.account-trigger-dots {
+  width: 12px;
+  height: 12px;
+  border: 2px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: ws-spin 0.9s linear infinite;
+}
+
+/* What the launch's background check found, under the app bar. */
+.attention-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px -12px -6px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text);
+  background: color-mix(in srgb, var(--pending) 10%, var(--bg-elev));
+  border-top: 1px solid color-mix(in srgb, var(--pending) 35%, var(--border));
+}
+
+.attention-bar-ico {
+  flex: none;
+  color: var(--pending);
+}
+
+.attention-bar-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.attention-bar-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.attention-bar-close .codicon {
+  font-size: 12px;
+}
+
+/* Deployments popover: which Fabric account deploys. */
+.dep-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: var(--bg-elev);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+}
+
+.dep-account-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dep-account-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.dep-account-change {
+  flex: none;
+  font-size: 12px;
+}
+
+.alert--warn {
+  color: var(--text);
+  background: color-mix(in srgb, var(--pending) 12%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--pending) 45%, var(--border));
+}
+
+/* The Accounts dialog */
+.accounts-modal {
+  max-width: 620px;
+}
+
+.accounts-body {
+  gap: 12px;
+}
+
+.accounts-help {
+  margin-right: auto;
+}
+
+.accounts-lead {
+  margin: 0;
+}
+
+.acct-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  padding: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-soft);
+  background: var(--bg-elev-2);
+}
+
+.acct-card--ok {
+  border-color: color-mix(in srgb, var(--ok) 30%, var(--border));
+}
+
+.acct-card--error {
+  border-color: color-mix(in srgb, var(--pending) 40%, var(--border));
+}
+
+.acct-card-ico .codicon {
+  font-size: 20px;
+}
+
+.acct-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.acct-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.acct-card-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.acct-card-purpose {
+  margin: -4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.acct-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.acct-chip--ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 32%, var(--border));
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+
+.acct-chip--error {
+  color: var(--pending);
+  border-color: color-mix(in srgb, var(--pending) 40%, var(--border));
+  background: color-mix(in srgb, var(--pending) 10%, transparent);
+}
+
+.acct-chip-ico {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.6;
+}
+
+.acct-id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  min-width: 0;
+}
+
+.acct-id-primary {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.acct-id-secondary {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.acct-error {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--pending);
+  overflow-wrap: anywhere;
+}
+
+.acct-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.acct-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.acct-progress {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 9px 11px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.acct-code {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.acct-code-value {
+  font-family:
+    ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 1.5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--bg-elev-3);
+  border: 1px solid var(--border);
+  user-select: all;
+}
+
+.acct-details {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.acct-details summary {
+  cursor: pointer;
+}
+
+.acct-details pre {
+  margin: 6px 0 0;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+.acct-github-ico {
+  font-size: 20px;
+}
+
+.acct-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.acct-list-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.acct-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.acct-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border-soft);
+  background: var(--bg-elev);
+}
+
+.acct-row-name {
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.acct-row-meta {
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.acct-row-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.acct-add {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+
+.acct-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.acct-badge--warn {
+  color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 14%, transparent);
+}
+
+.acct-confirm {
+  font-size: 12px;
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .account-trigger-dots {
+    animation: none;
   }
 }

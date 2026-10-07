@@ -127,15 +127,25 @@ interface Props {
   localBackend?: DevServerResult['backend']
   /** Team apps: the pipeline run deploying this app right now, if any. */
   teamRun?: TeamRunStatus
+  /** Team apps: which deployment the preview shows — your own preview or the
+   *  published app (the team menu's "Preview shows"). */
+  teamView?: 'preview' | 'production'
   /** Team apps: open the workspace overview. */
   onOpenTeamMap?: () => void
 }
 
-function statusLabel(running: boolean, status: string | undefined): string {
+/** What the status says once the deployed app is up: solo apps have one
+ *  deployment, so it's simply Live; team apps name the one they show. */
+function liveLabel(team: boolean, teamView: Props['teamView']): string {
+  if (!team) return 'Live'
+  return teamView === 'production' ? 'Published' : 'My preview'
+}
+
+function statusLabel(running: boolean, status: string | undefined, live: string): string {
   if (running) return 'Deploying…'
   switch (status) {
     case 'success':
-      return 'Live'
+      return live
     case 'error':
       return 'Deploy failed'
     case 'deploying':
@@ -204,6 +214,7 @@ export default function PreviewPane({
   team = false,
   localBackend,
   teamRun,
+  teamView,
   onOpenTeamMap
 }: Props): JSX.Element {
   const suppressed = usePreviewSuppressed()
@@ -747,11 +758,17 @@ export default function PreviewPane({
         : status === 'error'
           ? 'err'
           : 'idle'
+  const live = liveLabel(team, teamView)
   const statusText = teamDeploying
     ? status === 'success'
-      ? 'Live · updating'
+      ? `${live} · updating`
       : 'Deploying…'
-    : statusLabel(running, status)
+    : statusLabel(running, status, live)
+  const statusTitle = team
+    ? teamView === 'production'
+      ? 'Showing the published app — what everyone sees. Switch in the team menu.'
+      : 'Showing your own preview of your changes. Switch to the published app in the team menu.'
+    : undefined
 
   return (
     <div className="preview">
@@ -786,7 +803,7 @@ export default function PreviewPane({
               <ReloadIcon />
             </button>
           </div>
-          <span className={`preview-status preview-status--${dotClass}`}>
+          <span className={`preview-status preview-status--${dotClass}`} title={statusTitle}>
             <span className="preview-dot" />
             <span className="preview-status-label">{statusText}</span>
           </span>

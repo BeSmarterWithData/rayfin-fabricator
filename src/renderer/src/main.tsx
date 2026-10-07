@@ -6,12 +6,15 @@ import ErrorBoundary from './components/ErrorBoundary'
 import { OverlayProvider } from './overlay'
 import { UpdateProvider } from './update'
 import { ToastProvider } from './toast'
+import { applyRememberedAppearance } from './theme'
 import '@vscode/codicons/dist/codicon.css'
 import './assets/main.css'
 
 // Expose the Tauri-backed API as `window.api`, matching the contract the rest of
 // the renderer relies on (previously provided by the Electron preload bridge).
 window.api = api
+
+applyRememberedAppearance()
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

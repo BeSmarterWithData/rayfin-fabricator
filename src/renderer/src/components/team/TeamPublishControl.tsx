@@ -4,6 +4,7 @@ import { useSuppressPreview } from '../../overlay'
 import { appRunsKey } from './appRun'
 import { StepTimeline } from './map/parts'
 import { runProgress, useNow } from './runProgress'
+import TeamMapButton from './TeamMapButton'
 import './map/teamMap.css'
 import './team.css'
 
@@ -62,7 +63,7 @@ function deployLabel(state?: string): string {
   }
 }
 
-/** The app bar control for team apps: state, Publish, Update and the preview choice. */
+/** The app bar control for team apps: state, Publish, the preview choice and the workspace overview. */
 export default function TeamPublishControl({
   project,
   workspaceName,
@@ -130,10 +131,10 @@ export default function TeamPublishControl({
 
   return (
     <div className="team-control" ref={rootRef}>
-      <div className={`team-split${canPublish && !publishing ? ' team-split--ready' : ''}`}>
+      <div className="seg seg--toolbar team-split">
         <button
           type="button"
-          className="team-split-status"
+          className="seg-btn team-split-status"
           aria-haspopup="dialog"
           aria-expanded={open}
           title={chipTitle || 'Team app'}
@@ -149,7 +150,7 @@ export default function TeamPublishControl({
         </button>
         <button
           type="button"
-          className="team-split-publish"
+          className={`seg-btn team-split-publish${canPublish && !publishing ? ' seg-btn--primary' : ''}`}
           disabled={!canPublish || publishing}
           title={canPublish ? 'Publish your changes for everyone' : 'Nothing new to publish'}
           onClick={() => {
@@ -159,6 +160,15 @@ export default function TeamPublishControl({
         >
           Publish
         </button>
+        {onOpenMap && (
+          <TeamMapButton
+            runs={runs ?? []}
+            onClick={() => {
+              setOpen(false)
+              onOpenMap()
+            }}
+          />
+        )}
         {runActive && (
           <span className="team-split-progress" aria-hidden="true">
             <span style={{ width: `${progress}%` }} />

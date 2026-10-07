@@ -119,6 +119,9 @@ pub struct AzAuthStatus {
   pub user: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub tenant: Option<String>,
+  /// The directory's display name (or default domain) for `tenant`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tenant_name: Option<String>,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub error: Option<String>,
 }
@@ -129,6 +132,66 @@ pub struct AuthStatus {
   pub copilot: CopilotAuthStatus,
   pub rayfin: RayfinAuthStatus,
   pub az: AzAuthStatus,
+}
+
+/// The providers one `auth_check` verified; the others are omitted.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthCheck {
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub copilot: Option<CopilotAuthStatus>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub rayfin: Option<RayfinAuthStatus>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub az: Option<AzAuthStatus>,
+}
+
+/// A Microsoft Fabric account signed in on this computer (one Rayfin CLI config folder).
+#[derive(Serialize, Clone, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct FabricAccount {
+  pub id: String,
+  pub user: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tenant: Option<String>,
+  /// The account deploys, workspace lists, sharing and secrets use.
+  pub active: bool,
+  /// The Rayfin CLI's own sign-in, which `rayfin` in a terminal also uses.
+  pub shared: bool,
+}
+
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct FabricAccountsResult {
+  /// Active account first.
+  pub accounts: Vec<FabricAccount>,
+  /// The accounts' tokens live in one OS keychain entry (macOS), so signing
+  /// out of one signs them all out.
+  pub shared_token_store: bool,
+}
+
+/// An account (user in a tenant) the Azure CLI is signed in to.
+#[derive(Serialize, Clone, Default, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureAccount {
+  pub user: String,
+  pub tenant: String,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub tenant_name: Option<String>,
+  /// The subscription (or tenant-level entry) `az account set` selects it with.
+  pub subscription: String,
+  /// The Azure CLI's current account, which Fabricator and the terminal use.
+  pub active: bool,
+}
+
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AzureAccountsResult {
+  pub az_installed: bool,
+  /// Active account first.
+  pub accounts: Vec<AzureAccount>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
 }
 
 /* ----------------------------- fabric ----------------------------- */
@@ -728,6 +791,27 @@ pub struct GithubStatus {
   pub signed_in: bool,
   #[serde(skip_serializing_if = "Option::is_none")]
   pub user: Option<String>,
+}
+
+/// One github.com account the GitHub CLI is signed in to.
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubAccount {
+  pub login: String,
+  /// The CLI's active account: Clone from GitHub and the terminal use it.
+  pub active: bool,
+  /// Its stored sign-in still works.
+  pub signed_in: bool,
+}
+
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubAccountsResult {
+  pub gh_installed: bool,
+  /// Active account first.
+  pub accounts: Vec<GithubAccount>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub error: Option<String>,
 }
 
 /// One repository entry from `gh repo list` (fields flattened/normalized for the UI).

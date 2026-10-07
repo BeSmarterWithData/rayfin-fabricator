@@ -293,4 +293,20 @@ describe('SetupScreen sign-in providers', () => {
     expect(screen.getAllByText('Azure CLI').length).toBeGreaterThan(0)
     expect(screen.queryByText('Microsoft Fabric')).toBeNull()
   })
+
+  it('lets you return to the app after setup has passed on this computer', () => {
+    const onBack = vi.fn()
+    const props = { doctor, refreshing: false, onRefresh: vi.fn(), onEnter: vi.fn() }
+    const { rerender } = render(<SetupScreen {...props} auth={auth} />)
+    expect(screen.queryByRole('button', { name: 'Back to Fabricator' })).toBeNull()
+
+    rerender(<SetupScreen {...props} auth={auth} onBack={onBack} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Fabricator' }))
+    expect(onBack).toHaveBeenCalledOnce()
+
+    // Once everything passes, Enter Fabricator takes its place.
+    const ready = { ...auth, copilot: { signedIn: true }, az: { signedIn: true } }
+    rerender(<SetupScreen {...props} auth={ready} onBack={onBack} />)
+    expect(screen.queryByRole('button', { name: 'Back to Fabricator' })).toBeNull()
+  })
 })

@@ -30,6 +30,10 @@ interface Props {
   onChanged: () => void
   /** Refresh app auth after sign-in; rejection prevents retrying with an unverified account. */
   onSignedIn?: () => Promise<void> | void
+  /** The Fabric account deployments use (signed in), shown so it's never a surprise. */
+  account?: { user?: string; tenant?: string }
+  /** Open the Accounts dialog to change it. */
+  onManageAccounts?: () => void
 }
 
 /** "F-SKU · F2" style label for a workspace's capacity. */
@@ -55,7 +59,9 @@ export default function DeploymentsControl({
   onRedeploy,
   onSwitch,
   onChanged,
-  onSignedIn
+  onSignedIn,
+  account,
+  onManageAccounts
 }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const toast = useToast()
@@ -296,12 +302,12 @@ export default function DeploymentsControl({
           }
           onClick={() => setOpen((o) => !o)}
         >
-          <span className={`seg-dot${hasDeployment ? ' seg-dot--set' : ''}`} />
-          <span className="dep-chip-prefix">Deployment:</span>
+          <Codicon name="cloud" className="dep-chip-ico" />
+          <span className="sr-only">Deployment:</span>
           <span className="dep-chip-label">
             {activeLabel || (reconciling ? 'Checking…' : 'Not deployed')}
           </span>
-          <span className="dep-chip-caret"><Codicon name="chevron-down" /></span>
+          <Codicon name="chevron-down" className="dep-chip-caret" />
         </button>
         <button
           className="seg-btn seg-btn--primary dep-deploy"
@@ -353,6 +359,30 @@ export default function DeploymentsControl({
               </button>
             )}
           </div>
+
+          {account && (
+            <div className="dep-account">
+              <span
+                className="dep-account-text"
+                title={[account.user, account.tenant].filter(Boolean).join(' · ')}
+              >
+                Deploys as <strong>{account.user ?? 'your Fabric account'}</strong>
+                {account.tenant ? ` · ${account.tenant}` : ''}
+              </span>
+              {onManageAccounts && (
+                <button
+                  type="button"
+                  className="link-btn dep-account-change"
+                  onClick={() => {
+                    setOpen(false)
+                    onManageAccounts()
+                  }}
+                >
+                  Change
+                </button>
+              )}
+            </div>
+          )}
 
           {creating ? (
             <DeploymentCreateForm

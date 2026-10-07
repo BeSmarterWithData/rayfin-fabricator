@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { ClockIcon, Codicon } from '../icons'
+import { ClockIcon, Codicon, ReloadIcon } from '../icons'
 import { CopyButton } from './CopyButton'
 import { DiffView } from './DiffView'
 import { formatClock, formatFullDate, formatTurnDuration } from './format'
@@ -196,7 +196,7 @@ export const TurnFooter = memo(function TurnFooter({
           onClick={onTryAgain}
           title="Run your last message again for a fresh attempt"
         >
-          <Codicon name="refresh" /> Try again
+          <ReloadIcon /> Try again
         </button>
       )}
       {m.elapsedMs != null && (

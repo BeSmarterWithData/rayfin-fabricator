@@ -2,6 +2,7 @@
 //! `ipcMain.handle(...)` registrations in `src/main/ipc.ts`. Command names use
 //! snake_case (Tauri maps the renderer's camelCase invoke args automatically).
 
+pub mod accounts;
 pub mod advisor;
 pub mod auth;
 pub mod chat;

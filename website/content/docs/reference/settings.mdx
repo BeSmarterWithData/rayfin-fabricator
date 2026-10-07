@@ -1,11 +1,17 @@
 ---
 title: "Settings"
-description: "Every option in Fabricator's Settings: theme, text size, workspace folder, updates, diagnostics and experiments."
+description: "Every option in Fabricator's Settings: accounts, theme, text size, workspace folder, updates, setup, diagnostics and experiments."
 ---
 
-Open **Settings** to change how Fabricator looks, where new projects are created, how diagnostics are captured, and whether experimental features are visible.
+Open **Settings** to manage your accounts, change how Fabricator looks, where new projects are created, how diagnostics are captured, and whether experimental features are visible.
+
+Settings groups its options into **General**, **Appearance**, **Updates & help**, **Diagnostics**, and **Experiments**. Each option shows its name and what it does, with its control on the right.
 
 ![The Settings dialog with Theme, Text size, Workspace folder, Usage stats, Updates and Diagnostics.](/screenshots/settings.webp)
+
+## Accounts
+
+**Accounts** lists the services Fabricator signs in to: GitHub Copilot, Microsoft Fabric, the Azure CLI, and GitHub. Select **Manage accounts** to see who you're signed in as, sign in or out, and add or switch between Fabric, Azure CLI and GitHub accounts. See [Manage your accounts](/docs/start/accounts).
 
 ## Theme
 
@@ -35,7 +41,7 @@ Select **Change…** to pick a different folder. This changes where new projects
 
 ## Usage stats
 
-**Usage stats** is an informational note. In the app, it says:
+**Usage stats** is an informational note under **Diagnostics**. In the app, it says:
 
 > We send your sign-in domain and a hashed email so we can see how the product is used. Your email, code, and apps stay on this device.
 
@@ -47,9 +53,13 @@ Telemetry is only active when a build includes a telemetry connection string. Se
 
 Select **Check for updates** to ask GitHub Releases for the latest signed updater manifest. While it runs, the button changes to **Checking…**. If an update is ready, Fabricator downloads it and asks you to restart from the update banner.
 
+## Setup
+
+**Setup** reopens the setup screen, which checks the tools Fabricator needs and can install missing ones, such as the optional GitHub CLI. Select **Open setup**. Until every check passes, setup offers **Back to Fabricator**. See [Set up and sign in](/docs/start/setup).
+
 ## Diagnostics
 
-Diagnostics are saved on this device under the logs folder.
+Diagnostics are saved on this device under the logs folder. **Diagnostics** also holds **Usage stats**, and its **Logs** row has **Export diagnostics** and **Open logs folder**.
 
 ### Full diagnostics
 

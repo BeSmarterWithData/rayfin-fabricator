@@ -18,8 +18,9 @@ Fabricator runs the project's pinned Rayfin CLI with `rayfin up -y --force`. The
 3. If the log says the project has no workspace or asks for a workspace, choose a deployment workspace and deploy again.
 4. If the log mentions authentication, expired credentials, a token-cache lock, `HTTP 401`, or `unauthorized`, use **Refresh Fabric authentication**, then select **Redeploy**.
 5. If the log mentions a build or TypeScript error, ask Copilot to fix that error, then deploy again.
-6. If the log mentions Fabric capacity, permissions, a workspace conflict, or a Fabric API failure, fix that Fabric workspace issue and select **Redeploy**.
-7. If the log mentions destructive data-model changes, note that Fabricator already runs deploy with `--force`; the failure is coming from the CLI or Fabric after that forced deploy attempt.
+6. If the log says "Environment variable '…' referenced in rayfin.yml (…) is not defined.", your app's `rayfin/rayfin.yml` uses a setting that isn't set on this computer. Add that variable to the project's `rayfin/.env`, then select **Redeploy**.
+7. If the log mentions Fabric capacity, permissions, a workspace conflict, or a Fabric API failure, fix that Fabric workspace issue and select **Redeploy**.
+8. If the log mentions destructive data-model changes, note that Fabricator already runs deploy with `--force`; the failure is coming from the CLI or Fabric after that forced deploy attempt.
 
 If the log is unclear, [Report a problem](/docs/troubleshooting/report-a-problem) and attach diagnostics.
 

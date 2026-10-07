@@ -19,6 +19,8 @@ Fabricator uses the Rayfin CLI credentials for Fabric deployment. You can sign i
 
 The deployments picker also prompts you when Fabricator needs Fabric credentials to list workspaces. If credentials expire, it may show "Sign in to Microsoft Fabric to list your workspaces."
 
+You can stay signed in to more than one Fabric account, for example one per organization, and choose which one deploys. The **Deployments** panel names the account that deploys, such as "Deploys as alice@contoso.com · Contoso". Select **Change** to switch accounts. See [Manage your accounts](/docs/start/accounts).
+
 ## Deploy for the first time
 
 New projects ask for their first deployment right after you name them. In **Deploy your app**, pick a workspace and choose **Deploy app**; see [Build your first app](/docs/start/first-app#create-the-first-deployment). Chat stays locked until the app has its first Fabric deployment.
@@ -75,9 +77,10 @@ When Fabricator switches to another deployment or cannot identify the deployed g
 
 ## Work with multiple deployments
 
-Select the **Deployment:** control in the app bar to open **Deployments**. From there you can:
+In the app bar, select the deployment control, marked with a cloud icon, to open **Deployments**. From there you can:
 
 - see the active deployment,
+- see which Fabric account deploys, and select **Change** to use another,
 - select **+ New deployment** to deploy the same project to another workspace,
 - select **Switch** on another recorded deployment,
 - rename a deployment by selecting its name,

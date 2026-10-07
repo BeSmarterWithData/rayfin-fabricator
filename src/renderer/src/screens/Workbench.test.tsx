@@ -176,6 +176,22 @@ function installApi(active = false) {
       onState: vi.fn<RayfinStudioApi['dev']['onState']>(() => () => {})
     },
     getVersions: vi.fn().mockResolvedValue(null),
+    github: {
+      accounts: vi.fn<RayfinStudioApi['github']['accounts']>().mockResolvedValue({
+        ghInstalled: true,
+        accounts: []
+      })
+    },
+    accounts: {
+      fabric: vi.fn<RayfinStudioApi['accounts']['fabric']>().mockResolvedValue({
+        accounts: [],
+        sharedTokenStore: false
+      }),
+      azure: vi.fn<RayfinStudioApi['accounts']['azure']>().mockResolvedValue({
+        azInstalled: true,
+        accounts: []
+      })
+    },
     onProcLog: vi.fn<(callback: (event: ProcLogEvent) => void) => () => void>(() => () => {})
   }
   ;(window as unknown as { api: unknown }).api = api
@@ -185,7 +201,7 @@ function installApi(active = false) {
 function makeProps(overrides: Partial<ComponentProps<typeof Workbench>> = {}) {
   return {
     auth,
-    onSignOut: vi.fn().mockResolvedValue(undefined),
+    onReviewSetup: vi.fn(),
     onAuthChanged: vi.fn().mockResolvedValue(undefined),
     settings: null,
     onSettingsChange: vi.fn(),
@@ -283,7 +299,7 @@ describe('Workbench authentication recovery', () => {
     expect(screen.getByLabelText('Chat draft')).toBe(draft)
     expect(draft.value).toBe('Keep this draft')
     expect(screen.getByTestId('deploy-log').textContent).toContain(log)
-    expect(props.onSignOut).not.toHaveBeenCalled()
+    expect(props.onReviewSetup).not.toHaveBeenCalled()
     expect(api.auth.logoutRayfin).not.toHaveBeenCalled()
     expect(api.deploy.run).not.toHaveBeenCalled()
   })
@@ -311,7 +327,7 @@ describe('Workbench authentication recovery', () => {
         expect((screen.getByRole('button', { name: 'Clear credentials and sign in' }) as HTMLButtonElement).disabled).toBe(false)
       )
       expect(api.deploy.run).not.toHaveBeenCalled()
-      expect(props.onSignOut).not.toHaveBeenCalled()
+      expect(props.onReviewSetup).not.toHaveBeenCalled()
     }
   )
 
@@ -392,25 +408,31 @@ describe('Workbench authentication recovery', () => {
 
       expect((await screen.findByRole('alert')).textContent).toContain('Logout failed')
       await waitFor(() => expect(accountAction('Sign out').disabled).toBe(false))
-      expect(props.onSignOut).not.toHaveBeenCalled()
+      expect(props.onReviewSetup).not.toHaveBeenCalled()
       expect(props.onAuthChanged).toHaveBeenCalledTimes(1)
       expect(screen.getByTestId('home')).toBeTruthy()
     }
   )
 
-  it('keeps the sign-out overlay until the verified screen refresh completes', async () => {
-    installApi()
+  it('keeps the sign-out overlay until the verified account refresh completes', async () => {
+    installApi(true)
     const refreshed = deferred<void>()
-    const props = makeProps({ onSignOut: vi.fn(() => refreshed.promise) })
+    const props = makeProps({ onAuthChanged: vi.fn(() => refreshed.promise) })
     render(<Workbench {...props} />, { wrapper: Wrapper })
+    const draft = (await screen.findByLabelText('Chat draft')) as HTMLTextAreaElement
+    fireEvent.change(draft, { target: { value: 'Still here after signing out' } })
     fireEvent.click(accountAction('Sign out'))
 
-    await waitFor(() => expect(props.onSignOut).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(props.onAuthChanged).toHaveBeenCalledTimes(1))
     expect(screen.getByRole('alertdialog', { name: 'Signing out' })).toBeTruthy()
     expect(accountAction('Signing out…').disabled).toBe(true)
     await act(async () => refreshed.resolve(undefined))
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(accountAction('Sign out').disabled).toBe(false)
+    // Signing out of Fabric never leaves the workbench or its drafts.
+    expect(props.onReviewSetup).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('Chat draft')).toBe(draft)
+    expect(draft.value).toBe('Still here after signing out')
   })
 
   it.each(['login', 'verification'])(
@@ -431,7 +453,7 @@ describe('Workbench authentication recovery', () => {
       expect(
         (screen.getByRole('button', { name: 'Sign in to Fabric' }) as HTMLButtonElement).disabled
       ).toBe(false)
-      expect(props.onSignOut).not.toHaveBeenCalled()
+      expect(props.onReviewSetup).not.toHaveBeenCalled()
     }
   )
 
@@ -494,7 +516,7 @@ describe('Workbench authentication recovery', () => {
       )
       expect(api.deploy.run).toHaveBeenCalledTimes(1)
       expect(api.auth.loginRayfin).toHaveBeenCalledTimes(1)
-      expect(props.onSignOut).not.toHaveBeenCalled()
+      expect(props.onReviewSetup).not.toHaveBeenCalled()
       expect(
         (screen.getByRole('button', { name: 'Test deploy' }) as HTMLButtonElement).disabled
       ).toBe(false)
@@ -532,11 +554,56 @@ describe('Workbench authentication recovery', () => {
 
     await waitFor(() => expect(props.onAuthChanged).toHaveBeenCalledTimes(1))
     expect(api.projects.state).not.toHaveBeenCalled()
-    expect(props.onSignOut).not.toHaveBeenCalled()
+    expect(props.onReviewSetup).not.toHaveBeenCalled()
   })
 })
 
 describe('Workbench app bar', () => {
+  it('shows a neutral account control while the launch check runs', () => {
+    installApi()
+    const checking: AuthStatus = {
+      copilot: { signedIn: false, checking: true },
+      rayfin: { signedIn: false, checking: true },
+      az: { signedIn: false, checking: true }
+    }
+    render(<Workbench {...makeProps({ auth: checking })} />, { wrapper: Wrapper })
+
+    expect(screen.queryByRole('button', { name: 'Sign in to Fabric' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Account: checking sign-in' }))
+    expect(screen.getByText('Checking your Fabric sign-in…')).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: 'Manage accounts…' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Sign out' })).toBeNull()
+  })
+
+  it('raises what the background check found without leaving, and links to each fix', async () => {
+    const api = installApi()
+    const props = makeProps({ attention: { tools: ['Node.js'], signIns: ['GitHub Copilot'] } })
+    render(<Workbench {...props} />, { wrapper: Wrapper })
+
+    expect(
+      screen.getByText('Not signed in to GitHub Copilot. Node.js is missing or out of date.')
+    ).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Review setup' }))
+    expect(props.onReviewSetup).toHaveBeenCalledTimes(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manage accounts' }))
+    expect(await screen.findByRole('dialog', { name: 'Accounts' })).toBeTruthy()
+    await waitFor(() => expect(api.github.accounts).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('dialog', { name: 'Accounts' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText(/Not signed in to GitHub Copilot/)).toBeNull()
+  })
+
+  it('opens Accounts from the account menu', async () => {
+    installApi()
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    fireEvent.click(accountAction('Manage accounts…'))
+    const dialog = await screen.findByRole('dialog', { name: 'Accounts' })
+    expect(within(dialog).getByText('dev@example.com')).toBeTruthy()
+    expect(within(dialog).getByText('octocat')).toBeTruthy()
+  })
   it('puts the project, its views, deploys and the account on one bar without the brand', async () => {
     installApi(true)
     const { container } = render(<Workbench {...makeProps()} />, { wrapper: Wrapper })

@@ -454,6 +454,47 @@ describe('PreviewPane visibility', () => {
   })
 })
 
+describe('PreviewPane status label', () => {
+  function pane(over: Partial<Parameters<typeof PreviewPane>[0]> = {}): JSX.Element {
+    return (
+      <OverlayProvider>
+        <PreviewPane
+          project={makeProject('p1')}
+          deploy={undefined}
+          focused={false}
+          onToggleFocus={() => {}}
+          {...over}
+        />
+      </OverlayProvider>
+    )
+  }
+
+  it('says Live for a solo app, and names which deployment a team app shows', async () => {
+    const { rerender } = render(pane())
+    await settle(e)
+    expect(screen.getByText('Live')).toBeTruthy()
+
+    rerender(pane({ team: true, teamView: 'preview' }))
+    expect(screen.getByText('My preview')).toBeTruthy()
+    expect(screen.queryByText('Live')).toBeNull()
+
+    rerender(pane({ team: true, teamView: 'production' }))
+    expect(screen.getByText('Published')).toBeTruthy()
+  })
+
+  it('keeps the team deployment’s name while the pipeline updates it', async () => {
+    render(
+      pane({
+        team: true,
+        teamView: 'production',
+        teamRun: { id: 1, kind: 'production', status: 'in_progress', url: '', sha: '', steps: [] }
+      })
+    )
+    await settle(e)
+    expect(screen.getByText('Published · updating')).toBeTruthy()
+  })
+})
+
 describe('PreviewPane local preview', () => {
   const LOCAL = 'http://localhost:5173/'
 

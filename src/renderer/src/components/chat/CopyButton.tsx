@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Codicon } from '../icons'
+import { CheckIcon } from '../icons'
 import { CopyIcon } from './icons'
 
 /** Clipboard button with brief "Copied" feedback. `compact` shows only the icon. */
@@ -40,13 +40,7 @@ export function CopyButton({
       title={copied ? 'Copied' : title}
       aria-label={title}
     >
-      {copied ? (
-        <span className="copy-btn-check" aria-hidden="true">
-          <Codicon name="check" />
-        </span>
-      ) : (
-        <CopyIcon />
-      )}
+      {copied ? <CheckIcon /> : <CopyIcon />}
       {!compact && <span className="copy-btn-label">{copied ? 'Copied' : 'Copy'}</span>}
     </button>
   )

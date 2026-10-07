@@ -224,10 +224,9 @@ fn tool_status(def: &ToolDef, result: &exec::RunResult) -> ToolStatus {
 pub async fn check_environment() -> DoctorReport {
   #[cfg(windows)]
   crate::services::env_path::repair();
-  let mut tools = Vec::with_capacity(TOOLS.len());
-  for def in TOOLS.iter() {
-    tools.push(check_tool(def).await);
-  }
+  // Each probe is its own process; run them together so the check takes as long
+  // as the slowest tool rather than the sum of all of them.
+  let tools = futures::future::join_all(TOOLS.iter().map(check_tool)).await;
   let ready = tools.iter().filter(|t| t.required).all(|t| t.satisfied);
   DoctorReport { tools, ready }
 }

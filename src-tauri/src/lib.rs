@@ -89,6 +89,10 @@ pub fn run() {
   // store (issue #17). Must run before anything spawns the CLI or its helpers.
   enable_rayfin_encryption_fallback();
 
+  // Point the Rayfin CLI at the Fabric account chosen in Accounts (each extra
+  // account has its own config folder). Also before anything spawns the CLI.
+  services::fabric_accounts::init();
+
   // Point every spawned npm at Fabricator's warm cache without freezing registry
   // metadata at the bundled snapshot. Locked `npm ci` installs prefer offline
   // data; scaffolding revalidates metadata for the latest CLI. Set before any
@@ -178,6 +182,7 @@ pub fn run() {
       commands::doctor::doctor_install_all,
       // auth
       commands::auth::auth_status,
+      commands::auth::auth_check,
       commands::auth::auth_login_copilot,
       commands::auth::auth_login_rayfin,
       commands::auth::auth_refresh_rayfin,
@@ -185,9 +190,21 @@ pub fn run() {
       commands::auth::auth_logout_copilot,
       commands::auth::auth_logout_rayfin,
       commands::auth::auth_logout_az,
-      // github (optional gh CLI: clone-from-GitHub)
+      // accounts (several Fabric and Azure CLI accounts)
+      commands::accounts::fabric_accounts,
+      commands::accounts::fabric_add_account,
+      commands::accounts::fabric_use_account,
+      commands::accounts::fabric_sign_out_account,
+      commands::accounts::azure_accounts,
+      commands::accounts::azure_use_account,
+      commands::accounts::azure_sign_out_account,
+      // github (optional gh CLI: clone-from-GitHub, accounts)
       commands::github::github_status,
       commands::github::github_login,
+      commands::github::github_accounts,
+      commands::github::github_add_account,
+      commands::github::github_switch_account,
+      commands::github::github_sign_out_account,
       commands::github::github_list_repos,
       commands::github::github_clone,
       // team workspaces (experimental)
