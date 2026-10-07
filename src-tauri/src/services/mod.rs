@@ -3,14 +3,13 @@
 
 pub mod agent_skills;
 pub mod agent_tools;
-pub mod crashlog;
 pub mod copilot;
+pub mod crashlog;
 pub mod design_locate;
 pub mod dev_server;
 pub mod diagnostics;
 pub mod emit;
 pub mod env_path;
-pub mod errorlog;
 pub mod exec;
 pub mod fabric_accounts;
 pub mod fabric_auth;
@@ -19,6 +18,7 @@ pub mod git;
 pub mod grounding;
 pub mod help_session;
 pub mod history;
+pub mod journal;
 pub mod local_ports;
 pub mod npm_cache;
 pub mod paths;

@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode
 } from 'react'
-import { inferArea, reportError } from './errorReport'
+import { inferArea, reportError, reportEvent } from './errorReport'
 
 export type ToastKind = 'success' | 'error' | 'info'
 
@@ -18,10 +18,11 @@ export interface ToastOptions {
   /** Milliseconds before auto-dismiss; `0` keeps it until dismissed. Defaults by kind. */
   duration?: number
   /**
-   * Set `false` on an error that the caller already recorded (usually via
-   * `reportThrown`, which keeps the stack trace). Stops the same failure being
-   * written to the error journal twice, which would crowd out other errors in
-   * the recent window the Help assistant reads.
+   * Set `false` when the caller already recorded this (usually via
+   * `reportThrown`, which keeps the stack trace, or `reportEvent` with more
+   * context). Stops the same thing being written to the activity journal twice,
+   * which would crowd out other entries in the recent window the Help assistant
+   * reads.
    */
   record?: boolean
 }
@@ -103,15 +104,19 @@ export function ToastProvider({ children }: { children: ReactNode }): JSX.Elemen
 
   const show = useCallback(
     (kind: ToastKind, message: string, opts?: ToastOptions): number => {
-      // Every error the user is shown is recorded, so the Help assistant can
-      // explain it later. This is the one place they all pass through, unless
-      // the caller already recorded it with more detail.
-      if (kind === 'error' && opts?.record !== false) {
-        reportError({
-          surface: 'toast',
-          message: opts?.title ? `${opts.title}: ${message}` : message,
-          area: inferArea(opts?.title, message)
-        })
+      // Everything the user is *told* is recorded, so the Help assistant can
+      // explain it later. Successes matter as much as errors: without them, a
+      // journal of pure failure makes a working app look broken and hides the
+      // fact that a retry went through. This is the one place they all pass
+      // through, unless the caller already recorded it with more detail.
+      if (opts?.record !== false) {
+        const text = opts?.title ? `${opts.title}: ${message}` : message
+        const area = inferArea(opts?.title, message)
+        if (kind === 'error') {
+          reportError({ surface: 'toast', message: text, area })
+        } else {
+          reportEvent(area, kind === 'success' ? `${area}.succeeded` : `${area}.notice`, text)
+        }
       }
       const id = (idRef.current += 1)
       const duration = opts?.duration ?? DEFAULT_DURATION[kind]

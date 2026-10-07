@@ -11,12 +11,12 @@ fn log_file() -> std::path::PathBuf {
   paths::logs_dir().join(format!("main-{day}.log"))
 }
 
-/// Map a call site's label to an error-journal area, so the Help assistant can
-/// filter by what the user was doing rather than by log text. Labels come from
-/// a small, fixed set of call sites; anything new lands in `App` until it is
+/// Map a call site's label to a journal area, so the Help assistant can filter
+/// by what the user was doing rather than by log text. Labels come from a
+/// small, fixed set of call sites; anything new lands in `App` until it is
 /// added here.
-fn area_for(label: &str) -> super::errorlog::Area {
-  use super::errorlog::Area;
+fn area_for(label: &str) -> super::journal::Area {
+  use super::journal::Area;
   match label {
     "deploy" | "settings-push" => Area::Deploy,
     "preview" => Area::Preview,
@@ -28,8 +28,8 @@ fn area_for(label: &str) -> super::errorlog::Area {
 
 /// Append a labelled, timestamped error record; never panics.
 ///
-/// Also mirrors the record into the structured error journal
-/// ([`super::errorlog`]), which is what the in-app Help assistant reads. The
+/// Also mirrors the record into the structured activity journal
+/// ([`super::journal`]), which is what the in-app Help assistant reads. The
 /// free-text file stays as-is for humans reading it directly.
 pub fn log_error(label: &str, detail: &str) {
   let line = format!("[{}] {label}: {detail}\n", chrono::Utc::now().to_rfc3339());
@@ -42,16 +42,13 @@ pub fn log_error(label: &str, detail: &str) {
   }
   eprintln!("{}", line.trim_end());
 
-  use super::errorlog::{self, Surface};
+  use super::journal::{self, Level, Surface};
   let surface = if label == "panic" { Surface::Panic } else { Surface::Backend };
-  errorlog::write(&errorlog::record(
-    area_for(label),
-    surface,
-    label,
-    Some(label.to_string()),
-    Some(detail.to_string()),
-    None,
-  ));
+  journal::entry(Level::Error, area_for(label), &format!("{label}.failed"), label)
+    .surface(surface)
+    .operation(label)
+    .detail(Some(detail.to_string()))
+    .write();
 }
 
 /// Install a panic hook that records otherwise-fatal errors to the log file.

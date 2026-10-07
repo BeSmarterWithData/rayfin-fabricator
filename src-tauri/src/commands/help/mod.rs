@@ -5,8 +5,9 @@
 //! mutating and shell tools are excluded and the permission policy denies every
 //! write — and it is pointed at a different set of facts:
 //!
-//! * the **error journal** (`services::errorlog`), which records every error the
-//!   app showed, so "why did that fail?" has a real answer;
+//! * the **activity journal** (`services::journal`), which records what the app
+//!   did — successes as well as failures — so "why did that fail?" and "how did
+//!   that go?" both have real answers;
 //! * the **published documentation**, mirrored locally, for how things are meant
 //!   to work;
 //! * **Fabricator's own source**, pinned to the running release, so a symptom
@@ -35,7 +36,7 @@ use crate::commands::advisor::{drain, DrainEnd};
 use crate::commands::chat_tools;
 use crate::services::copilot::SessionOptions;
 use crate::services::emit::emit_help_event;
-use crate::services::errorlog::{self, Area, Surface};
+use crate::services::journal::{self, Area, Level};
 use crate::services::{exec::CancelToken, grounding, help_session};
 use crate::state::AppState;
 use crate::types::{
@@ -457,7 +458,7 @@ pub async fn help_ask(
   state: State<'_, AppState>,
   request: HelpAskRequest,
 ) -> Result<HelpAnswer, String> {
-  let HelpAskRequest { ask_id, question, project_id, attachments, history, model } = request;
+  let HelpAskRequest { ask_id, question, project_id, attachments, facts, history, model } = request;
   let question = question.trim().to_string();
   if question.is_empty() {
     return Err("Type a question first.".to_string());
@@ -470,7 +471,7 @@ pub async fn help_ask(
     attachments.into_iter().filter(|p| !p.trim().is_empty()).take(MAX_ATTACHMENTS).collect();
 
   let version = app.package_info().version.to_string();
-  let ctx = HelpContext::build(&version, project_id.as_deref(), &attachments);
+  let ctx = HelpContext::build(&version, project_id.as_deref(), &attachments, &facts);
   let token = state.begin_help();
 
   let emit: tools::Emit = {
@@ -504,14 +505,11 @@ pub async fn help_ask(
       // own doing, and recording it would crowd real errors out of the recent
       // window the next question is primed with.
       if message != STOPPED {
-        errorlog::write(&errorlog::record(
-          Area::App,
-          Surface::Inline,
-          &message,
-          Some("help_ask".into()),
-          None,
-          project_id.clone(),
-        ));
+        journal::entry(Level::Error, Area::App, "help.failed", &message)
+          .surface(journal::Surface::Inline)
+          .operation("help_ask")
+          .project(project_id.clone())
+          .write();
       }
       emit(HelpEvent::Error { message: message.clone() });
       Err(message)
@@ -673,7 +671,8 @@ mod tests {
       logs_dir: "C:\\data\\logs".into(),
       project: None,
       projects: Vec::new(),
-      recent_errors: String::new(),
+      recent_activity: String::new(),
+      facts: Vec::new(),
       extra_roots: Vec::new(),
     }
   }

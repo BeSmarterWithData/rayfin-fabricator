@@ -1,9 +1,9 @@
 ---
 title: "Ask Help"
-description: "Open the built-in Help assistant to find out why something failed, using your own error history, the documentation, and the version of Fabricator you are running."
+description: "Open the built-in Help assistant to find out why something failed, using your own activity history, the documentation, and the version of Fabricator you are running."
 ---
 
-Use Help when something went wrong and you want to know why. Help reads the errors Fabricator recorded on your computer, checks them against the documentation, and tells you what to do next in plain language.
+Use Help when something went wrong and you want to know why. Help reads what Fabricator recorded on your computer, checks it against the documentation, and tells you what to do next in plain language.
 
 ## Open Help
 
@@ -35,12 +35,14 @@ Help reads four things, and nothing else:
 
 | Source | What it is used for |
 | --- | --- |
-| Your error history | Every error Fabricator has shown you recently, so Help can explain the one you actually hit |
+| Your activity history | What Fabricator has done recently, and how each of those went |
 | The documentation | How a feature is meant to work, and the steps to fix it |
 | Your open project | Your app's files, when the question is about your app |
 | Fabricator's own code | Tracing an error message back to the condition that caused it |
 
-Fabricator records an error every time it shows you one, whether that is a message in the corner, a failed deploy, or a crash. That history is what lets Help answer "why did that fail?" instead of guessing. It is kept for seven days and never leaves your computer unless you attach it to a bug report yourself.
+Fabricator keeps a record of what happens as you work: setup finishing, signing in, installing a tool, creating or opening an app, starting a preview, deploying, and every message it shows you. Successes are recorded as well as failures, which is what lets Help tell the difference between a problem you are having now and one you already got past. That history is kept for seven days and never leaves your computer unless you attach it to a bug report yourself.
+
+Help is also told what is true at the moment you ask: which accounts are connected, whether your tools are ready, and which app is open. So "how did setup go?" is answered from how setup actually stands, not from the last thing that went wrong on the way there.
 
 The badge next to **fabricator help** at the top shows what Help has available. When it shows a version such as `v1.9.5`, Help is reading the exact code your copy of Fabricator is built from, so its answers match the app in front of you. Select the badge to download a fresh copy.
 
@@ -68,7 +70,7 @@ When a problem turns out to be a fault in Fabricator rather than something you c
 3. Select **Review it first** to read the whole report before anything leaves your machine.
 4. Select **Report this on GitHub** to open it, prefilled, in your browser.
 
-Help fills in what happened, the steps that led to it, and what you already tried, using the errors it found in your history, so you don't have to remember any of it. Your Fabricator version and system details are added automatically, and a diagnostics file is saved for you to attach. Nothing is submitted until you select the submit button on GitHub yourself.
+Help fills in what happened, the steps that led to it, and what you already tried, using the history it found on your computer, so you don't have to remember any of it. Your Fabricator version and system details are added automatically, and a diagnostics file is saved for you to attach. Nothing is submitted until you select the submit button on GitHub yourself.
 
 > [!NOTE]
 > Review the report before submitting. It quotes your own error messages, which can include workspace or file names. Secret-looking values are masked, but the rest is yours to check.
@@ -85,7 +87,7 @@ Help can only read what you attach for that question. It can't browse the rest o
 
 ## See what Help checked
 
-Above each answer, Help shows a line such as "checked 3 things". Select it to see exactly which logs and pages it read. Use it when you want to confirm an answer came from your actual error history rather than a guess.
+Above each answer, Help shows a line such as "checked 3 things". Select it to see exactly which logs and pages it read. Use it when you want to confirm an answer came from what actually happened on your computer rather than a guess.
 
 ## When the assistant isn't available
 

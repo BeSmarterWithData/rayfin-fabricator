@@ -75,7 +75,9 @@ export const api: RayfinStudioApi = {
     export: () => invoke('diagnostics_export'),
     record: (report) =>
       invoke('diagnostics_record', {
+        level: report.level,
         area: report.area,
+        event: report.event,
         surface: report.surface,
         message: report.message,
         operation: report.operation,

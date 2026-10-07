@@ -2272,7 +2272,7 @@ export interface PreviewAgentEvent {
  * Help assistant
  * ------------------------------------------------------------------ */
 
-/** Where an error came from, used to group the error journal. */
+/** Where a journal entry came from, used to group the activity journal. */
 export type ErrorArea =
   | 'setup'
   | 'auth'
@@ -2286,16 +2286,37 @@ export type ErrorArea =
   | 'ui'
   | 'app'
 
-/** How an error reached the user. */
+/** How an error reached the user. Omitted for `info` entries, which aren't shown. */
 export type ErrorSurface = 'toast' | 'inline' | 'boundary' | 'unhandled' | 'backend' | 'panic'
 
-/** One error, as recorded in the journal the Help assistant reads. */
+/**
+ * How much a journal entry matters. `info` records something that went right
+ * (or merely happened); `warn` and `error` record trouble.
+ */
+export type ActivityLevel = 'info' | 'warn' | 'error'
+
+/**
+ * One entry in the activity journal the Help assistant reads.
+ *
+ * Successes are recorded alongside failures on purpose: without them a journal
+ * of nothing but errors makes a healthy app look broken, and a problem the user
+ * already solved looks like it is still happening.
+ */
 export interface ErrorReport {
+  /** Defaults to `error`. */
+  level?: ActivityLevel
   area: ErrorArea
-  surface: ErrorSurface
-  /** The text the user saw. */
+  /**
+   * A stable dotted name for what happened, e.g. `deploy.succeeded` or
+   * `auth.signin.failed`. Lets the assistant match a later success to an
+   * earlier failure instead of comparing prose.
+   */
+  event?: string
+  /** Only meaningful for `warn`/`error`; ignored otherwise. */
+  surface?: ErrorSurface
+  /** The text the user saw, or a one-line note about what happened. */
   message: string
-  /** The operation that failed, e.g. `deploy_run`. */
+  /** The operation involved, e.g. `deploy_run`. */
   operation?: string
   /** A stack trace, stderr, or other context. */
   detail?: string
@@ -2391,6 +2412,12 @@ export interface HelpAskRequest {
   projectId?: string
   /** Files and folders the user attached, which become readable for this turn. */
   attachments?: string[]
+  /**
+   * What is true right now — signed-in accounts, tool readiness, the open
+   * project. The journal says what happened; these say where things stand, so
+   * the assistant can tell a resolved problem from a live one.
+   */
+  facts?: string[]
   /** The conversation so far, replayed so follow-up questions have context. */
   history?: HelpTurn[]
   model?: string

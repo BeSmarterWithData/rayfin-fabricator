@@ -66,6 +66,7 @@ import { openDocs } from '../docsLinks'
 import { HelpView } from '../components/help/HelpView'
 import HelpUnavailableModal from '../components/help/HelpUnavailableModal'
 import { setErrorProject } from '../errorReport'
+import { accountFacts, workbenchFacts } from '../helpFacts'
 import type { HelpAction, HelpIssueDraft } from '@shared/ipc'
 import { Codicon } from '../components/icons'
 import { FabricatorMark } from '../components/FabricatorMark'
@@ -2013,6 +2014,18 @@ export default function Workbench({
           projectId={active?.id}
           projectName={active?.name}
           appVersion={versions?.app}
+          facts={[
+            ...accountFacts(auth),
+            ...workbenchFacts(active, {
+              projectCount: projects?.projects.length,
+              team: Boolean(active?.team),
+              previewUrl:
+                active && devServers[active.id]?.status === 'running'
+                  ? (devServers[active.id]?.url ?? null)
+                  : null,
+              deploying: Boolean(active && deploys[active.id]?.running)
+            })
+          ]}
           onAction={runHelpAction}
           onReportIssue={reportHelpIssue}
         />

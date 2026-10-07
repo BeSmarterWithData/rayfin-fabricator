@@ -49,6 +49,12 @@ export interface HelpViewProps {
   onAction: (action: HelpAction) => void
   /** Opens a prefilled GitHub bug report from the assistant's draft. */
   onReportIssue: (issue: HelpIssueDraft) => void
+  /**
+   * What is true right now — accounts, tool readiness, the open project. The
+   * journal records what happened over time; these say where things stand, so
+   * the assistant can tell a problem the user already fixed from a live one.
+   */
+  facts?: string[]
   appVersion?: string
 }
 
@@ -70,6 +76,7 @@ export function HelpView({
   projectName,
   onAction,
   onReportIssue,
+  facts,
   appVersion
 }: HelpViewProps): JSX.Element {
   const toast = useToast()
@@ -278,6 +285,7 @@ export function HelpView({
           question,
           projectId,
           attachments,
+          facts,
           history
         })
         patch(id, (prev) => applyAnswer(prev, answer))
@@ -295,7 +303,7 @@ export function HelpView({
         setBusy(false)
       }
     },
-    [history, patch, projectId]
+    [facts, history, patch, projectId]
   )
 
   const stop = useCallback((): void => {

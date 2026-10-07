@@ -36,14 +36,31 @@ explains Fabricator's internals.\n\n",
   s.push_str(
     "# What you can read, and why\n\n\
 You have read-only access to several things. Use them in this order:\n\n\
-1. **The error journal and logs** — what actually happened on this machine. Always start here \
-when the user reports a problem. `errors-*.jsonl` has one JSON record per error the app showed, \
-newest last. `diagnostics-*.jsonl` has one record per chat turn. `main-*.log` has crashes.\n\
-2. **The documentation** — the published user guide, mirrored locally. This is the source of \
+1. **What is true right now** — the `<now>` block that comes with each question, plus the \
+orientation at the end of these instructions. Always start here. The journal is history, and \
+history is not the present.\n\
+2. **The activity journal and logs** — what actually happened on this machine. `activity-*.jsonl` \
+has one JSON record per notable event, oldest first. `diagnostics-*.jsonl` has one record per \
+chat turn. `main-*.log` has crashes.\n\
+3. **The documentation** — the published user guide, mirrored locally. This is the source of \
 truth for how a feature is *meant* to work and for fix instructions. Prefer it over your own \
 knowledge, and prefer it over the source code.\n\
-3. **The user's project** — their app's files, when the question is about their app.\n\
-4. **Fabricator's own source code** — a checkout of the app you are running inside.\n\n",
+4. **The user's project** — their app's files, when the question is about their app.\n\
+5. **Fabricator's own source code** — a checkout of the app you are running inside.\n\n",
+  );
+
+  s.push_str(
+    "## How to read the journal\n\n\
+Every record has a `level`, an `area` and an `event`, and records are in time order.\n\n\
+- `level` is `info` for something that went right, `warn` for something off, `error` for a \
+failure. The journal is not a list of problems; most of it is things working.\n\
+- **A failure followed by a later success in the same area is already resolved.** If you see \
+`setup` errors and then `setup.completed`, setup works — say so. Do not report a problem the \
+user has already got past, and never describe a resolved failure as if it were happening now.\n\
+- **`dev: true` means the record came from a development build run from source.** That is \
+somebody editing Fabricator's own code, not a fault in the installed app. Ignore those unless \
+the user asks about them specifically, and never present them to a user as their problem.\n\
+- Check the time. Something from days ago is rarely the answer to \"what is wrong now\".\n\n",
   );
 
   s.push_str(
@@ -108,13 +125,23 @@ what they actually asked for, then tell them it's ready to review.\n\n",
 pub fn turn_frame(ctx: &HelpContext, question: &str, attachments: &[String]) -> String {
   let mut s = String::new();
 
-  if !ctx.recent_errors.is_empty() {
+  // The present comes first, deliberately: the journal below is history, and a
+  // model handed only a list of failures will narrate a disaster that is over.
+  if !ctx.facts.is_empty() {
+    s.push_str("<now>\nWhat is true at this moment:\n\n");
+    for fact in &ctx.facts {
+      s.push_str(&format!("- {fact}\n"));
+    }
+    s.push_str("</now>\n\n");
+  }
+
+  if !ctx.recent_activity.is_empty() {
     s.push_str(
-      "<recent-errors>\nErrors recorded on this machine, oldest first. These are the user's real \
-errors — check whether they explain the question before looking anywhere else.\n\n",
+      "<activity>\nWhat happened on this machine, oldest first. Read it against <now>: anything \
+that failed here but is fine now was already resolved.\n\n",
     );
-    s.push_str(&ctx.recent_errors);
-    s.push_str("\n</recent-errors>\n\n");
+    s.push_str(&ctx.recent_activity);
+    s.push_str("\n</activity>\n\n");
   }
 
   if !attachments.is_empty() {
@@ -145,7 +172,8 @@ mod tests {
       logs_dir: "C:\\data\\logs".into(),
       project: None,
       projects: Vec::new(),
-      recent_errors: String::new(),
+      recent_activity: String::new(),
+      facts: Vec::new(),
       extra_roots: Vec::new(),
     }
   }
@@ -161,26 +189,41 @@ mod tests {
   #[test]
   fn the_frame_puts_logs_before_source() {
     let frame = system_frame(&ctx());
-    let logs = frame.find("error journal").unwrap();
+    let logs = frame.find("activity journal").unwrap();
     let source = frame.find("Fabricator's own source code").unwrap();
     assert!(logs < source, "the logs are introduced before the source");
   }
 
   #[test]
-  fn a_turn_includes_errors_and_attachments() {
+  fn a_turn_includes_activity_and_attachments() {
     let mut c = ctx();
-    c.recent_errors = r#"{"message":"The deploy failed."}"#.into();
+    c.recent_activity = r#"{"message":"The deploy failed."}"#.into();
     let turn = turn_frame(&c, "why did my deploy fail?", &["C:\\logs\\deploy.txt".to_string()]);
-    assert!(turn.contains("<recent-errors>"));
+    assert!(turn.contains("<activity>"));
     assert!(turn.contains("The deploy failed."));
     assert!(turn.contains("C:\\logs\\deploy.txt"));
     assert!(turn.contains("why did my deploy fail?"));
   }
 
+  /// The present goes above the history, so a model reading top-down sees
+  /// where things stand before it sees a list of things that went wrong.
+  #[test]
+  fn the_turn_puts_what_is_true_now_above_the_journal() {
+    let mut c = ctx();
+    c.facts = vec!["Setup is complete.".into()];
+    c.recent_activity = r#"{"level":"error","message":"Setup screen crashed."}"#.into();
+    let turn = turn_frame(&c, "how did setup go?", &[]);
+    let now = turn.find("<now>").unwrap();
+    let activity = turn.find("<activity>").unwrap();
+    assert!(now < activity, "<now> is framed before the journal");
+    assert!(turn.contains("- Setup is complete."));
+  }
+
   #[test]
   fn a_turn_without_context_is_just_the_question() {
     let turn = turn_frame(&ctx(), "how do I deploy?", &[]);
-    assert!(!turn.contains("<recent-errors>"));
+    assert!(!turn.contains("<activity>"));
+    assert!(!turn.contains("<now>"));
     assert!(!turn.contains("<attached>"));
     assert!(turn.starts_with("<question>"));
   }

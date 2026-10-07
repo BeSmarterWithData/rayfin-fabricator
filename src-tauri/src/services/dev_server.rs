@@ -384,8 +384,42 @@ pub async fn dev_start(
     // Run in a task that owns the lifecycle, so the server bookkeeping completes
     // even if the invoking renderer stops awaiting this IPC call.
     let servers = state.inner().clone();
-    tokio::spawn(async move { start_server(app, servers, project_id, port).await })
-        .await.map_err(|e| AppError::Msg(format!("Local preview task failed: {e}")))?
+    let id = project_id.clone();
+    let result = tokio::spawn(async move { start_server(app, servers, project_id, port).await })
+        .await.map_err(|e| AppError::Msg(format!("Local preview task failed: {e}")))?;
+    record_preview(&id, &result);
+    result
+}
+
+/// Note whether the local preview came up, in the activity journal.
+///
+/// "My preview won't start" and "is my preview running?" are both common, and
+/// the second can only be answered if the successful starts are recorded too.
+fn record_preview(project_id: &str, result: &AppResult<DevServerResult>) {
+    use crate::services::journal::{self, Area, Level, Surface};
+    let (level, event, message) = match result {
+        Ok(r) if r.ok => (
+            Level::Info,
+            "preview.started",
+            match r.url.as_deref() {
+                Some(url) => format!("The local preview is running at {url}"),
+                None => "The local preview started.".to_string(),
+            },
+        ),
+        Ok(r) => (
+            Level::Error,
+            "preview.failed",
+            r.error.clone().unwrap_or_else(|| "The local preview did not start.".to_string()),
+        ),
+        Err(e) => (Level::Error, "preview.failed", e.to_string()),
+    };
+    let mut entry = journal::entry(level, Area::Preview, event, &message)
+        .operation("dev_start")
+        .project(Some(project_id.to_string()));
+    if level != Level::Info {
+        entry = entry.surface(Surface::Backend);
+    }
+    entry.write();
 }
 
 async fn start_server(app: AppHandle, state: DevServers, project_id: String, requested: Option<u16>) -> AppResult<DevServerResult> {

@@ -9,10 +9,14 @@
 
 use std::path::PathBuf;
 
-use crate::services::{errorlog, grounding, paths, store};
+use crate::services::{grounding, journal, paths, store};
 
-/// How many error records to put in front of the model each turn.
-const RECENT_ERRORS: usize = 60;
+/// How many journal records to put in front of the model each turn.
+///
+/// Successes are in here too, so the window has to be wide enough that a
+/// failure and the success that resolved it both fit — otherwise the fix falls
+/// off the end and the problem looks live again.
+const RECENT_ACTIVITY: usize = 60;
 
 /// The user's active project, when the Help overlay was opened with one.
 #[derive(Clone, Debug)]
@@ -48,21 +52,28 @@ pub struct HelpContext {
   pub source_ref: Option<String>,
   /// The mirrored documentation.
   pub docs_dir: Option<String>,
-  /// The app's logs directory, which holds the error journal.
+  /// The app's logs directory, which holds the activity journal.
   pub logs_dir: String,
   pub project: Option<ProjectContext>,
   /// Every project the user has, so the assistant can offer to open one by name.
   pub projects: Vec<ProjectSummary>,
-  /// Recent error-journal lines, inlined into the turn so the model never has
-  /// to go looking for the obvious.
-  pub recent_errors: String,
+  /// Recent activity-journal lines — successes and failures both — inlined into
+  /// the turn so the model never has to go looking for the obvious.
+  pub recent_activity: String,
+  /// What is true right now, from the screen that opened Help.
+  pub facts: Vec<String>,
   /// Extra files and folders the user attached.
   pub extra_roots: Vec<String>,
 }
 
 impl HelpContext {
   /// Assemble the context for a conversation.
-  pub fn build(app_version: &str, project_id: Option<&str>, attachments: &[String]) -> Self {
+  pub fn build(
+    app_version: &str,
+    project_id: Option<&str>,
+    attachments: &[String],
+    facts: &[String],
+  ) -> Self {
     let status = grounding::status(app_version);
     let project = project_id.and_then(project_context);
 
@@ -75,7 +86,8 @@ impl HelpContext {
       logs_dir: paths::logs_dir().to_string_lossy().into_owned(),
       project,
       projects: all_projects(),
-      recent_errors: errorlog::recent(RECENT_ERRORS),
+      recent_activity: journal::recent(RECENT_ACTIVITY),
+      facts: facts.to_vec(),
       extra_roots: attachments.to_vec(),
     }
   }
@@ -219,7 +231,8 @@ mod tests {
         team: None,
       }),
       projects: Vec::new(),
-      recent_errors: String::new(),
+      recent_activity: String::new(),
+      facts: Vec::new(),
       extra_roots: vec!["C:\\Users\\me\\Desktop\\shot.png".into()],
     }
   }

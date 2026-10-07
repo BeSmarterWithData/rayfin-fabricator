@@ -57,6 +57,16 @@ afterEach(() => {
   delete (window as unknown as { api?: unknown }).api
 })
 
+/**
+ * Open every finished step. A completed step collapses to a one-line receipt,
+ * so its controls (Sign out, versions) live behind **Details** — see
+ * `SetupSection`. Tests that exercise those controls open them first, the same
+ * way a user would.
+ */
+function openCompletedSteps(): void {
+  screen.queryAllByRole('button', { name: 'Details' }).forEach((b) => fireEvent.click(b))
+}
+
 describe('SetupScreen sign-in providers', () => {
   it('passes the selected Enterprise host to Copilot sign-in', async () => {
     vi.mocked(window.api.auth.loginCopilot).mockResolvedValue({ ok: true, exitCode: 0 })
@@ -82,11 +92,13 @@ describe('SetupScreen sign-in providers', () => {
     const refresh = vi.fn()
     const props = { doctor, refreshing: false, onRefresh: refresh, onEnter: vi.fn() }
     const { rerender } = render(<SetupScreen {...props} auth={ready} />)
+    openCompletedSteps()
     fireEvent.click(screen.getByRole('button', { name: `Sign out of ${name}` }))
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
     expect(window.api.auth[method]).toHaveBeenCalledOnce()
     expect(window.api.auth[method === 'logoutCopilot' ? 'logoutAz' : 'logoutCopilot']).not.toHaveBeenCalled()
     rerender(<SetupScreen {...props} auth={{ ...ready, [provider]: { signedIn: false } }} />)
+    openCompletedSteps()
     expect(screen.queryByRole('button', { name: `Sign out of ${name}` })).toBeNull()
     expect(screen.getAllByText('Connected')).toHaveLength(1)
     expect((screen.getByRole('button', { name: /Enter Fabricator/ }) as HTMLButtonElement).disabled).toBe(true)
@@ -103,13 +115,14 @@ describe('SetupScreen sign-in providers', () => {
     const ready = { ...auth, copilot: { signedIn: true }, az: { signedIn: true } }
     const enter = vi.fn()
     render(<SetupScreen doctor={doctor} auth={ready} refreshing={false} onRefresh={refresh} onEnter={enter} />)
+    openCompletedSteps()
     const signOut = screen.getByRole('button', { name: 'Sign out of GitHub Copilot' }) as HTMLButtonElement
     fireEvent.click(signOut)
     fireEvent.click(signOut)
     expect(window.api.auth.logoutCopilot).toHaveBeenCalledOnce()
     expect(signOut.disabled).toBe(true)
     expect((screen.getByRole('button', { name: 'Sign out of Azure CLI' }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByText('All checks passed')).toBeNull()
+    expect(screen.queryByText("You're all set")).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /Enter Fabricator/ }))
     expect(enter).not.toHaveBeenCalled()
     await act(async () => finishLogout({ ok: true, exitCode: 0 }))
@@ -128,12 +141,13 @@ describe('SetupScreen sign-in providers', () => {
     vi.mocked(window.api.auth[method]).mockResolvedValue({ ok: false, exitCode: 1, error: 'Could not remove credentials' })
     const refresh = vi.fn()
     render(<SetupScreen doctor={doctor} auth={ready} refreshing={false} onRefresh={refresh} onEnter={() => {}} />)
+    openCompletedSteps()
     fireEvent.click(screen.getByRole('button', { name: `Sign out of ${name}` }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not remove credentials'))
     expect(refresh).toHaveBeenCalledOnce()
     expect((screen.getByRole('button', { name: `Sign out of ${name}` }) as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getAllByText('Connected')).toHaveLength(2)
-    expect(screen.queryByText('All checks passed')).toBeNull()
+    expect(screen.queryByText("You're all set")).toBeNull()
   })
 
   it('surfaces rejected sign-out calls and refreshes the account status', async () => {
@@ -141,6 +155,7 @@ describe('SetupScreen sign-in providers', () => {
     const refresh = vi.fn()
     render(<SetupScreen doctor={doctor} auth={{ ...auth, copilot: { signedIn: true } }}
       refreshing={false} onRefresh={refresh} onEnter={() => {}} />)
+    openCompletedSteps()
     fireEvent.click(screen.getByRole('button', { name: 'Sign out of GitHub Copilot' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('IPC unavailable'))
     expect(refresh).toHaveBeenCalledOnce()
@@ -151,10 +166,11 @@ describe('SetupScreen sign-in providers', () => {
     const ready = { ...auth, copilot: { signedIn: true }, az: { signedIn: true } }
     render(<SetupScreen doctor={doctor} auth={ready} refreshing={false}
       onRefresh={() => Promise.reject(new Error('Connection lost'))} onEnter={() => {}} />)
+    openCompletedSteps()
     fireEvent.click(screen.getByRole('button', { name: 'Sign out of GitHub Copilot' }))
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Could not verify account status'))
     expect((screen.getByRole('button', { name: /Enter Fabricator/ }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.queryByText('All checks passed')).toBeNull()
+    expect(screen.queryByText("You're all set")).toBeNull()
   })
 
   it('offers re-check rather than reinstall when an existing CLI cannot be verified', async () => {
@@ -201,7 +217,10 @@ describe('SetupScreen sign-in providers', () => {
     }
     render(<SetupScreen doctor={report} auth={auth} refreshing={false} onRefresh={() => {}} onEnter={() => {}} />)
     expect(screen.getByRole('button', { name: 'Update' })).toBeTruthy()
-    expect(screen.getByText(/18.20.4.*update to 20/)).toBeTruthy()
+    // The row has to say both what is installed and what is needed, in words a
+    // non-developer can act on.
+    expect(screen.getByText(/18\.20\.4/)).toBeTruthy()
+    expect(screen.getByText(/needs 20 or newer/)).toBeTruthy()
   })
 
   it('shows a blocked-install result instead of silently returning to setup', async () => {
@@ -228,7 +247,7 @@ describe('SetupScreen sign-in providers', () => {
       />
     )
     expect(screen.getByText('Copilot token expired')).toBeTruthy()
-    expect(screen.queryByText('All checks passed')).toBeNull()
+    expect(screen.queryByText("You're all set")).toBeNull()
     expect((screen.getByRole('button', { name: /Enter Fabricator/ }) as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -236,13 +255,13 @@ describe('SetupScreen sign-in providers', () => {
     const ready = { ...auth, copilot: { signedIn: true }, az: { signedIn: true } }
     const props = { doctor, auth: ready, onRefresh: vi.fn(), onEnter: vi.fn() }
     const { rerender } = render(<SetupScreen {...props} refreshing={false} />)
-    expect(screen.getByText('All checks passed')).toBeTruthy()
+    expect(screen.getByText("You're all set")).toBeTruthy()
     rerender(<SetupScreen {...props} refreshing />)
-    expect(screen.queryByText('All checks passed')).toBeNull()
+    expect(screen.queryByText("You're all set")).toBeNull()
     expect((screen.getByRole('button', { name: /Enter Fabricator/ }) as HTMLButtonElement).disabled).toBe(true)
     rerender(<SetupScreen {...props} refreshing={false} error="Could not check accounts" />)
     expect(screen.getByRole('alert').textContent).toContain('Could not check accounts')
-    expect(screen.queryByText('All checks passed')).toBeNull()
+    expect(screen.queryByText("You're all set")).toBeNull()
   })
 
   it('surfaces a failed CLI sign-in result instead of silently refreshing', async () => {
@@ -255,7 +274,7 @@ describe('SetupScreen sign-in providers', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('Credential store is unavailable'))
     expect(refresh).toHaveBeenCalledOnce()
     expect(screen.queryByRole('alertdialog')).toBeNull()
-    expect(screen.queryByText('All checks passed')).toBeNull()
+    expect(screen.queryByText("You're all set")).toBeNull()
   })
 
   it('requires the post-login auth check, not merely a zero exit code', async () => {

@@ -73,12 +73,40 @@ pub fn projects_set_workspace_root(path: String) -> ProjectsState {
 
 #[tauri::command]
 pub async fn projects_create(app: AppHandle, input: CreateProjectInput) -> ProjectActionResult {
-  crate::commands::projects_impl::create_project(&app, input).await
+  let name = input.name.clone();
+  let result = crate::commands::projects_impl::create_project(&app, input).await;
+  record_project(&result, "project.created", "project.create.failed", &format!("Created the app \"{name}\"."));
+  result
 }
 
 #[tauri::command]
 pub async fn projects_open(path: String) -> ProjectActionResult {
-  crate::commands::projects_impl::open_project(path).await
+  let result = crate::commands::projects_impl::open_project(path).await;
+  let name = result.project.as_ref().map(|p| p.name.clone()).unwrap_or_default();
+  record_project(&result, "project.opened", "project.open.failed", &format!("Opened the app \"{name}\"."));
+  result
+}
+
+/// Note a project create/open in the activity journal, either way it went.
+///
+/// These are the moments a user describes as "when I made my app" or "when I
+/// opened it", so having them in the record is what lets Help line a later
+/// problem up against the right app.
+fn record_project(result: &ProjectActionResult, ok_event: &str, fail_event: &str, ok_message: &str) {
+  use crate::services::journal::{self, Area, Level, Surface};
+  let mut entry = if result.ok {
+    journal::entry(Level::Info, Area::Project, ok_event, ok_message)
+  } else {
+    journal::entry(
+      Level::Error,
+      Area::Project,
+      fail_event,
+      result.error.as_deref().unwrap_or("The app could not be set up."),
+    )
+    .surface(Surface::Backend)
+  };
+  entry = entry.project(result.project.as_ref().map(|p| p.id.clone()));
+  entry.write();
 }
 
 #[tauri::command]

@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager};
 use crate::commands::auth::get_cached_identity;
 use crate::commands::util::{annotate_state, now_iso};
 use crate::services::exec::{self, OnData, RunOptions, RunResult, Stream};
-use crate::services::{crashlog, emit, fabric_auth, git, store, telemetry};
+use crate::services::{crashlog, emit, fabric_auth, git, journal, store, telemetry};
 use crate::types::{DeployInfo, DeployResult, DeployStatus, FabricDeployment, ProjectsState, StudioProject};
 
 const DEPLOY_TIMEOUT_MS: u64 = 20 * 60_000;
@@ -360,7 +360,38 @@ pub(crate) async fn run_deploy(
     Ok(lease) => lease,
     Err(error) => return deployment_error(error),
   };
-  run_deploy_inner(app.clone(), project_id, workspace).await
+  let result = run_deploy_inner(app.clone(), project_id.clone(), workspace).await;
+  record_deploy(&project_id, &result);
+  result
+}
+
+/// Note the outcome of a deploy in the activity journal.
+///
+/// Both outcomes are recorded. "Did my deploy work?" is one of the most common
+/// questions the Help assistant is asked, and a journal that only ever noted
+/// failures would answer a successful deploy with the last one that went wrong.
+fn record_deploy(project_id: &str, result: &DeployResult) {
+  use journal::{Area, Level};
+  let message = if result.ok {
+    match result.url.as_deref() {
+      Some(url) => format!("Deployed successfully. The app is live at {url}"),
+      None => "Deployed successfully.".to_string(),
+    }
+  } else {
+    result.error.clone().unwrap_or_else(|| "The deploy failed.".to_string())
+  };
+  let mut entry = journal::entry(
+    if result.ok { Level::Info } else { Level::Error },
+    Area::Deploy,
+    if result.ok { "deploy.succeeded" } else { "deploy.failed" },
+    &message,
+  )
+  .operation(format!("deploy_run:{}", result.outcome))
+  .project(Some(project_id.to_string()));
+  if !result.ok {
+    entry = entry.surface(journal::Surface::Backend);
+  }
+  entry.write();
 }
 
 fn deployment_error(error: String) -> DeployResult {

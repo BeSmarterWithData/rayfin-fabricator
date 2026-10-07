@@ -10,6 +10,7 @@ import { applyUiScale, watchTheme } from './theme'
 import { useUpdates } from './update'
 import { useToast } from './toast'
 import { authErrorMessage } from './authErrors'
+import { reportEvent } from './errorReport'
 import {
   CHECKING_AUTH,
   failedAuth,
@@ -194,6 +195,11 @@ function App(): JSX.Element {
       phaseTimerRef.current = null
     }
     rememberSetupComplete()
+    reportEvent(
+      'setup',
+      'setup.completed',
+      `Setup finished: all ${doctor.tools.filter((t) => t.required).length} required tools are ready and both accounts are connected.`
+    )
     setSetupDone(true)
     setPhase('ready')
   }, [auth, doctor, refreshing])

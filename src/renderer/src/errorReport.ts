@@ -1,20 +1,30 @@
 /**
- * The single place renderer errors are recorded.
+ * The single place renderer activity is recorded.
  *
- * Every error the user sees should end up in the journal the Help assistant
- * reads, so "why did that fail?" has a real answer instead of a guess. Rather
- * than ask every call site to remember, this module is wired into the places
- * errors already pass through:
+ * Both what worked and what didn't end up in the journal the Help assistant
+ * reads. Errors alone are a misleading record: a journal containing nothing but
+ * failures makes a healthy app look broken, and a problem the user already
+ * solved looks like it is still happening. Pairing each failure with the
+ * success that followed is what lets Help say "that worked on the retry"
+ * instead of raising an alarm about it.
+ *
+ * Failures are wired into the places errors already pass through, so call sites
+ * don't have to remember:
  *
  *   * {@link ToastProvider} — every `toast.error(...)` call;
  *   * {@link ErrorBoundary} — React render crashes;
  *   * {@link installGlobalErrorCapture} — `window.onerror` and unhandled
  *     promise rejections.
  *
+ * Successes have no such chokepoint and are recorded deliberately with
+ * {@link reportEvent} at the milestones that answer "did that work?" — setup
+ * finishing, signing in, installing a tool, deploying, previewing, opening a
+ * project.
+ *
  * Recording is best-effort and never throws: an error here would be an error
  * about an error, and the user already has the one they came for.
  */
-import type { ErrorArea, ErrorReport, ErrorSurface } from '@shared/ipc'
+import type { ActivityLevel, ErrorArea, ErrorReport, ErrorSurface } from '@shared/ipc'
 
 /** Longest detail we send; the backend clips too, but this saves the IPC hop. */
 const MAX_DETAIL = 4000
@@ -75,21 +85,30 @@ function errorDetail(reason: unknown): string | undefined {
 }
 
 /**
- * Record one error. Never throws and never rejects, so callers can fire and
+ * Record one entry. Never throws and never rejects, so callers can fire and
  * forget it from inside a `catch`.
  */
-export function reportError(report: Partial<ErrorReport> & { message: string }): void {
+function record(report: Partial<ErrorReport> & { message: string }): void {
   try {
     const message = report.message.trim()
     if (!message) return
+    const level = report.level ?? 'error'
     void window.api?.diagnostics
       ?.record({
+        level,
         area: report.area ?? inferArea(report.operation, message),
-        surface: report.surface ?? 'toast',
+        event: report.event,
+        // An `info` entry never reached the user through a surface, so sending
+        // one would be a small lie in the record the assistant reads.
+        surface: level === 'info' ? undefined : (report.surface ?? 'toast'),
         message: message.slice(0, MAX_DETAIL),
         operation: report.operation,
         detail: report.detail?.slice(0, MAX_DETAIL),
-        projectId: report.projectId ?? activeProjectId
+        projectId: report.projectId ?? activeProjectId,
+        // A dev build is the developer's own half-finished edits, not a fault
+        // in the installed app. Tagged rather than dropped: still useful to
+        // whoever is building, but Help must not report it as a user problem.
+        dev: import.meta.env.DEV
       })
       .catch(() => {
         // The journal is a diagnostic aid, not a critical path.
@@ -97,6 +116,32 @@ export function reportError(report: Partial<ErrorReport> & { message: string }):
   } catch {
     // Ditto — including `window.api` not being there yet during early startup.
   }
+}
+
+/**
+ * Record one error. Never throws and never rejects, so callers can fire and
+ * forget it from inside a `catch`.
+ */
+export function reportError(report: Partial<ErrorReport> & { message: string }): void {
+  record({ ...report, level: report.level ?? 'error' })
+}
+
+/**
+ * Record something that went right, or something worth knowing that isn't a
+ * fault. `event` is a stable dotted name (`deploy.succeeded`, `setup.completed`)
+ * so the assistant can match it to an earlier failure of the same thing instead
+ * of comparing prose.
+ *
+ * Keep these to milestones a user would recognise as "that worked". A firehose
+ * of routine chatter buries the entries that answer their question.
+ */
+export function reportEvent(
+  area: ErrorArea,
+  event: string,
+  message: string,
+  extra: { level?: ActivityLevel; operation?: string; detail?: string; projectId?: string } = {}
+): void {
+  record({ ...extra, level: extra.level ?? 'info', area, event, message })
 }
 
 /** Record something that was thrown or rejected, deriving message and detail. */

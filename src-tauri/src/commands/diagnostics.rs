@@ -1,36 +1,50 @@
 //! Diagnostics commands: export a shareable diagnostics bundle for bug reports,
-//! and record renderer errors into the structured error journal.
+//! and record renderer activity into the structured journal.
 
 use tauri::AppHandle;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::error::{AppError, AppResult};
-use crate::services::errorlog::{self, Area, Surface};
+use crate::services::journal::{self, Area, Level, Surface};
 use crate::services::{diagnostics, paths};
 
-/// Record one renderer error in the error journal.
+/// Record one renderer event in the activity journal.
 ///
-/// Called from the renderer's single error chokepoint (`reportError`), which
-/// every error toast, error boundary, unhandled rejection and `window.onerror`
-/// funnels through. Best-effort by design: recording an error must never fail
-/// the operation that was already failing, so this always returns `Ok`.
+/// Called from the renderer's single chokepoint (`reportError` / `reportEvent`),
+/// which every error toast, error boundary, unhandled rejection and notable
+/// success funnels through. Best-effort by design: recording must never fail
+/// the operation it is describing, so this always returns `Ok`.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn diagnostics_record(
+  level: Option<String>,
   area: String,
-  surface: String,
+  event: Option<String>,
   message: String,
+  surface: Option<String>,
   operation: Option<String>,
   detail: Option<String>,
   project_id: Option<String>,
+  dev: Option<bool>,
 ) {
-  errorlog::write(&errorlog::record(
-    Area::parse(&area),
-    Surface::parse(&surface),
-    &message,
-    operation,
-    detail,
-    project_id,
-  ));
+  let level = level.as_deref().map(Level::parse).unwrap_or(Level::Error);
+  let area = Area::parse(&area);
+  let event = event.unwrap_or_else(|| match level {
+    Level::Info => "app.ok".to_string(),
+    _ => "app.failed".to_string(),
+  });
+  let mut entry = journal::entry(level, area, &event, &message)
+    .operation(operation.unwrap_or_default())
+    .detail(detail)
+    .project(project_id);
+  entry.operation = entry.operation.filter(|o| !o.is_empty());
+  if level != Level::Info {
+    entry = entry.surface(surface.as_deref().map(Surface::parse).unwrap_or(Surface::Toast));
+  }
+  if let Some(dev) = dev {
+    entry = entry.dev(dev);
+  }
+  entry.write();
 }
 
 /// Build a single consolidated diagnostics file (environment + recent errors +

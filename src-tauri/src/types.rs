@@ -3019,6 +3019,12 @@ pub struct HelpAskRequest {
   /// Files and folders the user attached, which become readable for this turn.
   #[serde(default)]
   pub attachments: Vec<String>,
+  /// Short statements of what is true *right now*, supplied by the screen that
+  /// opened Help — which setup steps passed, what is deployed, and so on. The
+  /// error journal is history; without this the assistant can only reason from
+  /// what went wrong, and will raise a problem the user already fixed.
+  #[serde(default)]
+  pub facts: Vec<String>,
   /// The conversation so far, replayed so follow-up questions have context.
   #[serde(default)]
   pub history: Vec<HelpTurn>,

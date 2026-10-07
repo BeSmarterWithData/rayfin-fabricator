@@ -7,7 +7,7 @@ Use this page when the troubleshooting fix did not work or Fabricator shows an e
 
 ## Ask Help before reporting
 
-In the status bar, select **Help** and describe the problem. Help reads the same error history that goes into a diagnostics export and often explains the cause directly.
+In the status bar, select **Help** and describe the problem. Help reads the same activity history that goes into a diagnostics export and often explains the cause directly.
 
 If it turns out to be a fault in Fabricator, Help writes the bug report for you from what it found, so you don't have to reconstruct it. See [Ask Help](/docs/troubleshooting/help).
 
@@ -17,7 +17,7 @@ The fastest report starts in Fabricator, and Help writes most of it for you.
 
 1. In the status bar, select **Help**.
 2. Describe the problem, or say "report this for me".
-3. Help reads your error history and shows **Bug report ready** with the problem written up.
+3. Help reads your activity history and shows **Bug report ready** with the problem written up.
 4. Select **Review it first** to read it, then **Report this on GitHub**.
 5. The issue opens prefilled, with app, Tauri, WebView2, Copilot CLI, and user-agent versions added.
 6. Drag the diagnostics file from the opened logs folder onto the GitHub issue before submitting.
@@ -49,11 +49,11 @@ A diagnostics export is a Markdown file named like `fabricator-diagnostics-20261
 - Tauri version.
 - WebView2 version when available.
 - Copilot CLI version.
-- Recent errors as JSON lines.
+- Recent activity as JSON lines.
 - Recent chat-turn diagnostics as JSON lines.
 - Recent crash or hang log entries.
 
-Each recorded error includes the time, the part of the app it came from, how you saw it, and the message. Credentials and token-like values are masked before anything is written.
+Recent activity covers both what worked and what didn't: setup finishing, signing in, installing a tool, creating or opening an app, starting a preview, deploying, and every message the app showed you. Each entry includes the time, whether it was a success or a failure, the part of the app it came from, and the message. Credentials and token-like values are masked before anything is written.
 
 By default, chat-turn diagnostics are lightweight metadata: timing, model or mode when present, attachment count, files modified count, tool names and success, deploy involvement, outcome, and errors.
 

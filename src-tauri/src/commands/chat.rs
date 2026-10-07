@@ -32,7 +32,7 @@ use crate::commands::screenshot;
 use crate::services::copilot::{is_recoverable_session_error, PlanModeHandler};
 use crate::services::diagnostics;
 use crate::services::emit::emit_chat_event;
-use crate::services::errorlog;
+use crate::services::journal;
 use crate::services::history;
 use crate::services::store;
 use crate::state::{AppState, TurnRoute};
@@ -547,23 +547,33 @@ fn record_turn_diagnostics(
   };
   diagnostics::record_turn(&rec);
 
-  // A turn that didn't finish is an error the user saw, so it also belongs in
-  // the error journal the Help assistant reads. Cancelling is a normal outcome,
-  // not a failure.
-  if !matches!(outcome, "ok" | "cancelled") {
-    let message = error.unwrap_or_else(|| match outcome {
-      "timed_out" => "The chat turn timed out.".to_string(),
-      "incomplete" => "The chat turn ended before it finished.".to_string(),
-      _ => "The chat turn failed.".to_string(),
-    });
-    errorlog::write(&errorlog::record(
-      errorlog::Area::Chat,
-      errorlog::Surface::Inline,
+  // Record the outcome either way. A turn that failed is what the user will
+  // ask about; a turn that worked is what tells Help the failure before it was
+  // already resolved. Cancelling is neither.
+  if outcome != "cancelled" {
+    use journal::{Area, Level};
+    let failed = outcome != "ok";
+    let message = if failed {
+      error.unwrap_or_else(|| match outcome {
+        "timed_out" => "The chat turn timed out.".to_string(),
+        "incomplete" => "The chat turn ended before it finished.".to_string(),
+        _ => "The chat turn failed.".to_string(),
+      })
+    } else {
+      format!("A chat turn finished in {}s.", duration_ms / 1000)
+    };
+    let mut entry = journal::entry(
+      if failed { Level::Error } else { Level::Info },
+      Area::Chat,
+      if failed { "chat.turn.failed" } else { "chat.turn.ok" },
       &message,
-      Some(format!("chat_turn:{outcome}")),
-      None,
-      Some(project_id.to_string()),
-    ));
+    )
+    .operation(format!("chat_turn:{outcome}"))
+    .project(Some(project_id.to_string()));
+    if failed {
+      entry = entry.surface(journal::Surface::Inline);
+    }
+    entry.write();
   }
 }
 

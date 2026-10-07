@@ -5,6 +5,7 @@ import {
   inferArea,
   installGlobalErrorCapture,
   reportError,
+  reportEvent,
   reportThrown,
   setErrorProject
 } from './errorReport'
@@ -30,7 +31,8 @@ describe('recording errors', () => {
         message: 'The deploy failed.',
         operation: 'deploy_run',
         area: 'deploy',
-        surface: 'toast'
+        surface: 'toast',
+        level: 'error'
       })
     )
   })
@@ -60,6 +62,38 @@ describe('recording errors', () => {
   it('never throws when recording itself rejects', () => {
     record.mockImplementation(() => Promise.reject(new Error('disk full')))
     expect(() => reportError({ message: 'Still fine.' })).not.toThrow()
+  })
+})
+
+describe('recording what went right', () => {
+  // Without this, Help reads a journal of nothing but failures and tells a
+  // user with a perfectly healthy app that it is broken.
+  it('records a success as an info entry with its event name', () => {
+    reportEvent('deploy', 'deploy.succeeded', 'Deployed to the Sales workspace.')
+    expect(record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: 'info',
+        area: 'deploy',
+        event: 'deploy.succeeded',
+        message: 'Deployed to the Sales workspace.'
+      })
+    )
+  })
+
+  it('leaves the surface off, because nothing was shown as a problem', () => {
+    reportEvent('setup', 'setup.completed', 'Setup finished.')
+    expect(record.mock.calls[0][0].surface).toBeUndefined()
+  })
+
+  it('attributes a success to the active project too', () => {
+    setErrorProject('proj-7')
+    reportEvent('preview', 'preview.started', 'The preview is running.')
+    expect(record).toHaveBeenCalledWith(expect.objectContaining({ projectId: 'proj-7' }))
+  })
+
+  it('never throws when the journal is unavailable', () => {
+    delete (window as unknown as { api?: unknown }).api
+    expect(() => reportEvent('app', 'app.ok', 'Fine.')).not.toThrow()
   })
 })
 
