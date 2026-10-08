@@ -532,6 +532,10 @@ pub async fn prepare_project_dependencies(id: String) -> ProjectActionResult {
   if let Err(error) = crate::services::exec::ensure_project_dependencies(dir, None).await {
     return err(error);
   }
+  // A folder opened from disk may not have a repository yet. Start the version
+  // history that History, Restore and the after-turn redeploy rely on. A failure
+  // doesn't block the app; it's noted in the activity journal.
+  let _ = crate::services::version_history::ensure_project_tracked(&project).await;
   ProjectActionResult {
     ok: true,
     error: None,

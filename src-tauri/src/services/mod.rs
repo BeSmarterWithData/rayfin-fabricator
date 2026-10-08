@@ -30,4 +30,5 @@ pub mod store;
 pub mod team;
 pub mod telemetry;
 pub mod updater;
+pub mod version_history;
 pub mod watchdog;

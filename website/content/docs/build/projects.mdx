@@ -47,6 +47,8 @@ Use **Open folder** for a Rayfin project that is already on your computer.
 
 When a project opens, Fabricator makes sure the project dependencies are ready before it enables preview, deploy, model, and chat features.
 
+If the folder isn't in a git repository yet, Fabricator starts one when the project opens, so History, **Restore this version** and automatic redeploys work. It keeps dependencies, build output, Python environments, local settings and secrets out of the history, and leaves your `.gitignore` as it is. The first snapshot in History is **Start version history**.
+
 ## Clone from GitHub
 
 **Clone from GitHub** uses the GitHub CLI, `gh`. It is separate from the bundled Copilot engine.

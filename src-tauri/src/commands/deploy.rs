@@ -17,7 +17,7 @@ use tauri::{AppHandle, Manager};
 use crate::commands::auth::get_cached_identity;
 use crate::commands::util::{annotate_state, now_iso};
 use crate::services::exec::{self, OnData, RunOptions, RunResult, Stream};
-use crate::services::{crashlog, emit, fabric_auth, git, journal, store, telemetry};
+use crate::services::{crashlog, emit, fabric_auth, git, journal, store, telemetry, version_history};
 use crate::types::{DeployInfo, DeployResult, DeployStatus, FabricDeployment, ProjectsState, StudioProject};
 
 const DEPLOY_TIMEOUT_MS: u64 = 20 * 60_000;
@@ -631,6 +631,9 @@ async fn run_deploy_inner(
     }
   });
 
+  // An app opened from disk may not have a repository yet; start its history so
+  // this deploy can record which version is live.
+  let _ = version_history::ensure_project_tracked(&project).await;
   commit_checkpoint(&project.path, &format!("Deploy {} ({})", project.name, now_iso())).await;
   let commit = head_sha(&project.path).await;
   patch_deploy(&project_id, move |d| d.commit = commit);
@@ -667,6 +670,11 @@ pub async fn deploy_has_changes(project_id: String) -> Result<bool, String> {
   if crate::services::team::is_team_project(&project) {
     return Ok(false);
   }
+  // A folder opened from disk may have no repository yet. Start its version
+  // history so the comparison below can tell what changed.
+  version_history::ensure_project_tracked(&project).await.map_err(|error| {
+    format!("Could not start this app's version history, so Fabricator can't tell what changed. {error}")
+  })?;
   let commit = project.last_deploy.as_ref().and_then(|d| d.commit.as_deref());
   has_changes_since_deploy(&project.path, commit).await
 }
@@ -1068,6 +1076,29 @@ mod tests {
     repo.commit();
     assert!(has_changes_since_deploy(repo.dir(), None).await.unwrap());
     assert!(has_changes_since_deploy(repo.dir(), Some(" ")).await.unwrap());
+  }
+
+  /// A folder opened from disk with no repository (issue #37): the check used
+  /// to fail with "not a git repository" after every turn.
+  #[tokio::test]
+  async fn an_app_without_a_repository_gets_one_and_then_redeploys_only_on_changes() {
+    let dir = std::env::temp_dir().join(format!("fabricator-untracked-{}", uuid::Uuid::new_v4()));
+    if version_history::is_tracked(&std::env::temp_dir()) {
+      return;
+    }
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src").join("app.ts"), "export const version = 1;\n").unwrap();
+    let path = dir.to_str().unwrap();
+    assert!(has_changes_since_deploy(path, None).await.is_err(), "git alone can't check an untracked folder");
+
+    assert!(version_history::ensure_tracked(&dir).await.unwrap().is_some());
+    assert!(has_changes_since_deploy(path, None).await.unwrap(), "deploys once to set a baseline");
+    let deployed = head_sha(path).await.expect("the first version is committed");
+    assert!(!has_changes_since_deploy(path, Some(&deployed)).await.unwrap());
+
+    std::fs::write(dir.join("src").join("app.ts"), "export const version = 2;\n").unwrap();
+    assert!(has_changes_since_deploy(path, Some(&deployed)).await.unwrap());
+    let _ = std::fs::remove_dir_all(&dir);
   }
 
   #[tokio::test]
