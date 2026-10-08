@@ -3,6 +3,7 @@ import Editor, { type OnMount } from '@monaco-editor/react'
 import type { FileContent, FileNode, StudioProject } from '@shared/ipc'
 import { monacoLanguage } from '../monaco'
 import { Codicon, EditorIcon } from './icons'
+import { readCodeTab, writeCodeTab } from './codeTab'
 import HistoryView from './HistoryView'
 import SecretsView from './SecretsView'
 import SkillsView from './SkillsView'
@@ -32,27 +33,7 @@ function formatBytes(n: number): string {
 /** Project-relative paths (lowercased) opened by default on first entry to Files. */
 const DEFAULT_FILES = ['rayfin/rayfin.yml', 'rayfin/rayfin.yaml']
 
-type CodeTab = 'files' | 'history' | 'skills' | 'secrets'
-
-const codeTabKey = (projectId: string): string => `rayfin.code.tab.${projectId}`
 const codeFileKey = (projectId: string): string => `rayfin.code.file.${projectId}`
-
-function readCodeTab(projectId: string): CodeTab {
-  try {
-    const value = localStorage.getItem(codeTabKey(projectId))
-    return value === 'history' || value === 'skills' || value === 'secrets' ? value : 'files'
-  } catch {
-    return 'files'
-  }
-}
-
-function writeCodeTab(projectId: string, tab: CodeTab): void {
-  try {
-    localStorage.setItem(codeTabKey(projectId), tab)
-  } catch {
-    // Ignore storage failures; persistence is a convenience only.
-  }
-}
 
 function readCodeFile(projectId: string): string | null {
   try {

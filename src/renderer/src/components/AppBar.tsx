@@ -3,12 +3,12 @@ import type { DerivedAdvisor } from '../advisor/lifecycle'
 import { Codicon } from './icons'
 
 /** The active project's content views, switched from the app bar's tabs. */
-export type ProjectView = 'build' | 'code' | 'model' | 'advisor'
+export type ProjectView = 'build' | 'code' | 'blueprint' | 'advisor'
 
 const TABS: { id: ProjectView; label: string }[] = [
   { id: 'build', label: 'Build' },
   { id: 'code', label: 'Code' },
-  { id: 'model', label: 'Model' },
+  { id: 'blueprint', label: 'Blueprint' },
   { id: 'advisor', label: 'Advisor' }
 ]
 

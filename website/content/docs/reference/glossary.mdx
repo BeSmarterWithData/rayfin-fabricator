@@ -7,6 +7,10 @@ description: "Plain-language definitions of the terms used in Fabricator and the
 
 The health dashboard for a Rayfin app. It runs quick checks locally and can run a read-only Copilot deep review. See [Advisor](/docs/ship/advisor).
 
+## App identity
+
+The identity a Rayfin app's connections use when they're set to application access: the owner of the app's Fabric item. For your own apps, that's the Fabric account that first deployed the app; for team apps, the team's deploy identity. Blueprint shows which connections use it. See [Blueprint](/docs/build/data-model#whose-credentials-the-app-identity-uses).
+
 ## App item
 
 A Fabric item created by a deployed Rayfin app. Fabricator may also call this a Fabric app or App item when describing deployed apps. See [Deploy to Fabric](/docs/ship/deploy).
@@ -101,7 +105,7 @@ A value such as an API key or password that your app's Rayfin functions read on 
 
 ## Semantic model
 
-A Fabric or Power BI model that describes tables, columns, measures, and relationships for analytical data. Fabricator can help connect an app to a semantic model. See [Data model](/docs/build/data-model).
+A Fabric or Power BI model that describes tables, columns, measures, and relationships for analytical data. Fabricator can help connect an app to a semantic model. See [Blueprint](/docs/build/data-model).
 
 ## Skill
 

@@ -1,19 +1,83 @@
 ---
-title: "Data model and semantic models"
-description: "Use the Model view to inspect Rayfin entities, relationships, access rules, and connected Fabric semantic models."
+title: "Blueprint: architecture and data models"
+description: "Use Blueprint to see what your app is made of, what it connects to and which identity each connection uses, plus its Rayfin data model and Fabric semantic models."
 ---
 
-Use **Model** to understand the data behind your app. Fabricator can show your Rayfin data model from `rayfin/data/` and, when configured, a live Fabric semantic model.
+Use **Blueprint** to see how your app is put together. The **Architecture** view shows what the app is made of, what it connects to, and which identity each connection uses. The **Data model** view shows the Rayfin data model from `rayfin/data/`, and the **Semantic model** view shows the Fabric semantic models the app uses.
 
-![The Model view showing the Expense entity as a card with its fields and types, an authenticated access tag, and Open, Harden and Focus buttons.](/screenshots/model.webp)
+![The Architecture view of the Contoso Expenses sample app. People on the left connect to the app in the middle, which lists its app identity and its pieces: Website, Sign-in, Database, File storage, Connectors, Functions and Secrets. Lines run from the Connectors and Functions ports to the semantic models, warehouse, Azure services and web API on the right, grouped by where they live.](/screenshots/blueprint.webp)
 
-## Open the Model view
+## Open Blueprint
 
 1. Open a project.
-2. Select **Model** in the project tabs.
-3. If the project has both a Rayfin data model and semantic model connections, choose **Data model** or **Semantic model**.
+2. Select **Blueprint** in the project tabs.
+3. Choose **Architecture**, **Data model** or **Semantic model**. **Semantic model** appears when the app uses a semantic model.
 
-Fabricator remembers that choice for the project.
+Fabricator remembers the view you chose for the project.
+
+## Read the architecture
+
+The **Architecture** view reads the app's `rayfin/rayfin.yml`, `fabric.yaml`, data model and function code. From left to right it shows:
+
+- **People**, the people who use the app, and how they sign in.
+- The app, named with the workspace it's in. When any connection uses the app identity, **App identity** names whose credentials it uses. Below are the app's pieces: **Website**, **Sign-in**, **Database**, **File storage**, **Connectors**, **Functions** and **Secrets**, as the app has them.
+- What the app connects to, grouped by where it lives: each Fabric workspace by name, with its capacity and region when Fabric returns them, then **Microsoft Fabric**, **Azure** and **Web APIs**.
+
+A piece that connects to something outside the app lists how those connections sign in, with a count. Lines run from there to each source. Hover or select a piece, a source or one of those rows to highlight the connections it's part of.
+
+Use **Search the app and its connections** to highlight matching pieces and sources. The toolbar also has **Open the app** and **Open in Fabric** once the app is deployed, plus zoom and fit-to-view.
+
+If the app connects to nothing outside, the view says **No outside data yet** and offers **Connect data with Copilot**. If `rayfin/rayfin.yml` can't be read, it says "Couldn’t draw the app" and offers **Open rayfin.yml**.
+
+## Which identity a connection uses
+
+| Label | What it means | Used by |
+| --- | --- | --- |
+| **Uses user’s identity** | Delegated access. The connection runs as the signed-in person, so Fabric checks their own permissions and each person sees only what they can access. | Connectors with `auth.type: delegated`, and semantic models in `fabric.yaml` |
+| **Uses app identity** | Application access. The connection runs as the app identity, so everyone sees the same data. | Connectors with `auth.type: application`, and function connections through `ctx.Tokens` |
+| **Uses a key** | The function sends its own key or token. Anyone who has the key has the same access. | Web APIs that functions call directly |
+
+The app's own database always uses the user's identity, and each table's access rules decide which rows a person can see. Learn more in the [Rayfin delegated access docs](https://rayfin.ai/docs/auth/delegated-access).
+
+## Whose credentials the app identity uses
+
+The app identity is the owner of the app's Fabric item:
+
+- For your own apps, it's the Fabric account that first deployed the app. Fabricator shows the account it deploys with. Before the first deploy, it shows "Whoever deploys it first".
+- For a team app, it's the team workspace's deploy identity. Previews are owned by the preview identity when the team has a separate one.
+
+Select **App identity** to see which sources the app identity needs access to, and select **Ask Copilot what to grant** to ask which role to give it on each one.
+
+## When the website's pages load
+
+The **Website** piece shows when people can load the app's pages, set by `assetAccess` in `rayfin/rayfin.yml`:
+
+- **Pages load after sign-in** (`protected`): the page files load only for people signed in to Fabric.
+- **Pages load before sign-in** (`public`): anyone with the link can download the page files, the app's HTML, JavaScript and CSS. The app's data still needs sign-in, and its access rules still apply.
+- **Page access not set**: choose `protected` or `public` before deploying.
+
+## Secrets
+
+The **Secrets** piece lists the secrets the app's functions use: the ones declared in `rayfin/rayfin.yml` and the ones its code reads. Select it to see what each secret is for, which functions read it, and whether the deployed app has a value for it: **Set**, **No value** or **Not in rayfin.yml**. Values are never shown.
+
+Fabricator flags a secret that functions read with `ctx.Secrets` but that `rayfin/rayfin.yml` doesn't declare, which is a TypeScript error, and reads that use the deprecated `ctx.getSecret()`.
+
+Select **Manage secrets** to add or change values in **Code → Secrets**. If keys are written into the functions' code, select **Move keys into secrets** to ask Copilot to move them. See [Secrets](/docs/build/secrets).
+
+## Details and actions
+
+Select any card to open its details: what it is, the settings it comes from, its IDs, and what it connects to. Press Esc or select the empty canvas to close them.
+
+Depending on what you select, the details can include:
+
+- **Use user’s identity** or **Use app identity**, to ask Copilot to change a connector's `auth.type`.
+- **Fix with Copilot**, when a connector's `auth.type` or the functions' `services.functions.auth.type` would stop the app from deploying.
+- **Use app identity** on a web API that Rayfin can also reach with the app identity, so the functions don't need a key for it.
+- **View the model**, which opens a semantic model in the **Semantic model** view.
+- **Open in Fabric**, which opens a source or its workspace in the Fabric portal.
+- **Harden access** and **Open the data model** on **Database**.
+
+These actions send a prompt to the Build chat. Fabricator doesn't deploy from them directly; the normal chat turn and redeploy apply.
 
 ## Read the data model diagram
 
@@ -26,6 +90,8 @@ The **Data model** view parses the Rayfin schema and draws an entity-relationshi
 - An access dot. The legend labels access as **Row-scoped**, **Any signed-in** or **Public**.
 
 Relationships appear as lines between entity cards. Hover an entity to highlight its related entities.
+
+![The Data model view showing the Expense entity as a card with its fields and types, an authenticated access tag, and Open, Harden and Focus buttons.](/screenshots/model.webp)
 
 Learn the Rayfin modeling concepts in the [Rayfin data modeling docs](https://rayfin.ai/docs/data/modeling).
 
@@ -60,7 +126,7 @@ Learn more in the [Rayfin permissions docs](https://rayfin.ai/docs/data/permissi
 
 ## Add a data model
 
-If the app has no schema yet, the Model view says **No data model yet** and offers **Add a data model with Copilot**. If `rayfin/data/schema.ts` exists but has no entities, it says **Your schema has no entities** and offers **Add an entity with Copilot**.
+If the app has no schema yet, the **Data model** view says **No data model yet** and offers **Add a data model with Copilot**. If `rayfin/data/schema.ts` exists but has no entities, it says **Your schema has no entities** and offers **Add an entity with Copilot**.
 
 Those actions stage a prompt in the Build chat composer.
 
@@ -70,7 +136,7 @@ Add Project and Task entities. A project has many tasks. Tasks have a title, due
 
 ## View a semantic model
 
-When the project has semantic model connections in `fabric.yaml`, the **Semantic model** view reads the model live from Fabric and draws a diagram of:
+When the app uses semantic models, from `fabric.yaml` or a semantic model connector, the **Semantic model** view reads them live from Fabric and draws a diagram of:
 
 - Tables.
 - Columns and data types.
@@ -106,4 +172,4 @@ Reading a semantic model schema can also require sign-in:
 - **Sign in to Fabric** appears when the Fabric session is missing.
 - **Sign in to Azure** appears when the schema query needs an Azure CLI session.
 
-If the schema cannot be read, the Model view shows "Couldn’t read the semantic model" and offers **Try again**. For Fabric deployment and authentication recovery, see [Deploy troubleshooting](/docs/troubleshooting/deploy).
+If the schema cannot be read, the **Semantic model** view shows "Couldn’t read the semantic model" and offers **Try again**. For Fabric deployment and authentication recovery, see [Deploy troubleshooting](/docs/troubleshooting/deploy).

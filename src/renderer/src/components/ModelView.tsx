@@ -25,6 +25,7 @@ import {
   type RectLike
 } from '../model/relationships'
 import { Codicon } from './icons'
+import { ViewHead } from './blueprint/ViewHead'
 
 interface Props {
   project: StudioProject
@@ -35,11 +36,13 @@ interface Props {
   /** Hand a prompt to the Build chat (stage stages it in the composer). */
   onSendToChat: (display: string, prompt: string, stage?: boolean) => void
   /**
-   * Pre-parsed data model supplied by the Model-tab wrapper so the model isn't
-   * parsed twice (the wrapper already parses it to decide which view to show).
+   * Pre-parsed data model supplied by the Blueprint tab so the model isn't
+   * parsed twice (the tab already parses it for its other views).
    * When omitted, the component parses the project itself.
    */
   providedModel?: DataModel | null
+  /** Focus an entity, asked for from elsewhere (a new `nonce` asks again). */
+  focusRequest?: { entity: string; nonce: number } | null
 }
 
 /** Short label + chip class for a field's semantic type. */
@@ -129,7 +132,8 @@ export default function ModelView({
   refreshKey,
   onOpenFile,
   onSendToChat,
-  providedModel
+  providedModel,
+  focusRequest
 }: Props): JSX.Element {
   const [model, setModel] = useState<DataModel | null>(null)
   const [loading, setLoading] = useState(true)
@@ -570,6 +574,16 @@ export default function ModelView({
     [neighborsOf]
   )
 
+  // An entity asked for from elsewhere (the Architecture view): focus it once
+  // the model is in, and only once per request.
+  const handledFocus = useRef<number | null>(null)
+  useEffect(() => {
+    if (!focusRequest || !model || handledFocus.current === focusRequest.nonce) return
+    if (!model.entities.some((e) => e.name === focusRequest.entity)) return
+    handledFocus.current = focusRequest.nonce
+    focusOn(focusRequest.entity)
+  }, [focusRequest, model, focusOn])
+
   const toggleCard = useCallback(
     (name: string): void => {
       setCollapsed((prev) => {
@@ -673,27 +687,29 @@ export default function ModelView({
 
   return (
     <div className="model-view">
-      <div className="model-head">
-        <div className="model-head-titles">
-          <h2 className="model-title">Data model</h2>
-          <span className="model-subtitle">
+      <ViewHead
+        title="Data model"
+        subtitle={
+          <>
             {entityCount} {entityCount === 1 ? 'entity' : 'entities'}
             {relCount > 0 && ` · ${relCount} ${relCount === 1 ? 'relationship' : 'relationships'}`}
-          </span>
-        </div>
-        <div className="model-legend" aria-hidden="true">
-          <span className="model-legend-label">Access</span>
-          <span className="model-legend-item">
-            <span className="model-legend-dot model-legend-dot--ok" /> Row‑scoped
-          </span>
-          <span className="model-legend-item">
-            <span className="model-legend-dot model-legend-dot--warn" /> Any signed‑in
-          </span>
-          <span className="model-legend-item">
-            <span className="model-legend-dot model-legend-dot--danger" /> Public
-          </span>
-        </div>
-      </div>
+          </>
+        }
+        legend={
+          <div className="model-legend" aria-hidden="true">
+            <span className="model-legend-label">Access</span>
+            <span className="model-legend-item">
+              <span className="model-legend-dot model-legend-dot--ok" /> Row‑scoped
+            </span>
+            <span className="model-legend-item">
+              <span className="model-legend-dot model-legend-dot--warn" /> Any signed‑in
+            </span>
+            <span className="model-legend-item">
+              <span className="model-legend-dot model-legend-dot--danger" /> Public
+            </span>
+          </div>
+        }
+      />
 
       <div className="model-toolbar">
         <div className="model-search">

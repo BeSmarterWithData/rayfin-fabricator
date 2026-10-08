@@ -1,0 +1,1377 @@
+/* Blueprint tab: how the app is put together. One header row holds the view
+   switcher (Architecture / Data model / Semantic model) and the active view's
+   summary; the Data and Semantic model views keep their own .model-* styles.
+   Flat, like the workspace overview: solid surfaces, neutral 1px borders,
+   dashed outlines for the places things live, and color only for the
+   identity a connection signs in as. The toolbar reuses .model-toolbar. */
+
+.bp-tab {
+  /* Who a connection signs in as: each person (delegated), the app, or a key. */
+  --bp-user: var(--accent);
+  --bp-app: #a78bfa;
+  --bp-key: #f472b6;
+  --bp-line: color-mix(in srgb, var(--text-faint) 55%, transparent);
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+[data-theme='light'] .bp-tab {
+  --bp-app: #7c3aed;
+  --bp-key: #db2777;
+}
+
+/* ── Header: view switcher + the active view's summary ─────────────────── */
+
+.bp-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex: none;
+  min-height: 48px;
+  padding: 0 14px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+}
+
+.bp-seg {
+  flex: none;
+  margin-bottom: 0;
+}
+
+.bp-seg .seg-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  white-space: nowrap;
+}
+
+.bp-seg .seg-btn .codicon {
+  font-size: 13px;
+}
+
+.bp-seg .seg-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.bp-seg-count {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.bp-head-slot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bp-tab-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ── Canvas ─────────────────────────────────────────────────────────────── */
+
+.bp-arch {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.bp-body {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.bp-viewport {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  background-color: var(--bg);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in srgb, var(--text-faint) 24%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 22px 22px;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+
+.bp-viewport[data-panning='true'] {
+  cursor: grabbing;
+}
+
+.bp-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+}
+
+/* Programmatic moves (fit, bring into view) glide; panning and zooming stay direct. */
+.bp-canvas--glide {
+  transition: transform 0.26s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* Promote to a GPU layer only while panning; at rest it would blur text. */
+.bp-viewport[data-panning='true'] .bp-canvas {
+  will-change: transform;
+}
+
+/* People → the app (its parts, and who it signs in as) → where it reaches. */
+.bp-stage {
+  position: relative;
+  display: grid;
+  grid-template-columns: 216px 84px 320px 136px 300px;
+  align-items: center;
+  padding: 48px 64px 56px;
+}
+
+.bp-col {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.bp-col--people {
+  grid-column: 1;
+}
+
+.bp-col--app {
+  grid-column: 3;
+}
+
+.bp-col--zones {
+  grid-column: 5;
+}
+
+/* ── Nodes ──────────────────────────────────────────────────────────────── */
+
+.bp-node,
+.bp-row,
+.bp-zone {
+  position: relative;
+  z-index: 1;
+  animation: bp-in 0.3s ease backwards;
+  animation-delay: calc(var(--i, 0) * 40ms);
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    opacity 0.15s ease;
+}
+
+.bp-node {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+[data-node][role='button'] {
+  cursor: pointer;
+}
+
+.bp-viewport[data-panning='true'] [data-node] {
+  cursor: grabbing;
+}
+
+[data-node][role='button']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.bp-node[role='button']:hover,
+.bp-row:hover {
+  border-color: color-mix(in srgb, var(--text-faint) 55%, var(--border));
+}
+
+.bp-is-selected,
+.bp-is-selected:hover {
+  background: var(--bg-elev-2);
+  border-color: var(--text-dim);
+}
+
+.bp-is-dim {
+  opacity: 0.4;
+}
+
+.bp-titles {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.bp-titles > strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-titles > span {
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.bp-mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* A name's mark, tinted by a hue taken from the name (as in the workspace overview). */
+.bp-mark {
+  --hue: 200;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  font-size: 14px;
+  font-weight: 650;
+  color: hsl(var(--hue) 65% 68%);
+  background: hsl(var(--hue) 55% 50% / 0.15);
+  border-radius: 8px;
+}
+
+[data-theme='light'] .bp-mark {
+  color: hsl(var(--hue) 55% 34%);
+  background: hsl(var(--hue) 55% 50% / 0.13);
+}
+
+.bp-tile {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-radius: 7px;
+}
+
+.bp-tile--sm {
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+/* An identity's tile takes its color, faintly. */
+.bp-tile--id {
+  color: var(--id, var(--text-dim));
+  background: color-mix(in srgb, var(--id, var(--text-dim)) 14%, transparent);
+}
+
+.bp-port-row--user,
+.bp-glyph--user,
+.bp-insp-glyph--user {
+  --id: var(--bp-user);
+}
+
+.bp-whois,
+.bp-port-row--app,
+.bp-glyph--app,
+.bp-insp-glyph--app {
+  --id: var(--bp-app);
+}
+
+.bp-port-row--key,
+.bp-glyph--key,
+.bp-insp-glyph--key {
+  --id: var(--bp-key);
+}
+
+.bp-dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  background: var(--text-faint);
+  border-radius: 50%;
+}
+
+.bp-dot--user {
+  background: var(--bp-user);
+}
+
+.bp-dot--app {
+  background: var(--bp-app);
+}
+
+.bp-dot--key {
+  background: var(--bp-key);
+}
+
+.bp-dot--ok {
+  background: var(--ok);
+}
+
+.bp-dot--warn {
+  background: var(--pending);
+}
+
+.bp-dot--danger {
+  background: var(--danger);
+}
+
+/* People */
+
+.bp-people-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.bp-faces {
+  display: flex;
+  flex: none;
+}
+
+/* Neutral faces: color on this canvas means an identity. */
+.bp-face {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg-elev);
+}
+
+.bp-face:nth-child(2) {
+  background: var(--bg-elev-3);
+}
+
+.bp-face + .bp-face {
+  margin-left: -7px;
+}
+
+.bp-is-selected .bp-face {
+  box-shadow: 0 0 0 2px var(--bg-elev-2);
+}
+
+.bp-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--border-soft);
+}
+
+.bp-facts li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.bp-facts .codicon {
+  flex: none;
+  margin-top: 1px;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.bp-fact--warn .codicon {
+  color: var(--pending);
+}
+
+.bp-facts .bp-fact--danger,
+.bp-fact--danger .codicon {
+  color: var(--danger);
+}
+
+/* The app: an outline holding its parts and the identities it signs in as. */
+
+.bp-app {
+  gap: 0;
+  padding: 0;
+  background: color-mix(in srgb, var(--bg-elev) 55%, transparent);
+}
+
+.bp-app-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border-radius: 9px 9px 0 0;
+  transition: background 0.12s ease;
+}
+
+/* The app's name, and who it signs in as: properties of the whole app. */
+.bp-app-top {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border-soft);
+}
+
+.bp-app-top > .bp-whois {
+  margin: 0 10px 10px;
+}
+
+.bp-app-head:hover {
+  background: var(--bg-elev-2);
+}
+
+/* Selecting the app marks its outline and header, not everything inside it. */
+.bp-app.bp-is-selected {
+  background: color-mix(in srgb, var(--bg-elev) 55%, transparent);
+}
+
+.bp-app.bp-is-selected .bp-app-head {
+  background: var(--bg-elev-2);
+}
+
+.bp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 10px 12px;
+}
+
+.bp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px 8px 8px;
+  color: var(--text);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.bp-row-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.bp-row-text > strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-row-text > span {
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-dim);
+}
+
+.bp-row-text > .bp-row-meta {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.bp-row-text > .bp-row-meta.bp-mono {
+  font-size: 10.5px;
+}
+
+.bp-row-text > .bp-text--danger {
+  color: var(--danger);
+}
+
+.bp-row-text > .bp-row-kicker {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+/* A part: its own button, and when it reaches outside, nested under it the
+   identities its connections leave as, each a port its lines start from. */
+.bp-svc {
+  align-items: stretch;
+  padding: 0;
+}
+
+.bp-svc--ports {
+  flex-direction: column;
+  gap: 0;
+}
+
+.bp-svc-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 10px 8px 8px;
+  border-radius: 7px;
+}
+
+.bp-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0 5px 5px 41px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.bp-port-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px 0 4px;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease,
+    opacity 0.15s ease;
+}
+
+.bp-port-row:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+
+.bp-port-row.bp-is-selected {
+  color: var(--text);
+}
+
+.bp-port-ico {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  font-size: 12px;
+  color: var(--id);
+  background: color-mix(in srgb, var(--id) 16%, transparent);
+  border-radius: 5px;
+}
+
+.bp-port-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-port-count {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-faint);
+}
+
+.bp-access {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  margin-top: 2px;
+  font-size: 11px;
+}
+
+.bp-access-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bp-access .bp-dot {
+  width: 7px;
+  height: 7px;
+}
+
+.bp-access-ico {
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.bp-flag {
+  flex: none;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.bp-flag--danger {
+  color: var(--danger);
+}
+
+/* Where it reaches, grouped by where those things live. */
+
+.bp-zone {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed color-mix(in srgb, var(--text-faint) 50%, transparent);
+  border-radius: 12px;
+}
+
+/* Lined up with the cards below it: the mark over their tiles, the names over theirs. */
+.bp-zone-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 9px 4px;
+}
+
+.bp-zone-mark {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font-size: 20px;
+  color: var(--text-dim);
+}
+
+.bp-fabric-mark {
+  flex: none;
+}
+
+.bp-zone-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.bp-zone-title {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-zone-meta {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+
+/* Nothing outside yet */
+
+.bp-ghost {
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  background: transparent;
+  border-style: dashed;
+}
+
+.bp-ghost-ico {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-bottom: 2px;
+  font-size: 14px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-radius: 7px;
+}
+
+.bp-ghost > strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.bp-ghost > span {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.bp-ghost > .btn {
+  margin-top: 6px;
+}
+
+/* ── Lines ──────────────────────────────────────────────────────────────── */
+
+.bp-edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.bp-edge {
+  /* Its color, and its color while highlighted. */
+  --edge: var(--bp-line);
+  --edge-hot: var(--text-dim);
+  transition: opacity 0.15s ease;
+}
+
+.bp-edge--user {
+  --edge: color-mix(in srgb, var(--bp-user) 55%, transparent);
+  --edge-hot: var(--bp-user);
+}
+
+.bp-edge--app {
+  --edge: color-mix(in srgb, var(--bp-app) 55%, transparent);
+  --edge-hot: var(--bp-app);
+}
+
+.bp-edge--key {
+  --edge: color-mix(in srgb, var(--bp-key) 55%, transparent);
+  --edge-hot: var(--bp-key);
+}
+
+.bp-edge-line {
+  fill: none;
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  /* With pathLength=1 the dash spans the whole line: draw it in on load. */
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation: bp-draw 0.6s ease 0.15s backwards;
+  transition: stroke 0.15s ease;
+}
+
+.bp-edge--hot .bp-edge-line {
+  stroke: var(--edge-hot);
+  stroke-width: 2;
+}
+
+.bp-edge--ghost .bp-edge-line {
+  stroke-dasharray: 0.02 0.025;
+  animation: none;
+}
+
+.bp-edge-flow {
+  fill: none;
+  stroke: var(--edge-hot);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-dasharray: 2 10;
+  opacity: 0;
+}
+
+.bp-edge--hot .bp-edge-flow {
+  opacity: 0.9;
+  animation: bp-flow 0.9s linear infinite;
+}
+
+.bp-edge--dim {
+  opacity: 0.15;
+}
+
+/* Where a line meets a card. */
+.bp-port {
+  fill: var(--bg-elev);
+  stroke: var(--edge);
+  stroke-width: 1.5;
+  transition: stroke 0.15s ease;
+}
+
+.bp-edge--hot .bp-port {
+  stroke: var(--edge-hot);
+}
+
+/* ── Details panel ──────────────────────────────────────────────────────── */
+
+.bp-insp {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  width: 360px;
+  min-height: 0;
+  background: var(--bg-elev);
+  border-left: 1px solid var(--border);
+  animation: bp-slide 0.2s ease backwards;
+}
+
+.bp-insp-head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 12px 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bp-insp-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-radius: 8px;
+}
+
+.bp-insp-glyph--user,
+.bp-insp-glyph--app,
+.bp-insp-glyph--key {
+  color: var(--id);
+  background: color-mix(in srgb, var(--id) 14%, transparent);
+}
+
+.bp-insp-glyph--warn {
+  color: var(--pending);
+}
+
+.bp-insp-glyph--danger {
+  color: var(--danger);
+}
+
+.bp-insp-titles {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bp-insp-kicker {
+  overflow: hidden;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+
+.bp-insp-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-insp-close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  color: var(--text-dim);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bp-insp-close:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+
+.bp-insp-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+}
+
+.bp-insp-body code {
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--code-inline-text);
+  background: var(--code-inline-bg);
+  border-radius: 5px;
+}
+
+.bp-insp-lead {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-dim);
+}
+
+.bp-insp-lead strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bp-insp-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-faint);
+}
+
+.bp-insp-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bp-insp-h {
+  margin: 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.bp-facts-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.bp-fact-row {
+  display: grid;
+  grid-template-columns: 104px 1fr;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.bp-fact-row:first-child {
+  border-top: 0;
+}
+
+.bp-fact-row dt {
+  color: var(--text-faint);
+}
+
+.bp-fact-row dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.bp-guid {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.bp-guid code {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-guid-copy {
+  flex: none;
+}
+
+/* A quiet icon button beside an id. */
+.bp-guid .bp-guid-copy {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-faint);
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.bp-guid .bp-guid-copy:hover {
+  color: var(--text);
+  background: var(--bg-elev-2);
+}
+
+.bp-guid .bp-guid-copy svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Issues: a quiet surface, the tone carried by the icon. */
+.bp-issues {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bp-issue {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg-elev-2);
+  border-radius: 8px;
+}
+
+.bp-issue .codicon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.bp-issue--danger .codicon {
+  color: var(--danger);
+}
+
+.bp-issue--warn .codicon {
+  color: var(--pending);
+}
+
+.bp-issue--info .codicon {
+  color: var(--accent);
+}
+
+/* "Signs in as" for one connection; opens the identity. */
+.bp-signs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+
+.bp-signs:hover {
+  border-color: color-mix(in srgb, var(--text-faint) 55%, var(--border));
+}
+
+.bp-glyph {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
+  color: var(--id);
+  background: color-mix(in srgb, var(--id) 14%, transparent);
+  border-radius: 7px;
+}
+
+.bp-signs-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.bp-signs-text strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.bp-signs-text span {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+.bp-signs-go,
+.bp-list-go {
+  flex: none;
+  font-size: 13px;
+  color: var(--text-faint);
+}
+
+.bp-hosts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.bp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bp-list-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 8px;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.bp-list-row:hover {
+  background: var(--bg-elev-2);
+}
+
+.bp-list-row--static,
+.bp-list-row--static:hover {
+  background: transparent;
+  cursor: default;
+}
+
+.bp-list-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.bp-list-text strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-list-text span {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.bp-list-text .bp-list-sub {
+  color: var(--text-faint);
+}
+
+.bp-list-hint {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--text-faint);
+}
+
+.bp-list-empty {
+  padding: 4px 8px;
+  font-size: 12px;
+  color: var(--text-faint);
+}
+
+.bp-list .skl-status {
+  flex: none;
+}
+
+.bp-plain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+  list-style: none;
+}
+
+.bp-fns li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.bp-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 550;
+  white-space: nowrap;
+  color: var(--text-dim);
+  background: var(--bg-elev-2);
+  border-radius: 5px;
+}
+
+.bp-chip--app {
+  color: var(--bp-app);
+}
+
+/* Whose credentials the app uses */
+.bp-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.bp-who-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  font-size: 16px;
+  color: var(--bp-app);
+  background: color-mix(in srgb, var(--bp-app) 14%, transparent);
+  border-radius: 50%;
+}
+
+.bp-who-avatar--sp {
+  border-radius: 8px;
+}
+
+.bp-who-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.bp-who-text strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bp-who-text span {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.bp-doclink {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.bp-doclink:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.bp-insp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 12px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.bp-insp-actions .btn .codicon {
+  font-size: 13px;
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────── */
+
+@keyframes bp-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@keyframes bp-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+
+@keyframes bp-flow {
+  to {
+    stroke-dashoffset: -12;
+  }
+}
+
+@keyframes bp-slide {
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bp-node,
+  .bp-row,
+  .bp-zone,
+  .bp-edge-line,
+  .bp-insp,
+  .bp-edge--hot .bp-edge-flow {
+    animation: none;
+  }
+
+  .bp-canvas--glide {
+    transition: none;
+  }
+}

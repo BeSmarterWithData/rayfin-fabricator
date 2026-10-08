@@ -156,7 +156,8 @@ in `.md`.
 | `design-theme` | Design mode's Theme panel | `/docs/build/design` |
 | `code` | Code view with the file tree and the editor | `/docs/build/code-and-history` |
 | `history` | The History tab with a version selected | `/docs/build/code-and-history` |
-| `model` | Model view with the entity diagram | `/docs/build/data-model` |
+| `blueprint` | Blueprint's Architecture view of the sample app (sample data) | `/docs/build/data-model` |
+| `model` | Blueprint's Data model view with the entity diagram | `/docs/build/data-model` |
 | `skills` | The Skills view | `/docs/build/skills` |
 | `secrets` | The Secrets view with a secret selected | `/docs/build/secrets` |
 | `deployments` | The deployments panel | `/docs/ship/deploy` |

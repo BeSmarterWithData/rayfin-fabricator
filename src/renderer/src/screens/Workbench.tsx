@@ -57,7 +57,8 @@ import { AdvisorFixContext, type AdvisorFixLinks } from '../components/advisor/A
 import { useAdvisor } from '../advisor/store'
 import { fixOutcomes } from '../advisor/lifecycle'
 import { fixPrompt, isVersionFinding } from '../advisor/prompts'
-import ModelTab from '../components/ModelTab'
+import BlueprintTab from '../components/blueprint/BlueprintTab'
+import { writeCodeTab } from '../components/codeTab'
 import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
 import { reportIssue as runReportIssue } from './reportIssue'
@@ -1062,6 +1063,16 @@ export default function Workbench({
     setViewMode('code')
   }, [])
 
+  // Open the Code tab on its Secrets view (from the Blueprint's Secrets part).
+  const openSecretsInCode = useCallback((): void => {
+    const id = activeIdRef.current
+    if (!id) return
+    writeCodeTab(id, 'secrets')
+    // A pending file request would land the Code tab in Files instead.
+    setCodeOpen(null)
+    setViewMode('code')
+  }, [])
+
   // Open a file referenced by an @-mention chip in chat (in the Code tab).
   const openMention = useCallback(
     (ref: string): void => {
@@ -1692,13 +1703,17 @@ export default function Workbench({
                         onSecretsChanged={() => setGitRefresh((n) => n + 1)}
                       />
                     </Suspense>
-                  ) : viewMode === 'model' ? (
-                    <ModelTab
+                  ) : viewMode === 'blueprint' ? (
+                    <BlueprintTab
+                      key={active.id}
                       project={active}
                       refreshKey={gitRefresh}
                       onOpenFile={openFileInCode}
+                      onOpenSecrets={openSecretsInCode}
                       onSendToChat={sendModelToChat}
                       onSignedIn={onAuthChanged}
+                      fabricUser={auth.rayfin.signedIn ? auth.rayfin.user : undefined}
+                      teamManifest={activeTeamWorkspace?.manifest}
                     />
                   ) : viewMode === 'build' ? (
                     <div

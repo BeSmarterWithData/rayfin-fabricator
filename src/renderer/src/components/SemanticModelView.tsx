@@ -35,17 +35,22 @@ import { useSuppressPreview } from '../overlay'
 import { useToast } from '../toast'
 import { authErrorMessage } from '../authErrors'
 import { Codicon } from './icons'
+import { ViewHead } from './blueprint/ViewHead'
 
 interface Props {
   /** Project id — used to persist manual card positions per project. */
   projectId: string
-  /** The active profile's semantic model(s); at least one. */
+  /** The app's semantic model(s), from `fabric.yaml` and connectors; at least one. */
   models: SemanticModelRef[]
   /** Bumped by the parent when the model may have changed (e.g. after a deploy). */
   refreshKey: number
   /** Refresh app auth after sign-in; rejection prevents retrying the schema query. */
   onSignedIn?: () => Promise<void> | void
+  /** Show one model (`workspaceId:itemId`, lowercase), asked for from elsewhere. */
+  selectRequest?: { key: string; nonce: number } | null
 }
+
+const modelKey = (m: SemanticModelRef): string => `${m.workspaceId}:${m.itemId}`.toLowerCase()
 
 interface XY {
   x: number
@@ -147,10 +152,21 @@ export default function SemanticModelView({
   projectId,
   models,
   refreshKey,
-  onSignedIn
+  onSignedIn,
+  selectRequest
 }: Props): JSX.Element {
-  const [selectedIdx, setSelectedIdx] = useState(0)
+  // Start on the requested model, so the first query isn't for the wrong one.
+  const [selectedIdx, setSelectedIdx] = useState(() =>
+    Math.max(0, selectRequest ? models.findIndex((m) => modelKey(m) === selectRequest.key) : 0)
+  )
   const selected = models[Math.min(selectedIdx, models.length - 1)] ?? models[0]
+  const handledSelect = useRef(selectRequest?.nonce ?? null)
+  useEffect(() => {
+    if (!selectRequest || handledSelect.current === selectRequest.nonce) return
+    handledSelect.current = selectRequest.nonce
+    const idx = models.findIndex((m) => modelKey(m) === selectRequest.key)
+    if (idx >= 0) setSelectedIdx(idx)
+  }, [selectRequest, models])
 
   const [state, setState] = useState<LoadState>({ status: 'loading' })
   const [reloadTick, setReloadTick] = useState(0)
@@ -835,32 +851,34 @@ export default function SemanticModelView({
 
   return (
     <div className="semantic-view">
-      <div className="model-head">
-        <div className="model-head-titles">
-          <h2 className="model-title">Semantic model</h2>
-          <span className="model-subtitle">
+      <ViewHead
+        title="Semantic model"
+        subtitle={
+          <>
             {tableCount} {tableCount === 1 ? 'table' : 'tables'}
             {relCount > 0 && ` · ${relCount} ${relCount === 1 ? 'relationship' : 'relationships'}`}
-          </span>
-        </div>
-        <div className="model-legend" aria-hidden="true">
-          <span className="model-legend-item">
-            <svg className="semantic-legend-mark" viewBox="0 0 24 14" width="24" height="14">
-              <path d="M2,7 H22 M7,2 V12" />
-            </svg>
-            one
-          </span>
-          <span className="model-legend-item">
-            <svg className="semantic-legend-mark" viewBox="0 0 24 14" width="24" height="14">
-              <path d="M2,7 H22 M22,7 L10,2 M22,7 L10,12" />
-            </svg>
-            many
-          </span>
-          <span className="model-legend-item">
-            <span className="semantic-legend-dash" /> inactive
-          </span>
-        </div>
-      </div>
+          </>
+        }
+        legend={
+          <div className="model-legend" aria-hidden="true">
+            <span className="model-legend-item">
+              <svg className="semantic-legend-mark" viewBox="0 0 24 14" width="24" height="14">
+                <path d="M2,7 H22 M7,2 V12" />
+              </svg>
+              one
+            </span>
+            <span className="model-legend-item">
+              <svg className="semantic-legend-mark" viewBox="0 0 24 14" width="24" height="14">
+                <path d="M2,7 H22 M22,7 L10,2 M22,7 L10,12" />
+              </svg>
+              many
+            </span>
+            <span className="model-legend-item">
+              <span className="semantic-legend-dash" /> inactive
+            </span>
+          </div>
+        }
+      />
 
       <div className="model-toolbar">
         <div className="model-search">
