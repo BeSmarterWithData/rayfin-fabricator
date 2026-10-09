@@ -149,6 +149,7 @@ function installApi(active = false) {
     },
     projects: {
       state: vi.fn().mockResolvedValue(state),
+      setActive: vi.fn<RayfinStudioApi['projects']['setActive']>(),
       git: { divergence: vi.fn().mockResolvedValue({ behind: 0 }) }
     },
     deploy: {
@@ -620,12 +621,15 @@ describe('Workbench app bar', () => {
     expect(inBar.getByRole('button', { name: 'Account: dev@example.com' })).toBeTruthy()
   })
 
-  it('opens the launcher from the project name and returns to the still-open project', async () => {
+  it('shows every project from the project menu and returns to the still-open project', async () => {
     installApi(true)
     render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
     const draft = await screen.findByLabelText('Chat draft')
 
     fireEvent.click(screen.getByRole('button', { name: 'Project One — Switch projects' }))
+    expect(screen.queryByTestId('home')).toBeNull()
+    expect(screen.getByText('No other recent projects')).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'All projects' }))
     expect(screen.getByTestId('home')).toBeTruthy()
     expect(screen.queryByRole('tablist')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Test deploy' })).toBeNull()
@@ -634,6 +638,44 @@ describe('Workbench app bar', () => {
     expect(screen.queryByTestId('home')).toBeNull()
     expect(screen.getByRole('tablist', { name: 'Project views' })).toBeTruthy()
     expect(screen.getByLabelText('Chat draft')).toBe(draft)
+  })
+
+  it('switches to a recent project from the project menu without showing Home', async () => {
+    const api = installApi(true)
+    const other: StudioProject = { ...project, id: 'p2', name: 'Project Two', path: 'C:\\projects\\p2' }
+    let current = {
+      workspaceRoot: 'C:\\projects',
+      activeProjectId: project.id as string | null,
+      projects: [project, other]
+    }
+    api.projects.state.mockImplementation(async () => current)
+    api.deploy.reconcile.mockImplementation(async () => current)
+    api.projects.setActive.mockImplementation(async (id) => {
+      const picked = current.projects.find((p) => p.id === id)
+      if (picked) {
+        current = {
+          ...current,
+          activeProjectId: picked.id,
+          projects: [picked, ...current.projects.filter((p) => p.id !== picked.id)]
+        }
+      }
+      return current
+    })
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project One — Switch projects' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Project Two' }))
+
+    expect(await screen.findByRole('button', { name: 'Project Two — Switch projects' })).toBeTruthy()
+    expect(api.projects.setActive).toHaveBeenCalledTimes(1)
+    expect(api.projects.setActive).toHaveBeenCalledWith('p2')
+    expect(screen.queryByTestId('home')).toBeNull()
+    expect(screen.queryByRole('menu')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project Two — Switch projects' }))
+    expect(screen.getByRole('menuitem', { name: 'Project One' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Project Two' })).toBeNull()
   })
 
   it('keeps tabs and deploys locked until the project dependencies are ready', async () => {

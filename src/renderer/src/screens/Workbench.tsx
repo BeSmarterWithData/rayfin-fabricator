@@ -1523,7 +1523,13 @@ export default function Workbench({
                 onClick={() => setTeamMap(null)}
               />
             ) : active && onProjectScreen ? (
-              <ProjectSwitcher project={active} onClick={goHome} />
+              <ProjectSwitcher
+                project={active}
+                projects={projects?.projects ?? []}
+                teamWorkspaces={projects?.teamWorkspaces}
+                onSelect={(p) => void selectProject(p)}
+                onShowAll={goHome}
+              />
             ) : active && showHome && !createMode && !showClone ? (
               <BackToProject name={active.name} onClick={() => setShowHome(false)} />
             ) : null}

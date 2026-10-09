@@ -285,7 +285,15 @@ code {
   font-size: var(--bar-ico-lg);
 }
 
-/* The project's identity is the switcher: initial + name + unfold caret. */
+/* The project's identity is the switcher: initial + name + caret, opening a menu
+   of recent projects. */
+.project-switch {
+  position: relative;
+  display: flex;
+  min-width: 0;
+  max-width: 100%;
+}
+
 .project-switcher {
   display: inline-flex;
   align-items: center;
@@ -305,7 +313,8 @@ code {
     border-color 0.15s ease;
 }
 
-.project-switcher:hover {
+.project-switcher:hover,
+.project-switcher.is-open {
   background: var(--bg-elev-2);
   border-color: var(--border);
 }
@@ -314,20 +323,28 @@ code {
   transform: translateY(0.5px);
 }
 
-/* Mirrors the launcher's project cards (.home-project-mark), a size down. */
-.project-switcher-mark {
+/* Each project's initial on its own hue, as on Home (.home-project-mark), a size
+   down, so a project looks the same in the bar, its menu and the launcher. */
+.project-switcher-mark,
+.project-menu-mark {
+  --hue: 205;
   display: grid;
   place-items: center;
   flex: none;
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  color: var(--accent);
+  color: hsl(var(--hue) 65% 68%);
   font-size: 11px;
   font-weight: 650;
   user-select: none;
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg-elev-2));
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
+  background: hsl(var(--hue) 55% 50% / 0.15);
+}
+
+[data-theme='light'] .project-switcher-mark,
+[data-theme='light'] .project-menu-mark {
+  color: hsl(var(--hue) 55% 34%);
+  background: hsl(var(--hue) 55% 50% / 0.13);
 }
 
 .project-switcher-name {
@@ -347,8 +364,127 @@ code {
   transition: color 0.15s ease;
 }
 
-.project-switcher:hover .codicon.project-switcher-caret {
+.project-switcher:hover .codicon.project-switcher-caret,
+.project-switcher.is-open .codicon.project-switcher-caret {
   color: var(--text-dim);
+}
+
+/* The switcher's menu: recent projects, then every project on Home. */
+.project-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  width: 300px;
+  padding: 6px;
+  background: var(--bg-elev-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow-lg);
+}
+
+.project-menu-label {
+  padding: 4px 8px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+}
+
+.project-menu-label--empty {
+  padding: 6px 8px 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.project-menu-items {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.project-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-menu-item:hover,
+.project-menu-item:focus-visible {
+  background: var(--bg-elev-3);
+}
+
+.project-menu-item:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: -2px;
+}
+
+.project-menu-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  font-size: 12px;
+}
+
+.project-menu-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.project-menu-name,
+.project-menu-detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-menu-name {
+  font-weight: 600;
+}
+
+.project-menu-detail {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+/* A team app's workspace, in place of a folder. */
+.project-menu-detail .codicon[class*='codicon-'] {
+  margin-right: 4px;
+  font-size: 11px;
+  vertical-align: -1px;
+}
+
+/* All projects: its icon sits in the marks' column, so the labels line up. */
+.project-menu-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  color: var(--text-dim);
+}
+
+.project-menu-icon .codicon[class*='codicon-'] {
+  font-size: var(--bar-ico);
+}
+
+.project-menu-sep {
+  height: 1px;
+  margin: 4px 2px;
+  background: var(--border);
 }
 
 /* Launcher shown over a still-open project: one click returns to it. */

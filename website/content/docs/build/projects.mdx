@@ -1,6 +1,6 @@
 ---
 title: "Create and manage projects"
-description: "Start a new Rayfin app, open an existing project, clone from GitHub, and rename or remove projects from Fabricator."
+description: "Start a new Rayfin app, open an existing project, clone from GitHub, switch between projects, and rename or remove projects from Fabricator."
 ---
 
 Projects are the Rayfin apps Fabricator can open. From **Your projects**, you can start a new app, open a local folder, clone a GitHub repository, or return to a recent project.
@@ -60,6 +60,17 @@ If the folder isn't in a git repository yet, Fabricator starts one when the proj
 5. Select **Clone and open**.
 
 Fabricator clones the repository into your workspace folder, verifies that it has `rayfin/rayfin.yml`, runs `npm install`, and opens it. If the repository is not a Rayfin project, Fabricator removes the fresh clone and reports the problem.
+
+## Switch between projects
+
+While a project is open, you can switch to another one from the app bar.
+
+1. In the app bar, select the project name.
+2. Under **Recent projects**, select the project you want to open.
+
+The menu lists up to six of your most recently opened projects. A project whose folder is missing isn't listed there; it appears on **Your projects** marked **Missing**.
+
+To see every project, select **All projects**. The project you had open keeps running behind **Your projects**, and the `Back to <project name>` button returns you to it.
 
 ## Manage recent projects
 
