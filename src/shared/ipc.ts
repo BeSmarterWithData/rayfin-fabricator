@@ -1528,10 +1528,10 @@ export interface ExperimentFlags {
 export interface CreateProjectInput {
   name: string
   /**
-   * Template the project is scaffolded from: the bundled starter
-   * ('fabricator-universal', also used when empty) or a community template URL
-   * (e.g. an awesome-rayfin git/tarball URL) — `npm create @microsoft/rayfin -- -t`
-   * accepts either.
+   * Template the project is scaffolded from: a template built into the Rayfin
+   * CLI ('universal-app', the CLI's default, also used when empty) or a community
+   * template URL (e.g. an awesome-rayfin git/tarball URL) — `npm create
+   * @microsoft/rayfin -- -t` accepts either.
    */
   template: string
   /**

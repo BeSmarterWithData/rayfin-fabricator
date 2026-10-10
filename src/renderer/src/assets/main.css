@@ -10021,8 +10021,8 @@ select.ws-input:disabled {
   align-self: flex-start;
 }
 
-/* New project starts from the bundled starter, so there's no template to pick;
-   community examples are a quiet, opt-in alternative. */
+/* New project starts from the Rayfin CLI's Universal App, so there's no template
+   to pick; community examples are a quiet, opt-in alternative. */
 .create-start {
   margin: 0;
   color: var(--text-dim);

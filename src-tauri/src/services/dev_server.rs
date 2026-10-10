@@ -5,9 +5,12 @@
 //! their pipeline deployment's settings (see [`team::local_preview`]).
 //!
 //! Unlike a deploy, this does NOT run `rayfin up` — it spawns Vite *directly*
-//! (`node <project>/node_modules/vite/bin/vite.js`) for a fast preview, after a
+//! (`node …/node_modules/vite/bin/vite.js`) for a fast preview, after a
 //! best-effort `rayfin env --framework vite` so the local app's `VITE_*` config
-//! is wired from the last recorded deployment. The spawned server is long-lived:
+//! is wired from the last recorded deployment. Vite runs in the frontend's
+//! folder: rayfin.yml's `services.staticHosting.path` (the Rayfin CLI's Universal
+//! App keeps its Vite app in `packages/frontend`), else the project root, which is
+//! also where `rayfin env` writes the config. The spawned server is long-lived:
 //! [`dev_start`] returns once Vite prints its `Local:` URL but leaves the process
 //! running under a per-project handle until [`dev_stop`] (or app exit) tree-kills
 //! it. Locally installed Vite is sufficient; no `dev` script is required.
@@ -35,6 +38,7 @@ use tokio::sync::oneshot;
 
 use crate::error::{AppError, AppResult};
 use crate::services::exec::{self, CancelToken, RunOptions, Stream};
+use crate::services::project_layout::ProjectLayout;
 use crate::services::{emit, local_ports, preview, redirect_uris, store, team};
 use crate::types::{DeployResult, DevPortPlan, DevServerResult, DevStateEvent, PortConflict, StudioProject};
 
@@ -192,33 +196,40 @@ fn resolve_port(servers: &DevServers, project: &StudioProject, requested: Option
     Ok(port)
 }
 
+/// The folder the project's frontend is served from: rayfin.yml's
+/// `services.staticHosting.path` when that folder exists, else the project root.
+fn frontend_dir(project_dir: &Path) -> PathBuf {
+    let root = ProjectLayout::read(project_dir).frontend_root;
+    let dir = root.split('/').filter(|s| !s.is_empty()).fold(project_dir.to_path_buf(), |dir, s| dir.join(s));
+    if dir.is_dir() { dir } else { project_dir.to_path_buf() }
+}
+
+/// The Vite that serves `frontend`: its own `node_modules` first, then the
+/// project root's, where npm workspaces hoist it.
+fn find_vite(project_dir: &Path, frontend: &Path) -> Option<PathBuf> {
+    [frontend, project_dir]
+        .into_iter()
+        .map(|dir| dir.join("node_modules").join("vite").join("bin").join("vite.js"))
+        .find(|script| script.is_file())
+}
+
 /// True when a project has Vite installed locally — the one requirement for the
 /// live local preview, since we run Vite directly. We deliberately do NOT require
 /// a `dev` script: many real Rayfin apps don't declare one (their `npm run dev`
 /// would `rayfin up` first), yet Vite is always present and serves the frontend.
 pub fn dev_supported(project_dir: &Path) -> bool {
-    project_dir
-        .join("node_modules")
-        .join("vite")
-        .join("bin")
-        .join("vite.js")
-        .exists()
+    find_vite(project_dir, &frontend_dir(project_dir)).is_some()
 }
 
-/// Resolve a project's locally-installed Vite to a direct `node <script>`
-/// invocation (so we bypass the fragile `.cmd`/`npx` shims on Windows). Returns
-/// `None` when Vite isn't installed in the project or `node` isn't on PATH.
-fn project_vite(project_dir: &Path) -> Option<(PathBuf, PathBuf)> {
-    let script = project_dir
-        .join("node_modules")
-        .join("vite")
-        .join("bin")
-        .join("vite.js");
-    if !script.exists() {
-        return None;
-    }
+/// Resolve how to run a project's locally-installed Vite: a direct
+/// `node <script>` invocation (so we bypass the fragile `.cmd`/`npx` shims on
+/// Windows) in the frontend's folder. Returns `(node, script, folder)`, or `None`
+/// when Vite isn't installed in the project or `node` isn't on PATH.
+fn project_vite(project_dir: &Path) -> Option<(PathBuf, PathBuf, PathBuf)> {
+    let frontend = frontend_dir(project_dir);
+    let script = find_vite(project_dir, &frontend)?;
     let node = which::which("node").ok()?;
-    Some((node, script))
+    Some((node, script, frontend))
 }
 
 /// Tree-kill a process by pid. Vite spawns esbuild workers, so a plain kill of
@@ -445,7 +456,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
 
     // The one requirement is that Vite is installed — we run it directly, no `dev`
     // script needed (many real Rayfin apps don't declare one).
-    let Some((node, vite_script)) = project_vite(&project_dir) else {
+    let Some((node, vite_script, serve_dir)) = project_vite(&project_dir) else {
         return Ok(unsupported(
             "Vite isn't installed in this project (run `npm install`), or Node wasn't found on PATH.",
         ));
@@ -506,7 +517,7 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
         });
     }
 
-    let launch = Launch { project_id: project_id.clone(), project_dir, node, vite_script, port, renderer: renderer.clone() };
+    let launch = Launch { project_id: project_id.clone(), serve_dir, node, vite_script, port, renderer: renderer.clone() };
     match spawn_vite(&state, &launch).await {
         Ok((url, token)) => {
             renderer(Stream::System, &format!("\n✅ Local preview at {url}\n"));
@@ -528,7 +539,8 @@ async fn start_server(app: AppHandle, state: DevServers, project_id: String, req
 #[derive(Clone)]
 struct Launch {
     project_id: String,
-    project_dir: PathBuf,
+    /// The frontend's folder (see [`frontend_dir`]), Vite's working directory.
+    serve_dir: PathBuf,
     node: PathBuf,
     vite_script: PathBuf,
     port: u16,
@@ -538,7 +550,7 @@ struct Launch {
 /// Spawn the project's Vite on its port and wait until it serves. Returns its URL
 /// and the token that stops it, or why it didn't start (nothing is left running).
 async fn spawn_vite(state: &DevServers, launch: &Launch) -> Result<(String, CancelToken), String> {
-    let Launch { project_id, project_dir, node, vite_script, port, renderer } = launch;
+    let Launch { project_id, serve_dir, node, vite_script, port, renderer } = launch;
     let port = *port;
     let expected = local_url(port);
     let mut cmd = tokio::process::Command::new(node);
@@ -546,7 +558,7 @@ async fn spawn_vite(state: &DevServers, launch: &Launch) -> Result<(String, Canc
         // Pin the sign-in-ready port and fail rather than let Vite silently fall
         // back to another one — an unregistered port would load but break sign-in.
         .args(["--host", "localhost", "--port", &port.to_string(), "--strictPort"])
-        .current_dir(project_dir)
+        .current_dir(serve_dir)
         .env("NO_COLOR", "1")
         .env("FORCE_COLOR", "0")
         .stdin(Stdio::null())
@@ -970,7 +982,7 @@ setInterval(() => {}, 1000)
         let port = std::net::TcpListener::bind("localhost:0").unwrap().local_addr().unwrap().port();
         let launch = Launch {
             project_id: "p".into(),
-            project_dir: dir.clone(),
+            serve_dir: dir.clone(),
             node,
             vite_script: script,
             port,
@@ -993,6 +1005,37 @@ setInterval(() => {}, 1000)
         stop_project(&state, "p");
         state.wait_until_gone("p", Duration::from_secs(10)).await;
         assert!(!serving(port));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn serves_the_frontend_folder_rayfin_yml_names() {
+        // The Rayfin CLI's Universal App keeps its Vite app in a workspace package.
+        let yml = "services:\n  staticHosting:\n    enabled: true\n    path: packages/frontend\n    folder: dist\n";
+        let dir = std::env::temp_dir().join(format!("fab-frontend-{}", uuid::Uuid::new_v4()));
+        let frontend = dir.join("packages").join("frontend");
+        std::fs::create_dir_all(&frontend).unwrap();
+        std::fs::create_dir_all(dir.join("rayfin")).unwrap();
+        std::fs::write(dir.join("rayfin").join("rayfin.yml"), yml).unwrap();
+        assert_eq!(frontend_dir(&dir), frontend);
+        assert_eq!(find_vite(&dir, &frontend), None);
+        assert!(!dev_supported(&dir));
+        // npm workspaces hoist Vite to the root; a copy in the package wins.
+        let hoisted = dir.join("node_modules").join("vite").join("bin").join("vite.js");
+        std::fs::create_dir_all(hoisted.parent().unwrap()).unwrap();
+        std::fs::write(&hoisted, "").unwrap();
+        assert_eq!(find_vite(&dir, &frontend), Some(hoisted));
+        assert!(dev_supported(&dir));
+        let local = frontend.join("node_modules").join("vite").join("bin").join("vite.js");
+        std::fs::create_dir_all(local.parent().unwrap()).unwrap();
+        std::fs::write(&local, "").unwrap();
+        assert_eq!(find_vite(&dir, &frontend), Some(local));
+        // A configured folder that doesn't exist falls back to the root, as does
+        // one that would leave the project.
+        std::fs::remove_dir_all(dir.join("packages")).unwrap();
+        assert_eq!(frontend_dir(&dir), dir);
+        std::fs::write(dir.join("rayfin").join("rayfin.yml"), "services:\n  staticHosting:\n    path: ..\n").unwrap();
+        assert_eq!(frontend_dir(&dir), dir);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
