@@ -52,6 +52,7 @@ import ProjectDependencyGuard from '../components/ProjectDependencyGuard'
 import WorkspaceStatus from '../components/WorkspaceStatus'
 import { SuppressPreview } from '../overlay'
 import RayfinVersionControl from '../components/RayfinVersionControl'
+import StatusMenu from '../components/StatusMenu'
 import AdvisorView from '../components/advisor/AdvisorView'
 import { AdvisorFixContext, type AdvisorFixLinks } from '../components/advisor/AdvisorFixSummary'
 import { useAdvisor } from '../advisor/store'
@@ -470,8 +471,10 @@ export default function Workbench({
 
   /** Team workspaces (experimental): the backend hides them while this is off. */
   const teamEnabled = Boolean(settings?.experiments?.teamWorkspaces)
-  /** Deploy manually (experimental): chat turns don't deploy personal apps. */
-  const manualDeploy = Boolean(settings?.experiments?.manualDeploy)
+  /** Deploy manually (experimental) adds a deploy-mode switch to the status bar:
+   *  Manual (the default) or Auto. In Manual, chat turns don't deploy personal apps. */
+  const deployModeOffered = Boolean(settings?.experiments?.manualDeploy)
+  const manualDeploy = deployModeOffered && settings?.deployMode !== 'auto'
   const manualDeployRef = useRef(manualDeploy)
   manualDeployRef.current = manualDeploy
   // Previews Deploy manually kept close when it's turned off; turns start their own.
@@ -2072,14 +2075,16 @@ export default function Workbench({
       )}
 
       <footer className="statusbar">
+        {/* The open app's facts. Spacing alone separates them; the only dot
+            left is inside the git item, between the branch and its count. */}
         {active && (
-          <>
+          <span className="statusbar-project">
             {active.team ? (
               <span
                 className="statusbar-item team-status-item"
                 title={`Team workspace${activeTeamWorkspace ? ` ${activeTeamWorkspace.repo}` : ''}. Working branch: ${active.team.branch ?? 'none'}`}
               >
-                <span className="codicon codicon-organization" aria-hidden="true" />
+                <span className="codicon codicon-organization statusbar-ico" aria-hidden="true" />
                 {activeTeamWorkspace?.name ?? 'Team'}
                 {active.team.branch ? ` · ${branchLabel(active.team.branch)}` : ''}
               </span>
@@ -2090,34 +2095,29 @@ export default function Workbench({
                 onSynced={() => setGitRefresh((n) => n + 1)}
               />
             )}
-            <span className="statusbar-sep">·</span>
             <RayfinVersionControl info={rayfinVer} onUpdate={requestRayfinUpdate} />
-          </>
-        )}
-        {active && (active.workspaceName || active.workspace) && (
-          <>
-            <span className="statusbar-sep">·</span>
-            <WorkspaceStatus project={active} />
-          </>
-        )}
-        {active && manualDeploy && !active.team && (
-          <>
-            <span className="statusbar-sep">·</span>
-            <span
-              className="statusbar-item"
-              title="Deploy manually is on (Settings → Experiments). Chat turns don’t deploy this app. Select Redeploy when you’re ready."
-            >
-              Deploy manually
-            </span>
-          </>
+            {(active.workspaceName || active.workspace) && <WorkspaceStatus project={active} />}
+            {deployModeOffered && !active.team && (
+              <StatusMenu
+                value={manualDeploy ? 'manual' : 'auto'}
+                onChange={(e) =>
+                  onSettingsChange({ deployMode: e.target.value === 'auto' ? 'auto' : 'manual' })
+                }
+                title="When chat changes deploy. Manual keeps them on this computer until you select Redeploy; Auto deploys after each chat turn."
+                aria-label="Deploy mode"
+              >
+                <option value="manual">Manual deploy</option>
+                <option value="auto">Auto deploy</option>
+              </StatusMenu>
+            )}
+          </span>
         )}
         <span className="statusbar-spacer" />
 
         {/* Passive readouts: what the app is, not what you can do. Kept quiet
             and grouped so they don't read as actions. */}
         <span className="statusbar-readouts">
-          <select
-            className="statusbar-zoom"
+          <StatusMenu
             value={String(settings?.uiScale ?? 1)}
             onChange={(e) => {
               const uiScale = Number(e.target.value)
@@ -2132,7 +2132,7 @@ export default function Workbench({
                 {Math.round(s * 100)}%
               </option>
             ))}
-          </select>
+          </StatusMenu>
           <span className="statusbar-item" title="Rayfin Fabricator version">
             v{versions?.app ?? '—'}
           </span>
@@ -2147,7 +2147,7 @@ export default function Workbench({
             onClick={openHelp}
             title="Ask Help — debug a problem, browse the docs, or report an issue (Ctrl+J)"
           >
-            <Codicon name="comment-discussion" />
+            <Codicon name="comment-discussion" className="statusbar-ico" />
             Help
           </button>
         </span>

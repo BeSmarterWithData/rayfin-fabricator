@@ -747,7 +747,7 @@ describe('Workbench after-turn deployment', () => {
     api.deploy.hasChanges.mockResolvedValue(true)
     render(<Workbench {...makeProps({ settings: manualSettings })} />, { wrapper: Wrapper })
     await screen.findByLabelText('Chat draft')
-    expect(screen.getByText('Deploy manually').getAttribute('title')).toContain('Select Redeploy')
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Deploy mode' }).value).toBe('manual')
 
     await act(async () => completeTurn())
     await act(async () => completeTurn())
@@ -760,6 +760,22 @@ describe('Workbench after-turn deployment', () => {
     expect(api.deploy.run).toHaveBeenCalledWith(project.id, undefined)
   })
 
+  it('switches to auto deploy from the status bar without leaving the experiment', async () => {
+    const api = installApi(true)
+    api.deploy.hasChanges.mockResolvedValue(true)
+    const props = makeProps({ settings: manualSettings })
+    const { rerender } = render(<Workbench {...props} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Deploy mode' }), { target: { value: 'auto' } })
+    expect(props.onSettingsChange).toHaveBeenCalledWith({ deployMode: 'auto' })
+    rerender(<Workbench {...props} settings={{ ...manualSettings, deployMode: 'auto' }} />)
+    expect(screen.getByRole<HTMLSelectElement>('combobox', { name: 'Deploy mode' }).value).toBe('auto')
+
+    await act(async () => completeTurn())
+    expect(api.deploy.run).toHaveBeenCalledTimes(1)
+  })
+
   it('does not deploy when Deploy manually is turned on while changes are checked', async () => {
     const api = installApi(true)
     const changed = deferred<boolean>()
@@ -767,7 +783,7 @@ describe('Workbench after-turn deployment', () => {
     const props = makeProps({ settings: { theme: 'system' } })
     const { rerender } = render(<Workbench {...props} />, { wrapper: Wrapper })
     await screen.findByLabelText('Chat draft')
-    expect(screen.queryByText('Deploy manually')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Deploy mode' })).toBeNull()
 
     await act(async () => completeTurn())
     rerender(<Workbench {...props} settings={manualSettings} />)
@@ -1390,7 +1406,7 @@ describe('Workbench team workspaces', () => {
 
     expect(team.sync).toHaveBeenCalledWith('t1', '')
     expect(api.deploy.run).not.toHaveBeenCalled()
-    expect(screen.queryByText('Deploy manually')).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Deploy mode' })).toBeNull()
   })
 
   it('keeps a team local preview while its saved turn waits for the pipeline', async () => {

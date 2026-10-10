@@ -1,17 +1,15 @@
 ---
 title: "Keep Rayfin up to date"
-description: "See which Rayfin CLI and SDK version each project uses, and let Copilot upgrade them together while keeping the app building."
+description: "Know when a project's Rayfin CLI and SDK are out of date, and let Copilot upgrade them together while keeping the app building."
 ---
 
-Each Rayfin app pins its own Rayfin CLI and SDK packages. Fabricator reads those installed package versions and shows the project's Rayfin status in the status bar.
+Each Rayfin app pins its own Rayfin CLI and SDK packages. Fabricator reads those installed package versions and, when a newer Rayfin release is available, offers the update in the status bar.
 
 ![The Rayfin version control in the status bar, opened to show that the Rayfin CLI and SDK can be updated from 1.35.1 to 1.36.2 with Update with Copilot.](/screenshots/rayfin-version.webp)
 
 ## Read the Rayfin status
 
-Look for the Rayfin version in the status bar, shown as `Rayfin v<version>` when the project version is known.
-
-When the project is current, the tooltip says the local Rayfin CLI and SDK version is up to date. When a newer npm release exists, the status becomes an update button with the installed version and the latest version.
+When a newer Rayfin release is on npm, the status bar shows the project's version as `Rayfin v<version>`, followed by the latest version, such as `↑ 1.36.2`. When the project is up to date, the status bar shows nothing for Rayfin.
 
 Open it to see separate rows for:
 

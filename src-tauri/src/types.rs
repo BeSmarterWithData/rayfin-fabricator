@@ -735,6 +735,10 @@ pub struct AppSettings {
   /// turned off; an unset value means on.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub mascot: Option<bool>,
+  /// With the Deploy manually experiment on, the status bar's deploy mode:
+  /// "manual" (the default) or "auto". Ignored while the experiment is off.
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub deploy_mode: Option<String>,
 }
 
 fn default_theme() -> String {

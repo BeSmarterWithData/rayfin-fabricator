@@ -1517,6 +1517,12 @@ export interface AppSettings {
    * On unless turned off (an unset value means on).
    */
   mascot?: boolean
+  /**
+   * With the Deploy manually experiment on, the status bar's deploy mode:
+   * 'manual' (the default) keeps chat changes local until Redeploy, 'auto'
+   * deploys after each turn as usual. Ignored while the experiment is off.
+   */
+  deployMode?: 'auto' | 'manual'
 }
 
 /** Opt-in experimental feature flags (Settings → Experiments). */

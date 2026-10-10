@@ -775,33 +775,38 @@ code {
   color: var(--text-dim);
 }
 
-/* Status bar */
+/* Status bar. Three groups and no separators: the open app's facts on the left,
+   then quiet readouts and the one action on the right. Every item is the same
+   box (text and a 14px icon on one 18px line, padded for a hover backdrop), and
+   negative margins cancel that padding, so a group's gap alone sets the rhythm
+   whether or not an item is clickable. */
 .statusbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 16px;
+  padding: 9px 16px;
   background: var(--bg-elev);
   border-top: 1px solid var(--border);
   font-size: 12px;
+  line-height: 18px;
   color: var(--text-dim);
-}
-
-.statusbar-sep {
-  opacity: 0.4;
 }
 
 .statusbar-spacer {
   flex: 1;
 }
 
-/* The right of the bar reads as two things, not seven. Passive readouts (zoom,
-   app version) sit quietly together; the actions that follow are separated by
-   their own hover backdrops, so they need no dots between them. */
+.statusbar-project,
 .statusbar-readouts {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* Passive readouts (zoom, app version) sit quietly together, divided from the
+   action that follows. */
+.statusbar-readouts {
   padding-right: 12px;
   border-right: 1px solid var(--border);
   color: var(--text-faint);
@@ -813,114 +818,100 @@ code {
   gap: 6px;
 }
 
-/* These buttons carry negative side margins so the old `·` separators sat
-   evenly against their padding. Inside the action group there are no
-   separators, and those margins would pull the buttons into each other — the
-   gap does the spacing instead. */
+.statusbar-item,
+.statusbar-report,
+.statusbar-ws,
+.statusbar .git-chip,
+.statusbar .ver-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  margin: -3px -6px;
+  font: inherit;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+/* Help sits after the divider, so it keeps its padding as distance from it. */
 .statusbar-actions .statusbar-report {
   margin-left: 0;
   margin-right: 0;
 }
 
-/* The team chip's icon needs breathing room from the workspace name. */
-.team-status-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+/* One icon size and weight for the whole bar. codicon.css sizes glyphs with a
+   two-part selector, so this needs the extra class to win. */
+.statusbar .codicon.statusbar-ico {
+  font-size: 14px;
+  opacity: 0.8;
 }
 
-/* "Report an issue" moved here from the titlebar — sits on the far right, styled
-   to blend with the bar's 12px dim type (a quiet link, not a heavy button). */
-.statusbar-report {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  /* Cancel the padding from layout so the separators stay evenly spaced; the
-     padding still gives the hover backdrop room around the text. */
-  margin: -3px -6px;
-  font: inherit;
-  font-size: 12px;
+/* Help, the workspace link, and the git and Rayfin items when they have
+   something to offer share one quiet affordance: brighten on hover over a
+   filled rounded backdrop. Plain readouts stay as dim text. */
+.statusbar-report,
+.statusbar-ws {
   color: var(--text-dim);
   background: transparent;
   border: none;
-  border-radius: 6px;
   cursor: pointer;
   transition:
     background 0.12s ease,
     color 0.12s ease;
 }
 
-.statusbar-report:hover {
+.statusbar-report:hover,
+.statusbar-ws:hover,
+.statusbar-menu:hover,
+.statusbar .ver-btn:hover,
+.statusbar .git-chip--actionable:hover,
+.statusbar .git-chip:hover.git-chip--dirty {
   color: var(--text);
   background: var(--bg-elev-2);
 }
 
-.statusbar-zoom {
-  font: inherit;
-  font-size: 12px;
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid transparent;
+/* The bar's menus (interface zoom, and the deploy mode while Deploy manually is
+   on): a native select with its arrow swapped for the bar's chevron, sized to
+   the chosen option so the chevron sits right after it. */
+.statusbar-menu {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin: -3px -6px;
   border-radius: 6px;
-  padding: 2px 4px;
-  cursor: pointer;
+  color: var(--text-dim);
   transition:
     background 0.12s ease,
-    color 0.12s ease,
-    border-color 0.12s ease;
+    color 0.12s ease;
 }
 
-.statusbar-zoom:hover {
-  color: var(--text);
-  background: var(--bg-elev-2);
+.statusbar-menu select {
+  appearance: none;
+  field-sizing: content;
+  height: 24px;
+  padding: 0 23px 0 6px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: inherit;
+  cursor: pointer;
 }
 
-.statusbar-zoom:focus-visible {
-  outline: none;
-  border-color: var(--accent-ring);
-}
-
-.statusbar-zoom option {
+.statusbar-menu option {
   background: var(--bg-elev);
   color: var(--text);
 }
 
-.statusbar-report svg {
-  width: 13px;
-  height: 13px;
-  opacity: 0.85;
+.statusbar-menu-chevron {
+  position: absolute;
+  right: 6px;
+  pointer-events: none;
 }
 
-/* Deployed project's Fabric workspace — a quiet link (mirrors the Report-an-issue
-   affordance) that opens the workspace in the Fabric portal. */
+/* A deployed project's Fabric workspace, linking out to the Fabric portal. */
 .statusbar-ws {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
   max-width: 240px;
-  padding: 3px 6px;
-  margin: -3px -6px;
-  font: inherit;
-  font-size: 12px;
-  color: var(--text-dim);
-  background: transparent;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  transition:
-    background 0.12s ease,
-    color 0.12s ease;
-}
-
-.statusbar-ws:hover {
-  color: var(--text);
-  background: var(--bg-elev-2);
-}
-
-.statusbar-ws-ico {
-  font-size: 13px;
-  opacity: 0.75;
 }
 
 .statusbar-ws-name {
@@ -929,53 +920,29 @@ code {
   white-space: nowrap;
 }
 
-/* Git lives in the footer status bar now (leading item). Blend it with the bar's
-   12px dim type — no pill/border, just a quiet hover — and flip its popover to open
-   upward (the bar is pinned to the window's bottom edge) so it never clips. */
+/* Git leads the bar. Its branch is set in the bar's own type rather than
+   monospace, and its popover opens upward from the window's bottom edge. */
 .statusbar .git-control {
   margin-right: 0;
 }
 
 .statusbar .git-chip {
-  gap: 5px;
   font-size: 12px;
   color: var(--text-dim);
-  padding: 3px 6px;
-  margin: -3px -6px;
   border: none;
-  border-radius: 6px;
   transition:
     background 0.12s ease,
     color 0.12s ease;
 }
 
-.statusbar .git-branch-ico {
-  width: 13px;
-  height: 13px;
-  opacity: 0.75;
+.statusbar .git-branch {
+  font-family: inherit;
 }
 
-.statusbar .git-chip--actionable:hover,
-.statusbar .git-chip:hover.git-chip--dirty {
-  color: var(--text);
-  background: var(--bg-elev-2);
-}
-
-/* Interactive footer items (git, the Rayfin version chip, Report an issue) share
-   one quiet affordance: brighten on hover with a subtly filled rounded backdrop.
-   Static readouts (app / Copilot version) stay as plain dim text. */
 .statusbar .ver-btn {
-  padding: 3px 6px;
-  margin: -3px -6px;
-  border-radius: 6px;
   transition:
     background 0.12s ease,
     color 0.12s ease;
-}
-
-.statusbar .ver-btn:hover {
-  color: var(--text);
-  background: var(--bg-elev-2);
 }
 
 .statusbar .git-popover {

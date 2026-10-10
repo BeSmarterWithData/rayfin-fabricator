@@ -23,6 +23,8 @@ pub struct SettingsPatch {
   full_diagnostics: Option<bool>,
   #[serde(default)]
   mascot: Option<bool>,
+  #[serde(default)]
+  deploy_mode: Option<String>,
 }
 
 #[tauri::command]
@@ -33,5 +35,6 @@ pub fn settings_set(patch: SettingsPatch) -> AppSettings {
     patch.experiments,
     patch.full_diagnostics,
     patch.mascot,
+    patch.deploy_mode,
   )
 }

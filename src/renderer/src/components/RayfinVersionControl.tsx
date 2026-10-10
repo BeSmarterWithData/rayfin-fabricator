@@ -37,12 +37,13 @@ function summarize(info: RayfinVersionInfo): SummaryRow[] {
 }
 
 /**
- * Status-bar chip showing the project's local Rayfin (CLI + SDK) version. When a
- * newer release is on npm it turns into an "update available" button: opening it
- * shows the from → to versions and hands the upgrade to Copilot on click. The app
- * never runs the install itself — the agent edits package.json + runs npm install.
+ * Status-bar item for the project's local Rayfin (CLI + SDK) version, shown only
+ * when a newer release is on npm — an up-to-date version is nothing to act on.
+ * Opening it shows the from → to versions and hands the upgrade to Copilot on
+ * click. The app never runs the install itself — the agent edits package.json +
+ * runs npm install.
  */
-export default function RayfinVersionControl({ info, onUpdate }: Props): JSX.Element {
+export default function RayfinVersionControl({ info, onUpdate }: Props): JSX.Element | null {
   const [open, setOpen] = useState(false)
 
   // The popover is plain HTML, but the live preview is a native webview that paints
@@ -56,22 +57,9 @@ export default function RayfinVersionControl({ info, onUpdate }: Props): JSX.Ele
     return () => window.removeEventListener('click', close)
   }, [open])
 
-  const version = info?.version ?? null
-  const label = version ? `v${version}` : info ? '—' : '…'
+  if (!info || !info.upgradeAvailable) return null
 
-  if (!info || !info.upgradeAvailable) {
-    return (
-      <span
-        className="statusbar-item"
-        title={
-          version ? `Rayfin CLI & SDK ${version} — up to date` : 'Local Rayfin CLI & SDK version'
-        }
-      >
-        Rayfin {label}
-      </span>
-    )
-  }
-
+  const version = info.version
   const rows = summarize(info)
 
   return (

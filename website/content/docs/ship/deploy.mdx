@@ -67,7 +67,7 @@ After the first successful deployment, the primary button changes to **Redeploy*
 Fabricator also redeploys automatically after a successful Copilot turn when the project has undeployed changes. This includes edits that Copilot already committed to the project's git history. It does not redeploy when:
 
 - the Copilot turn failed or was cancelled,
-- you turned on the [Deploy manually](/docs/ship/deploy#deploy-manually) experiment,
+- the [Deploy manually](/docs/ship/deploy#deploy-manually) experiment is set to **Manual deploy**,
 - there are no content changes since the last deployed revision,
 - a team workspace pipeline owns the app's deployment,
 - Fabricator cannot check whether changes are undeployed.
@@ -85,19 +85,21 @@ Turn on **Deploy manually** to make several changes in chat before you deploy. C
 
 1. Open **Settings**, then expand **Experiments**.
 2. Turn on **Deploy manually**.
-3. Open your app. The status bar shows **Deploy manually**, and the preview shows your local app, marked **Local**.
+3. Open your app. The status bar shows **Manual deploy**, and the preview shows your local app, marked **Local**.
 4. Keep chatting. Changes show in the preview as Copilot makes them.
 5. When you're ready, select **Redeploy** in the app bar. The preview shows the deploy's progress, then your local app again.
 
-While **Deploy manually** is on:
+To go back to deploying after each turn for a while, choose **Auto deploy** in the status bar, and **Manual deploy** to switch back. The experiment stays on, so the switch stays in the status bar. Turning **Deploy manually** on again starts you in **Manual deploy**.
+
+While the status bar shows **Manual deploy**:
 
 - The local preview uses your deployed app's backend. Frontend changes show as Copilot makes them, but changes to data, permissions or functions work only after you select **Redeploy**. Fabricator asks Copilot to tell you when a change needs a deploy.
-- **Design** and the **Fabric** view work on the deployed app, so they're unavailable while **Deploy manually** is on.
+- **Design** and the **Fabric** view work on the deployed app, so they're unavailable.
 - The local preview stops when you switch to another app or close Fabricator, and the app you open next gets its own. If you switch your app to another deployment, its local preview starts again with that deployment's settings.
 - If the project has no local Vite installation, there's no local preview. The preview keeps showing the deployed app, without your latest changes, until you select **Redeploy**.
 - Team apps aren't affected. They still save to GitHub after each turn, and the team pipeline deploys your preview.
 
-Turning **Deploy manually** off closes the local preview and doesn't deploy anything. Your changes are still on this computer: the next successful chat turn deploys them, or you can select **Redeploy**.
+Switching to **Auto deploy**, or turning **Deploy manually** off, closes the local preview and doesn't deploy anything. Your changes are still on this computer: the next successful chat turn deploys them, or you can select **Redeploy**.
 
 ## Work with multiple deployments
 

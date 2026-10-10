@@ -365,9 +365,15 @@ export default function SettingsModal({
                     />
                     <ToggleRow
                       label="Deploy manually"
-                      hint="Chat turns don’t deploy your app; select Redeploy when you’re ready. The preview always shows your latest changes, running on this computer. Team apps still save after each turn."
+                      hint="Chat turns don’t deploy your app; select Redeploy when you’re ready. The preview always shows your latest changes, running on this computer. Switch between Manual and Auto deploy in the status bar. Team apps still save after each turn."
                       checked={Boolean(settings.experiments?.manualDeploy)}
-                      onChange={(v) => onChange({ experiments: { manualDeploy: v } })}
+                      onChange={(v) =>
+                        onChange(
+                          v
+                            ? { experiments: { manualDeploy: true }, deployMode: 'manual' }
+                            : { experiments: { manualDeploy: false } }
+                        )
+                      }
                     />
                   </div>
                 )}

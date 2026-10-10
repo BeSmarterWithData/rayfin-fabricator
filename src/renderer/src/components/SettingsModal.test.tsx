@@ -179,12 +179,19 @@ describe('SettingsModal team workspaces experiment', () => {
 describe('SettingsModal deploy manually experiment', () => {
   it.each([undefined, false, true])('reflects manualDeploy=%s and saves the change', async (manualDeploy) => {
     installApi()
-    const { onChange } = await renderModal({ settings: { theme: 'system', experiments: { manualDeploy } } })
+    const { onChange } = await renderModal({
+      settings: { theme: 'system', experiments: { manualDeploy }, deployMode: 'auto' }
+    })
     fireEvent.click(screen.getByRole('button', { name: /Experiments/ }))
     const checkbox = screen.getByRole<HTMLInputElement>('checkbox', { name: /^Deploy manually/ })
     expect(checkbox.checked).toBe(manualDeploy === true)
     fireEvent.click(checkbox)
-    expect(onChange).toHaveBeenCalledWith({ experiments: { manualDeploy: !manualDeploy } })
+    // Turning it on starts in Manual, whatever the status bar was last set to.
+    expect(onChange).toHaveBeenCalledWith(
+      manualDeploy
+        ? { experiments: { manualDeploy: false } }
+        : { experiments: { manualDeploy: true }, deployMode: 'manual' }
+    )
   })
 })
 

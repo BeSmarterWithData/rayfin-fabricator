@@ -45,6 +45,7 @@ fn default_settings() -> AppSettings {
     experiments: Some(default_flags()),
     full_diagnostics: Some(false),
     mascot: Some(true),
+    deploy_mode: None,
   }
 }
 
@@ -133,6 +134,7 @@ pub fn set_settings(
   experiments: Option<ExperimentFlags>,
   full_diagnostics: Option<bool>,
   mascot: Option<bool>,
+  deploy_mode: Option<String>,
 ) -> AppSettings {
   with_cache(|c| {
     if let Some(t) = theme {
@@ -146,6 +148,9 @@ pub fn set_settings(
     }
     if let Some(v) = mascot {
       c.settings.mascot = Some(v);
+    }
+    if let Some(mode) = deploy_mode.filter(|m| m == "auto" || m == "manual") {
+      c.settings.deploy_mode = Some(mode);
     }
     if let Some(patch) = experiments {
       merge_experiments(&mut c.settings.experiments, patch);
@@ -172,15 +177,16 @@ pub fn team_workspaces_enabled() -> bool {
   })
 }
 
-/// True when the Deploy manually experiment is on.
+/// True when chat turns don't deploy: the Deploy manually experiment is on and
+/// the status bar's deploy mode isn't Auto.
+fn is_manual_deploy(settings: &AppSettings) -> bool {
+  settings.experiments.as_ref().and_then(|e| e.manual_deploy).unwrap_or(false)
+    && settings.deploy_mode.as_deref() != Some("auto")
+}
+
+/// True when chat turns don't deploy (see [`is_manual_deploy`]).
 pub fn manual_deploy_enabled() -> bool {
-  with_cache(|c| {
-    c.settings
-      .experiments
-      .as_ref()
-      .and_then(|e| e.manual_deploy)
-      .unwrap_or(false)
-  })
+  with_cache(|c| is_manual_deploy(&c.settings))
 }
 
 pub fn team_workspaces() -> Vec<TeamWorkspace> {
@@ -349,6 +355,21 @@ mod tests {
       serde_json::to_value(flags.unwrap()).unwrap(),
       serde_json::json!({"teamWorkspaces":true, "manualDeploy":true})
     );
+  }
+
+  #[test]
+  fn turns_stay_local_only_with_the_experiment_on_and_the_mode_not_auto() {
+    let settings = |value: serde_json::Value| -> AppSettings { serde_json::from_value(value).unwrap() };
+    assert!(!is_manual_deploy(&default_settings()));
+    assert!(!is_manual_deploy(&settings(serde_json::json!({"deployMode":"manual"}))));
+    let on = serde_json::json!({"experiments":{"manualDeploy":true}});
+    assert!(is_manual_deploy(&settings(on.clone())));
+    let mut manual = on.clone();
+    manual["deployMode"] = "manual".into();
+    assert!(is_manual_deploy(&settings(manual)));
+    let mut auto = on;
+    auto["deployMode"] = "auto".into();
+    assert!(!is_manual_deploy(&settings(auto)));
   }
 
   #[test]

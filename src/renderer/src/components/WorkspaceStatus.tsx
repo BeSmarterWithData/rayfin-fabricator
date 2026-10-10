@@ -32,7 +32,7 @@ export default function WorkspaceStatus({
       onClick={() => void window.api.openExternal(url)}
       title={`Open workspace “${name}” in the Fabric portal`}
     >
-      <Codicon name="link-external" className="statusbar-ws-ico" />
+      <Codicon name="link-external" className="statusbar-ico" />
       <span className="statusbar-ws-name">{name}</span>
     </button>
   )
