@@ -176,6 +176,18 @@ describe('SettingsModal team workspaces experiment', () => {
   })
 })
 
+describe('SettingsModal deploy manually experiment', () => {
+  it.each([undefined, false, true])('reflects manualDeploy=%s and saves the change', async (manualDeploy) => {
+    installApi()
+    const { onChange } = await renderModal({ settings: { theme: 'system', experiments: { manualDeploy } } })
+    fireEvent.click(screen.getByRole('button', { name: /Experiments/ }))
+    const checkbox = screen.getByRole<HTMLInputElement>('checkbox', { name: /^Deploy manually/ })
+    expect(checkbox.checked).toBe(manualDeploy === true)
+    fireEvent.click(checkbox)
+    expect(onChange).toHaveBeenCalledWith({ experiments: { manualDeploy: !manualDeploy } })
+  })
+})
+
 describe('SettingsModal retired controls', () => {
   it.each([false, true])('does not show retired controls with legacy flags set to %s', async (enabled) => {
     installApi()
@@ -195,9 +207,10 @@ describe('SettingsModal retired controls', () => {
       expect(screen.queryByText(label)).toBeNull()
     }
     expect(screen.queryByRole('dialog', { name: 'Restart required' })).toBeNull()
-    expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+    expect(screen.getAllByRole('checkbox')).toHaveLength(4)
     expect(screen.getByText('Ray')).toBeTruthy()
     expect(screen.getByText('Team workspaces')).toBeTruthy()
+    expect(screen.getByText('Deploy manually')).toBeTruthy()
     expect(screen.getByText('Full diagnostics')).toBeTruthy()
   })
 })

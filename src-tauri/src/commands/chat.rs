@@ -47,6 +47,21 @@ const MAX_ATTEMPTS: u32 = 3;
 /// deploys) can legitimately run well past an hour.
 const TURN_TIMEOUT_MS: u64 = 2 * 60 * 60_000;
 
+/// Guidance prepended to each chat message while the Deploy manually experiment
+/// is on. Fabricator's always-on instructions say it deploys after every turn, so
+/// the exception travels with the message, as the team guidance does.
+const MANUAL_DEPLOY_NOTE: &str = "[Fabricator: the user turned on Deploy manually, so Fabricator doesn't deploy when this turn ends. The changes stay on this computer until the user selects Redeploy. Fabricator's local preview shows frontend changes as you make them, but it uses the deployed backend, so changes to data, permissions or functions work only after a deploy. Still don't deploy yourself. End by saying what to try in the preview and whether it needs Redeploy first.]";
+
+/// The text sent to Copilot for a chat message in `project_id`. Deploy manually
+/// doesn't apply to team apps: their pipeline deploys them.
+fn turn_text(project_id: &str, text: &str, manual_deploy: bool) -> String {
+  if manual_deploy && !crate::services::team::is_team_project_id(project_id) {
+    format!("{MANUAL_DEPLOY_NOTE}\n\n{text}")
+  } else {
+    crate::services::team::chat_text(project_id, text)
+  }
+}
+
 /// Stderr signatures that indicate a transient, safe-to-retry failure.
 static TRANSIENT_RE: Lazy<Regex> = Lazy::new(|| {
   Regex::new(
@@ -806,7 +821,7 @@ pub(crate) async fn run_turn(
     // relative event order is preserved.
     let mut todos_dirty = false;
 
-    let mut opts = MessageOptions::new(crate::services::team::chat_text(&project_id, &text));
+    let mut opts = MessageOptions::new(turn_text(&project_id, &text, store::manual_deploy_enabled()));
     if !attach.is_empty() {
       opts = opts.with_attachments(attach.clone());
     }

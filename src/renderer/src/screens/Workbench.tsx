@@ -159,6 +159,11 @@ function toStored(messages: UIChatMessage[]): ChatMessage[] {
   )
 }
 
+/** The deployment a project's local preview takes its backend settings from. */
+function deploymentKey(project: StudioProject): string {
+  return `${project.workspace ?? ''}|${project.lastDeploy?.url ?? ''}`
+}
+
 interface Props {
   auth: AuthStatus
   /** What the launch's background check found that setup would have caught. */
@@ -305,7 +310,9 @@ export default function Workbench({
   const [deploys, setDeploys] = useState<Record<string, DeployUiState>>({})
   /** Live local preview: per-project Vite dev-server state. Present while a turn
    *  runs — started at turn start, cleared/stopped at turn end. A team app's
-   *  `lingers` after its turn until the pipeline has deployed the saved change. */
+   *  `lingers` after its turn until the pipeline has deployed the saved change,
+   *  and with Deploy manually on, the open app's preview is `kept` running while
+   *  the app is open. */
   const [devServers, setDevServers] = useState<
     Record<
       string,
@@ -314,6 +321,9 @@ export default function Workbench({
         url?: string
         backend?: DevServerResult['backend']
         lingerSince?: number
+        kept?: boolean
+        /** The deployment it took its backend settings from (see deploymentKey). */
+        target?: string
       }
     >
   >({})
@@ -386,6 +396,8 @@ export default function Workbench({
     })
   }, [toast])
 
+  /** Local previews still stopping, so one starting next can wait for their ports. */
+  const stoppingRef = useRef<Map<string, Promise<void>>>(new Map())
   /** Stop a project's live local preview (if any) and forget it. */
   const stopDevServer = useCallback(
     (projectId: string): void => {
@@ -395,9 +407,20 @@ export default function Workbench({
         delete next[projectId]
         return next
       })
-      void window.api.dev.stop(projectId).catch(onDevServerError)
+      if (stoppingRef.current.has(projectId)) return
+      const stopping = window.api.dev
+        .stop(projectId)
+        .catch(onDevServerError)
+        .finally(() => stoppingRef.current.delete(projectId))
+      stoppingRef.current.set(projectId, stopping)
     },
     [onDevServerError]
+  )
+  /** A Build chat turn is running for the project. */
+  const isTurnRunning = useCallback(
+    (projectId: string): boolean =>
+      (chatsRef.current[projectId] ?? []).some((m) => m.role === 'assistant' && m.pending),
+    []
   )
 
   const deployQueueRef = useRef(new DeploymentQueue())
@@ -406,6 +429,10 @@ export default function Workbench({
     return () => {
       mountedRef.current = false
       deployQueueRef.current.cancelPending('The workbench closed before this deployment started.')
+      // Nothing else closes a preview Deploy manually kept once the workbench is gone.
+      for (const [projectId, server] of Object.entries(devServersRef.current)) {
+        if (server.kept) void window.api.dev.stop(projectId).catch(() => {})
+      }
     }
   }, [])
   /** Project ids with a deployment reconcile in flight (dedupes overlapping calls). */
@@ -443,6 +470,17 @@ export default function Workbench({
 
   /** Team workspaces (experimental): the backend hides them while this is off. */
   const teamEnabled = Boolean(settings?.experiments?.teamWorkspaces)
+  /** Deploy manually (experimental): chat turns don't deploy personal apps. */
+  const manualDeploy = Boolean(settings?.experiments?.manualDeploy)
+  const manualDeployRef = useRef(manualDeploy)
+  manualDeployRef.current = manualDeploy
+  // Previews Deploy manually kept close when it's turned off; turns start their own.
+  useEffect(() => {
+    if (manualDeploy) return
+    for (const [projectId, server] of Object.entries(devServersRef.current)) {
+      if (server.kept) stopDevServer(projectId)
+    }
+  }, [manualDeploy, stopDevServer])
   /** A team workspace preselected for New project ("New app" in a workspace). */
   const [newAppTeamId, setNewAppTeamId] = useState<string | null>(null)
   const sendTeamPrompt = useCallback((projectId: string, display: string, prompt: string): void => {
@@ -492,9 +530,11 @@ export default function Workbench({
   // A team app's local preview stays up after its turn while the change is
   // saved and the pipeline deploys it. It ends once your preview has that
   // change (or the deploy finished with an error), when there's nothing to
-  // deploy, when you leave the app, or after 20 minutes.
+  // deploy, when you leave the app, or after 20 minutes. A preview Deploy
+  // manually kept ends when you leave the app.
   useEffect(() => {
     for (const [projectId, server] of Object.entries(devServers)) {
+      if (server.kept && projectId !== active?.id) stopDevServer(projectId)
       if (!server.lingerSince) continue
       const status = teamWork.status(projectId)
       const head = status?.pr?.headSha
@@ -850,10 +890,13 @@ export default function Workbench({
       if (deployingIdRef.current === projectId) return // a deploy owns the surface
       const existing = devServersRef.current[projectId]
       if (existing) {
-        // Already starting / running; a team app's lingering preview carries on.
-        if (existing.lingerSince) {
+        // Already starting / running; a team app's lingering preview, or one
+        // Deploy manually kept, carries on.
+        if (existing.lingerSince || existing.kept) {
           setDevServers((all) =>
-            all[projectId] ? { ...all, [projectId]: { ...all[projectId], lingerSince: undefined } } : all
+            all[projectId]
+              ? { ...all, [projectId]: { ...all[projectId], lingerSince: undefined, kept: undefined } }
+              : all
           )
         }
         return
@@ -874,7 +917,9 @@ export default function Workbench({
       // A mid-turn prompt may outlast the turn; don't start a server it can't stop.
       const turnRunning = (chatsRef.current[projectId] ?? []).some((m) => m.role === 'assistant' && m.pending)
       if (context === 'plan' && !turnRunning) return
-      setDevServers((all) => ({ ...all, [projectId]: { status: 'starting' } }))
+      const project = projectsRef.current?.projects.find((p) => p.id === projectId)
+      const target = project ? deploymentKey(project) : undefined
+      setDevServers((all) => ({ ...all, [projectId]: { status: 'starting', target } }))
       void (async () => {
         let res: DevServerResult
         try {
@@ -896,7 +941,10 @@ export default function Workbench({
           // resurrect a preview whose server was just stopped.
           if (!all[projectId]) return all
           if (res.ok && res.url) {
-            return { ...all, [projectId]: { status: 'running', url: res.url, backend: res.backend } }
+            return {
+              ...all,
+              [projectId]: { ...all[projectId], status: 'running', url: res.url, backend: res.backend }
+            }
           }
           const next = { ...all }
           delete next[projectId]
@@ -907,14 +955,52 @@ export default function Workbench({
     [toast, resolveLocalPort, onDevServerError]
   )
 
+  /** The last app and deployment Deploy manually started a local preview for. */
+  const keptAttemptRef = useRef<string | null>(null)
+  /**
+   * Deploy manually: the deployed app falls behind your code, so the open app's
+   * local preview runs whenever the app is open, not only during turns. One
+   * started for another deployment is stopped, and the next run starts it again
+   * with that deployment's backend settings.
+   */
+  const keepLocalPreview = useCallback(
+    async (projectId: string, target: string): Promise<void> => {
+      const existing = devServersRef.current[projectId]
+      if (existing) {
+        if (existing.target !== target) stopDevServer(projectId)
+        return
+      }
+      // Once per app and deployment, so a preview that can't start isn't retried
+      // in a loop; the next turn tries again.
+      const attempt = `${projectId}|${target}`
+      if (keptAttemptRef.current === attempt) return
+      keptAttemptRef.current = attempt
+      // A port is free again only once the preview holding it has exited.
+      await Promise.all(stoppingRef.current.values())
+      if (!mountedRef.current || isTurnRunning(projectId)) return
+      await handleTurnStart(projectId)
+      if (isTurnRunning(projectId)) return
+      setDevServers((all) =>
+        all[projectId] ? { ...all, [projectId]: { ...all[projectId], kept: true } } : all
+      )
+    },
+    [handleTurnStart, isTurnRunning, stopDevServer]
+  )
+
   // After a chat turn, persist the transcript and auto-deploy when the agent left
-  // undeployed changes.
+  // undeployed changes (unless Deploy manually is on).
   const handleTurnComplete = useCallback(
     async (projectId: string, result: ChatTurnResult): Promise<void> => {
       previewSkippedRef.current.delete(projectId)
       const prompt = portPromptRef.current
       if (prompt?.projectId === projectId && prompt.context === 'plan' && !prompt.busy) settlePortPrompt(null)
-      if (devServersRef.current[projectId] && !(result.ok && isTeamProject(projectId))) {
+      const manual = manualDeployRef.current && !isTeamProject(projectId)
+      if (devServersRef.current[projectId] && manual && activeIdRef.current === projectId) {
+        // Deploy manually: the open app's preview stays up while the app is open.
+        setDevServers((all) =>
+          all[projectId] ? { ...all, [projectId]: { ...all[projectId], kept: true } } : all
+        )
+      } else if (devServersRef.current[projectId] && !(result.ok && isTeamProject(projectId))) {
         // Stop the live local preview first, so the surface returns to the
         // deployed app and the after-turn deploy can take the stage (DeployStage).
         // (A team app keeps its preview while its change is saved and deployed.)
@@ -953,9 +1039,12 @@ export default function Workbench({
         })
         return
       }
+      // Deploy manually: the changes stay on this computer until you redeploy.
+      if (manual) return
       try {
         const changed = await window.api.deploy.hasChanges(projectId)
-        if (changed && mountedRef.current) void runDeploy(projectId)
+        // Deploy manually may have been turned on while that was checked.
+        if (changed && mountedRef.current && !manualDeployRef.current) void runDeploy(projectId)
       } catch (reason) {
         if (!mountedRef.current) return
         toast.error(
@@ -1527,6 +1616,23 @@ export default function Workbench({
     : undefined
   /** Tabs and deploys unlock with the project's dependencies, like the pane below. */
   const projectToolsReady = onProjectScreen && depsReadyId === active?.id
+  // Deploy manually keeps the open app's local preview running (see keepLocalPreview).
+  const activeId = active?.id
+  const activeTarget = active ? deploymentKey(active) : ''
+  const activeDeploying = Boolean(activeId && deploys[activeId]?.running)
+  // Re-run when the open app's preview comes or goes, or changes deployment.
+  const activePreviewTarget = activeId ? (devServers[activeId]?.target ?? '') : null
+  const keepLocal = Boolean(
+    manualDeploy && active && !active.team && !active.awaitingFirstDeploy && projectToolsReady
+  )
+  useEffect(() => {
+    if (!keepLocal || !activeId) {
+      keptAttemptRef.current = null
+      return
+    }
+    if (activeDeploying || isTurnRunning(activeId)) return
+    void keepLocalPreview(activeId, activeTarget)
+  }, [keepLocal, activeId, activeTarget, activeDeploying, activePreviewTarget, isTurnRunning, keepLocalPreview])
 
   return (
     <div className="app-shell">
@@ -1833,6 +1939,7 @@ export default function Workbench({
                               ? (devServers[active.id]?.url ?? null)
                               : null
                           }
+                          manualDeploy={manualDeploy && !active.team}
                           focused={focusPane === 'preview'}
                           onToggleFocus={() =>
                             setFocusPane((f) => (f === 'preview' ? null : 'preview'))
@@ -1991,6 +2098,17 @@ export default function Workbench({
           <>
             <span className="statusbar-sep">·</span>
             <WorkspaceStatus project={active} />
+          </>
+        )}
+        {active && manualDeploy && !active.team && (
+          <>
+            <span className="statusbar-sep">·</span>
+            <span
+              className="statusbar-item"
+              title="Deploy manually is on (Settings → Experiments). Chat turns don’t deploy this app. Select Redeploy when you’re ready."
+            >
+              Deploy manually
+            </span>
           </>
         )}
         <span className="statusbar-spacer" />

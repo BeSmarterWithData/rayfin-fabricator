@@ -363,6 +363,12 @@ export default function SettingsModal({
                       checked={Boolean(settings.experiments?.teamWorkspaces)}
                       onChange={(v) => onChange({ experiments: { teamWorkspaces: v } })}
                     />
+                    <ToggleRow
+                      label="Deploy manually"
+                      hint="Chat turns don’t deploy your app; select Redeploy when you’re ready. The preview always shows your latest changes, running on this computer. Team apps still save after each turn."
+                      checked={Boolean(settings.experiments?.manualDeploy)}
+                      onChange={(v) => onChange({ experiments: { manualDeploy: v } })}
+                    />
                   </div>
                 )}
               </div>

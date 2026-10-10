@@ -34,6 +34,7 @@ fn default_state() -> ProjectsState {
 fn default_flags() -> ExperimentFlags {
   ExperimentFlags {
     team_workspaces: Some(false),
+    manual_deploy: Some(false),
   }
 }
 
@@ -157,6 +158,7 @@ pub fn set_settings(
 fn merge_experiments(experiments: &mut Option<ExperimentFlags>, patch: ExperimentFlags) {
   let current = experiments.get_or_insert_with(default_flags);
   if let Some(v) = patch.team_workspaces { current.team_workspaces = Some(v); }
+  if let Some(v) = patch.manual_deploy { current.manual_deploy = Some(v); }
 }
 
 /// True when the Team workspaces experiment is on.
@@ -166,6 +168,17 @@ pub fn team_workspaces_enabled() -> bool {
       .experiments
       .as_ref()
       .and_then(|e| e.team_workspaces)
+      .unwrap_or(false)
+  })
+}
+
+/// True when the Deploy manually experiment is on.
+pub fn manual_deploy_enabled() -> bool {
+  with_cache(|c| {
+    c.settings
+      .experiments
+      .as_ref()
+      .and_then(|e| e.manual_deploy)
       .unwrap_or(false)
   })
 }
@@ -323,6 +336,19 @@ mod tests {
     assert_eq!(flags.as_ref().unwrap().team_workspaces, Some(false));
     merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"teamWorkspaces":true})).unwrap());
     assert_eq!(flags.unwrap().team_workspaces, Some(true));
+  }
+
+  #[test]
+  fn manual_deploy_flag_defaults_off_and_merges_alone() {
+    assert_eq!(default_settings().experiments.unwrap().manual_deploy, Some(false));
+    let mut flags: Option<ExperimentFlags> = Some(serde_json::from_value(serde_json::json!({
+      "teamWorkspaces":true
+    })).unwrap());
+    merge_experiments(&mut flags, serde_json::from_value(serde_json::json!({"manualDeploy":true})).unwrap());
+    assert_eq!(
+      serde_json::to_value(flags.unwrap()).unwrap(),
+      serde_json::json!({"teamWorkspaces":true, "manualDeploy":true})
+    );
   }
 
   #[test]

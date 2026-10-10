@@ -121,6 +121,9 @@ interface Props {
    *  running), the preview surface shows this instead of the deployed app, with a
    *  "Local" badge. See {@link RayfinStudioApi.dev}. */
   localPreviewUrl?: string | null
+  /** Deploy manually (experimental): the local preview runs whenever the app is
+   *  open, instead of only during turns. */
+  manualDeploy?: boolean
   /** A team app (experimental): its pipeline deploys it, so there's no Deploy here. */
   team?: boolean
   /** Team apps: the deployment the local preview's data comes from. */
@@ -211,6 +214,7 @@ export default function PreviewPane({
   onDesignSurface,
   onLoadingChange,
   localPreviewUrl,
+  manualDeploy = false,
   team = false,
   localBackend,
   teamRun,
@@ -819,7 +823,9 @@ export default function PreviewPane({
                           ? 'Nothing is deployed yet, so it runs without data.'
                           : "It uses your preview's data."
                     } It stays until the team pipeline has deployed your latest change.`
-                  : `Live local preview — your app is running from a local Vite dev server at ${localPreviewUrl} for this turn`
+                  : manualDeploy
+                    ? `Live local preview — your app is running from a local Vite dev server at ${localPreviewUrl}. With Deploy manually on, it shows your latest changes whenever the app is open.`
+                    : `Live local preview — your app is running from a local Vite dev server at ${localPreviewUrl} for this turn`
               }
             >
               {team
@@ -879,7 +885,9 @@ export default function PreviewPane({
                 designActive
                   ? 'Leave Design — your queued changes stay in the chat composer'
                   : isLocal
-                    ? 'Design works on the deployed app — available once this turn finishes'
+                    ? manualDeploy
+                      ? 'Design works on the deployed app — unavailable while Deploy manually is on'
+                      : 'Design works on the deployed app — available once this turn finishes'
                     : 'Design — click anything in your app to change it, preview the result live, then send it all to Copilot at once'
               }
             >

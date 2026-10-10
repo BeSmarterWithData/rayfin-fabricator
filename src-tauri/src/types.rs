@@ -708,6 +708,11 @@ pub struct ExperimentFlags {
   /// default); turning it off hides team workspaces without deleting anything.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub team_workspaces: Option<bool>,
+  /// Deploy manually: chat turns don't deploy. Changes stay on this machine,
+  /// with the live local preview kept between turns, until the user redeploys.
+  /// Team projects aren't affected. Opt-in (off by default).
+  #[serde(default, skip_serializing_if = "Option::is_none")]
+  pub manual_deploy: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

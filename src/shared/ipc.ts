@@ -1528,6 +1528,12 @@ export interface ExperimentFlags {
    * team workspaces without deleting anything.
    */
   teamWorkspaces?: boolean
+  /**
+   * Deploy manually: chat turns don't deploy. Changes stay on this computer,
+   * with the live local preview kept between turns, until the user selects
+   * Redeploy. Team apps aren't affected: they still save after each turn.
+   */
+  manualDeploy?: boolean
 }
 
 export interface CreateProjectInput {

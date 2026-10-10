@@ -142,6 +142,7 @@ const project: StudioProject = {
   addedAt: '2026-09-12T00:00:00Z',
   lastDeploy: { url: 'https://project.example.com', status: 'success' }
 }
+const manualSettings: AppSettings = { theme: 'system', experiments: { manualDeploy: true } }
 
 function installApi(active = false) {
   const state = {
@@ -741,6 +742,46 @@ describe('Workbench app bar', () => {
 })
 
 describe('Workbench after-turn deployment', () => {
+  it('keeps every turn local with Deploy manually on, and deploys on Redeploy', async () => {
+    const api = installApi(true)
+    api.deploy.hasChanges.mockResolvedValue(true)
+    render(<Workbench {...makeProps({ settings: manualSettings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    expect(screen.getByText('Deploy manually').getAttribute('title')).toContain('Select Redeploy')
+
+    await act(async () => completeTurn())
+    await act(async () => completeTurn())
+    expect(api.chat.saveHistory).toHaveBeenCalledTimes(2)
+    expect(api.deploy.hasChanges).not.toHaveBeenCalled()
+    expect(api.deploy.run).not.toHaveBeenCalled()
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Test deploy' })))
+    expect(api.deploy.run).toHaveBeenCalledTimes(1)
+    expect(api.deploy.run).toHaveBeenCalledWith(project.id, undefined)
+  })
+
+  it('does not deploy when Deploy manually is turned on while changes are checked', async () => {
+    const api = installApi(true)
+    const changed = deferred<boolean>()
+    api.deploy.hasChanges.mockReturnValueOnce(changed.promise)
+    const props = makeProps({ settings: { theme: 'system' } })
+    const { rerender } = render(<Workbench {...props} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    expect(screen.queryByText('Deploy manually')).toBeNull()
+
+    await act(async () => completeTurn())
+    rerender(<Workbench {...props} settings={manualSettings} />)
+    await act(async () => changed.resolve(true))
+    expect(api.deploy.run).not.toHaveBeenCalled()
+
+    // Turning it off deploys after the next turn, not straight away.
+    rerender(<Workbench {...props} />)
+    expect(api.deploy.run).not.toHaveBeenCalled()
+    api.deploy.hasChanges.mockResolvedValue(true)
+    await act(async () => completeTurn())
+    expect(api.deploy.run).toHaveBeenCalledTimes(1)
+  })
+
   it('redeploys undeployed changes even without file-edit events from the agent', async () => {
     const api = installApi(true)
     api.deploy.hasChanges.mockResolvedValue(true)
@@ -876,9 +917,9 @@ describe('Workbench live preview ports', () => {
     const api = installApi(true)
     const dev = api.dev
     dev.plan.mockResolvedValue({ conflict })
-    render(<Workbench {...makeProps({ settings })} />, { wrapper: Wrapper })
+    const view = render(<Workbench {...makeProps({ settings })} />, { wrapper: Wrapper })
     await screen.findByLabelText('Chat draft')
-    return { api, dev }
+    return { api, dev, view }
   }
 
   it('starts straight away on a free port that sign-in accepts', async () => {
@@ -1096,6 +1137,94 @@ describe('Workbench live preview ports', () => {
     }
   })
 
+  /** Deploy manually on, with a free port, so the open app's preview starts. */
+  async function mountManual() {
+    const api = installApi(true)
+    api.dev.plan.mockResolvedValue({ port: 5174 })
+    const view = render(<Workbench {...makeProps({ settings: manualSettings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    await waitFor(() => expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBe('http://localhost:5174'))
+    return { api, dev: api.dev, view }
+  }
+
+  it.each([true, false])('runs the local preview whenever the app is open with Deploy manually on (turn success: %s)', async (ok) => {
+    const { api, dev } = await mountManual()
+    expect(dev.start).toHaveBeenCalledWith(project.id, 5174)
+    expect(previewProps.mock.lastCall?.[0].manualDeploy).toBe(true)
+
+    const { turn } = await beginTurn()
+    await act(async () => turn)
+    await act(async () => completeTurn({ ok, filesModified: [], ranDeploy: false }))
+    expect(dev.start).toHaveBeenCalledTimes(1)
+    expect(api.deploy.run).not.toHaveBeenCalled()
+
+    // It stays through a deploy: the deploy shows its progress, then the local app returns.
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Test deploy' })))
+    expect(api.deploy.run).toHaveBeenCalledTimes(1)
+    expect(dev.stop).not.toHaveBeenCalled()
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBe('http://localhost:5174')
+  })
+
+  it('starts the local preview again when the app moves to another deployment', async () => {
+    const { api, dev } = await mountManual()
+    const moved: StudioProject = {
+      ...project,
+      workspace: 'ws-other',
+      lastDeploy: { url: 'https://other.example.com', status: 'success' }
+    }
+    api.projects.state.mockResolvedValue({ workspaceRoot: 'C:\\projects', activeProjectId: project.id, projects: [moved] })
+
+    await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Test switch' })))
+
+    await waitFor(() => expect(dev.start).toHaveBeenCalledTimes(2))
+    expect(dev.stop).toHaveBeenCalledWith(project.id)
+    expect(dev.stop.mock.invocationCallOrder[0]).toBeLessThan(dev.start.mock.invocationCallOrder[1])
+  })
+
+  it('moves the local preview to the app you switch to, once the old one has stopped', async () => {
+    const api = installApi(true)
+    const other: StudioProject = { ...project, id: 'p2', name: 'Project Two', path: 'C:\\projects\\p2' }
+    let current = {
+      workspaceRoot: 'C:\\projects',
+      activeProjectId: project.id as string | null,
+      projects: [project, other]
+    }
+    api.projects.state.mockImplementation(async () => current)
+    api.deploy.reconcile.mockImplementation(async () => current)
+    api.projects.setActive.mockImplementation(async (id) => {
+      current = { ...current, activeProjectId: id }
+      return current
+    })
+    api.dev.plan.mockResolvedValue({ port: 5174 })
+    const stopped = deferred<void>()
+    api.dev.stop.mockReturnValueOnce(stopped.promise)
+    render(<Workbench {...makeProps({ settings: manualSettings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    await waitFor(() => expect(api.dev.start).toHaveBeenCalledWith(project.id, 5174))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Project One — Switch projects' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Project Two' }))
+    await screen.findByRole('button', { name: 'Project Two — Switch projects' })
+    expect(api.dev.stop).toHaveBeenCalledWith(project.id)
+    expect(api.dev.plan).not.toHaveBeenCalledWith('p2')
+
+    await act(async () => stopped.resolve())
+    await waitFor(() => expect(api.dev.start).toHaveBeenCalledWith('p2', 5174))
+  })
+
+  it('closes the local preview when Deploy manually is turned off', async () => {
+    const { dev, view } = await mountManual()
+    view.rerender(<Workbench {...makeProps({ settings: { theme: 'system' } })} />)
+    expect(dev.stop).toHaveBeenCalledWith(project.id)
+    expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBeNull()
+  })
+
+  it('closes the local preview when the workbench closes', async () => {
+    const { dev, view } = await mountManual()
+    view.unmount()
+    expect(dev.stop).toHaveBeenCalledWith(project.id)
+  })
+
   it('does not resurrect a local preview whose startup finishes after the turn ended', async () => {
     const { dev } = await mount()
     const started = deferred<DevServerResult>()
@@ -1249,6 +1378,19 @@ describe('Workbench team workspaces', () => {
     await act(async () => completeTurn({ ok: false, error: 'Stopped', filesModified: [], ranDeploy: false }))
 
     expect(team.sync).not.toHaveBeenCalled()
+  })
+
+  it('still saves after each turn with Deploy manually on', async () => {
+    const { api, team } = installTeamApi()
+    const settings: AppSettings = { theme: 'system', experiments: { teamWorkspaces: true, manualDeploy: true } }
+    render(<Workbench {...makeProps({ settings })} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    await act(async () => completeTurn())
+
+    expect(team.sync).toHaveBeenCalledWith('t1', '')
+    expect(api.deploy.run).not.toHaveBeenCalled()
+    expect(screen.queryByText('Deploy manually')).toBeNull()
   })
 
   it('keeps a team local preview while its saved turn waits for the pipeline', async () => {
