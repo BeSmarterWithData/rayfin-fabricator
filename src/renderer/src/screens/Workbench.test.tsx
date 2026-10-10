@@ -20,6 +20,8 @@ import { deferred } from '../../test/deferred'
 import type PreviewPane from '../components/PreviewPane'
 import type ChatPanel from '../components/ChatPanel'
 import type AdvisorView from '../components/advisor/AdvisorView'
+import type DeploymentsControl from '../components/DeploymentsControl'
+import type { HelpView } from '../components/help/HelpView'
 import type { AdvisorFixLinks } from '../components/advisor/AdvisorFixSummary'
 import type { DerivedAdvisor } from '../advisor/lifecycle'
 import Workbench from './Workbench'
@@ -27,6 +29,10 @@ import Workbench from './Workbench'
 const chatProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof ChatPanel>) => void>())
 const previewProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof PreviewPane>) => void>())
 const advisorProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof AdvisorView>) => void>())
+const deploymentsProps = vi.hoisted(() =>
+  vi.fn<(props: ComponentProps<typeof DeploymentsControl>) => void>()
+)
+const helpProps = vi.hoisted(() => vi.fn<(props: ComponentProps<typeof HelpView>) => void>())
 /** The Advisor state the mocked `useAdvisor` reports, and what the chat's fix cards see. */
 const advisorMock = vi.hoisted(() => ({
   derived: { badge: null, items: [], open: [], resolved: [] } as Pick<
@@ -75,20 +81,22 @@ vi.mock('../components/ProjectDependencyGuard', async () => {
   }
 })
 vi.mock('../components/DeploymentsControl', () => ({
-  default: ({
-    running,
-    onRedeploy,
-    onSwitch
-  }: {
-    running: boolean
-    onRedeploy: () => void
-    onSwitch: (workspace: string, byId: boolean) => Promise<DeployResult>
-  }) => (
-    <>
-      <button disabled={running} onClick={onRedeploy}>Test deploy</button>
-      <button onClick={() => void onSwitch('ws-other', true)}>Test switch</button>
-    </>
-  )
+  default: (props: ComponentProps<typeof DeploymentsControl>) => {
+    deploymentsProps(props)
+    const { running, onRedeploy, onSwitch } = props
+    return (
+      <>
+        <button disabled={running} onClick={onRedeploy}>Test deploy</button>
+        <button onClick={() => void onSwitch('ws-other', true)}>Test switch</button>
+      </>
+    )
+  }
+}))
+vi.mock('../components/help/HelpView', () => ({
+  HelpView: (props: ComponentProps<typeof HelpView>) => {
+    helpProps(props)
+    return <div role="dialog" aria-label="Help" />
+  }
 }))
 vi.mock('../components/PreviewPane', () => ({
   default: (props: ComponentProps<typeof PreviewPane>) => {
@@ -249,6 +257,8 @@ beforeEach(() => {
   chatProps.mockClear()
   previewProps.mockClear()
   advisorProps.mockClear()
+  deploymentsProps.mockClear()
+  helpProps.mockClear()
   advisorMock.derived = { badge: null, items: [], open: [], resolved: [] }
   advisorMock.handOff.mockClear()
   advisorMock.links = null
@@ -638,6 +648,31 @@ describe('Workbench app bar', () => {
     expect(screen.queryByTestId('home')).toBeNull()
     expect(screen.getByRole('tablist', { name: 'Project views' })).toBeTruthy()
     expect(screen.getByLabelText('Chat draft')).toBe(draft)
+  })
+
+  it('opens Share once for Help, so coming back to the project does not open it again', async () => {
+    installApi(true)
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true })
+    act(() => helpProps.mock.lastCall![0].onAction({ id: 'share-app', label: 'Share Project One' }))
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull()
+    const request = deploymentsProps.mock.lastCall?.[0].shareRequest
+    expect(request).toMatchObject({ projectId: 'p1' })
+
+    // The deployment control opens the dialog and says so; the request is spent.
+    act(() => deploymentsProps.mock.lastCall![0].onShareRequestHandled?.(request!.nonce))
+    expect(deploymentsProps.mock.lastCall?.[0].shareRequest).toBeNull()
+
+    // Going Home and back mounts the control again, with nothing waiting for it.
+    fireEvent.click(screen.getByRole('button', { name: 'Project One — Switch projects' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'All projects' }))
+    expect(screen.queryByRole('button', { name: 'Test deploy' })).toBeNull()
+    deploymentsProps.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Project One' }))
+    expect(screen.getByRole('button', { name: 'Test deploy' })).toBeTruthy()
+    expect(deploymentsProps.mock.lastCall?.[0].shareRequest).toBeNull()
   })
 
   it('switches to a recent project from the project menu without showing Home', async () => {
