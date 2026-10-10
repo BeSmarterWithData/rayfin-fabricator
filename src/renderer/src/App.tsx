@@ -18,7 +18,8 @@ import {
   hasCompletedSetup,
   pickAuth,
   rememberSetupComplete,
-  setupAttention
+  setupAttention,
+  startupStage
 } from './startup'
 
 type Phase = 'loading' | 'setup' | 'ready'
@@ -321,6 +322,8 @@ function App(): JSX.Element {
   const attention = useMemo(() => setupAttention(doctor, auth, checkError), [doctor, auth, checkError])
   // Ray is on unless turned off in Settings, including before settings load.
   const mascot = settings?.mascot !== false
+  // How far the first-launch checks have got, for Ray to narrate on the splash.
+  const stage = startupStage(doctor, auth, Boolean(checkError || authError))
 
   // A mandatory startup update blocks the entire app behind a forced-update screen
   // until it installs and restarts. Offline / up-to-date launches never set this.
@@ -333,7 +336,7 @@ function App(): JSX.Element {
       <>
         <UpdateBanner />
         <UpdateModal />
-        <SplashScreen />
+        <SplashScreen mascot={mascot} stage={stage} />
       </>
     )
   }

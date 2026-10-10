@@ -16,7 +16,11 @@ vi.mock('./components/UpdateBanner', () => ({ default: () => null }))
 vi.mock('./components/UpdateModal', () => ({ default: () => null }))
 vi.mock('./components/ForcedUpdateScreen', () => ({ default: () => null }))
 vi.mock('./components/SplashScreen', () => ({
-  default: () => <div data-testid="splash">Splash</div>
+  default: ({ mascot, stage }: { mascot?: boolean; stage?: string }) => (
+    <div data-testid="splash" data-mascot={String(mascot)} data-stage={stage}>
+      Splash
+    </div>
+  )
 }))
 vi.mock('./screens/SetupScreen', () => ({
   default: ({
@@ -168,6 +172,18 @@ afterEach(() => {
 })
 
 describe('App startup', () => {
+  it('shows Ray on the splash, narrating the checks, unless he was turned off', async () => {
+    const api = installApi()
+    api.settings.get.mockResolvedValue({ theme: 'system', mascot: false })
+    renderApp()
+    const splash = (): HTMLElement => screen.getByTestId('splash')
+    expect(splash().dataset.mascot).toBe('true')
+    expect(splash().dataset.stage).toBe('tools')
+    await settle()
+    expect(splash().dataset.mascot).toBe('false')
+    expect(splash().dataset.stage).toBe('ready')
+  })
+
   it('opens the app without the checklist when everything is ready at first launch', async () => {
     const api = installApi()
     renderApp()

@@ -1288,6 +1288,177 @@ code {
   overflow: visible;
 }
 
+/* Ray's splash: he says hello and tells you how startup is going. Flat like the
+   rest of Ray: a bordered bubble, solid dots, no halo or gradients. */
+.splash--ray {
+  gap: 26px;
+}
+.splash-scene {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+/* Room for a two-line bubble, so Ray stays put whatever he says. */
+.splash-bubble {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 320px;
+  height: 66px;
+}
+.splash-bubble .mascot-bubble {
+  position: relative;
+  max-width: 300px;
+  padding: 10px 14px 11px;
+  font-size: 14px;
+  text-align: center;
+  text-wrap: balance;
+  cursor: default;
+  transform: none;
+}
+.splash-ray {
+  position: relative;
+  animation: splash-ray-in 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Swimming up: faster, deeper wingbeats, as when he roams. */
+.splash-ray.is-arriving .ray {
+  --ray-flap: 0.42s;
+  --ray-lift: 15deg;
+  --ray-beat: 11deg;
+}
+.splash-ray-hit {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+.splash-ray-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+.splash-ray-bob,
+.splash-ray-squish,
+.splash-ray .ray {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.splash-ray-bob {
+  animation: splash-ray-bob 2.8s ease-in-out 1s infinite alternate;
+}
+.splash-ray-squish {
+  transform-origin: 50% 70%;
+}
+.splash-brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+/* The logotype: the mark stands in for the F, as tall as the capitals and on
+   the baseline, with the "a" tucked under its top bar the way a typeset F
+   kerns. It builds itself: the F's tiles glide into place, as in the mark's own
+   build, then the letters rise in one after another. Flat: solid letters, and
+   the only colour is the mark's. */
+.splash-word--mark {
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.splash-word-f {
+  display: inline-block;
+  height: 0.7em;
+  height: 1cap;
+  width: auto;
+  margin-right: 0.03em;
+  overflow: visible;
+  vertical-align: baseline;
+}
+.splash-word-f rect {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: splash-f-tile 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.splash-word-letter {
+  display: inline-block;
+  animation: splash-letter 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+/* Loading: three tiles in the mark's colours light up in turn. */
+.splash-tiles {
+  display: flex;
+  gap: 6px;
+  animation: splash-rise 0.6s ease 1.15s both;
+}
+.splash-tiles i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: #1183dd;
+  opacity: 0.3;
+  animation: splash-tile 1.2s ease-in-out infinite;
+}
+.splash-tiles i:nth-child(2) {
+  background: #15a4d3;
+  animation-delay: 0.15s;
+}
+.splash-tiles i:nth-child(3) {
+  background: #41c795;
+  animation-delay: 0.3s;
+}
+@keyframes splash-f-tile {
+  from {
+    opacity: 0;
+    transform: translate(var(--fx, 0), var(--fy, 0)) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes splash-letter {
+  from {
+    opacity: 0;
+    transform: translateY(0.3em);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes splash-ray-in {
+  from {
+    opacity: 0;
+    transform: translateY(36px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes splash-ray-bob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(6px);
+  }
+}
+@keyframes splash-tile {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
 /* Each tile glides smoothly into place from a small offset — orderly, not bouncy. */
 .tile {
   transform-box: fill-box;
@@ -1441,15 +1612,24 @@ code {
   }
 }
 
-/* Respect users who prefer less motion: show the finished mark + wordmark, no animation. */
+/* Respect users who prefer less motion: Ray or the finished mark, still; no animation. */
 @media (prefers-reduced-motion: reduce) {
   .tile,
   .splash-sheen,
   .splash-stage::before,
+  .splash-ray,
+  .splash-ray-bob,
+  .splash-word-f rect,
+  .splash-word-letter,
+  .splash-tiles,
+  .splash-tiles i,
   .splash-wordmark,
   .splash-progress,
   .splash-progress > span {
     animation: none !important;
+  }
+  .splash-tiles i {
+    opacity: 0.6;
   }
   .tile {
     opacity: 1 !important;

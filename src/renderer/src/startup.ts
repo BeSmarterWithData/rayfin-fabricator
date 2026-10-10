@@ -78,3 +78,21 @@ export function listText(items: string[]): string {
   if (items.length <= 2) return items.join(' and ')
   return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`
 }
+
+/** How far the first-launch checks have got, for Ray to narrate on the splash. */
+export type StartupStage = 'tools' | 'accounts' | 'ready' | 'setup' | 'error'
+
+/**
+ * Where the startup checks stand: the tools, then the sign-ins setup needs, then
+ * whether the app opens or setup is next. A check that couldn't run is `error`.
+ */
+export function startupStage(
+  doctor: DoctorReport | null,
+  auth: AuthStatus | null,
+  failed: boolean
+): StartupStage {
+  if (failed) return 'error'
+  if (!doctor) return 'tools'
+  if (!auth || auth.copilot.checking || auth.az.checking) return 'accounts'
+  return doctor.ready && auth.copilot.signedIn && auth.az.signedIn ? 'ready' : 'setup'
+}

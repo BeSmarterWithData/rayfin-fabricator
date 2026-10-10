@@ -7,7 +7,8 @@ import {
   listText,
   pickAuth,
   rememberSetupComplete,
-  setupAttention
+  setupAttention,
+  startupStage
 } from './startup'
 
 const tool = (overrides: Partial<ToolStatus>): ToolStatus => ({
@@ -97,5 +98,27 @@ describe('listText', () => {
     [['a', 'b', 'c'], 'a, b, and c']
   ])('joins %j', (items, text) => {
     expect(listText(items)).toBe(text)
+  })
+})
+
+describe('startupStage', () => {
+  const ready: DoctorReport = { ready: true, tools: [tool({})] }
+
+  it('follows the checks: tools, then the setup sign-ins, then the outcome', () => {
+    expect(startupStage(null, null, false)).toBe('tools')
+    expect(startupStage(null, signedIn, false)).toBe('tools')
+    expect(startupStage(ready, null, false)).toBe('accounts')
+    expect(startupStage(ready, { ...CHECKING_AUTH, rayfin: { signedIn: true } }, false)).toBe('accounts')
+    expect(startupStage(ready, signedIn, false)).toBe('ready')
+  })
+
+  it('heads to setup when a tool or a setup sign-in is missing, whatever Fabric says', () => {
+    expect(startupStage({ ready: false, tools: [tool({ satisfied: false })] }, signedIn, false)).toBe('setup')
+    expect(startupStage(ready, { ...signedIn, az: { signedIn: false } }, false)).toBe('setup')
+    expect(startupStage(ready, { ...signedIn, rayfin: { signedIn: false } }, false)).toBe('ready')
+  })
+
+  it('reports a check that could not run', () => {
+    expect(startupStage(null, null, true)).toBe('error')
   })
 })

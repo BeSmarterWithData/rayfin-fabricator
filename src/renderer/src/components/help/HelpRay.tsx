@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { Ray, RAY_EYES, RAY_VIEWBOX, type RayMood } from '../mascot/Ray'
+import { Ray, RAY_VIEWBOX, type RayMood } from '../mascot/Ray'
 import { Particles, useParticles } from '../mascot/Particles'
 import { useReducedMotion } from '../mascot/context'
+import { useRayGaze } from '../mascot/gaze'
 import { HELP_WORKING } from '../mascot/lines'
 import { Spinner } from './parts'
 
 const SIZE_W = 76
 const SIZE_H = (SIZE_W * RAY_VIEWBOX.h) / RAY_VIEWBOX.w
 const TYPE_MS = 32
-const clamp1 = (v: number): number => Math.min(1, Math.max(-1, v))
 
 /**
  * Ray as the Help console's host: he waves when Help opens, follows the cursor
@@ -32,19 +32,7 @@ export function HelpRayAvatar(): JSX.Element {
     }
   }, [])
 
-  useEffect(() => {
-    const onMove = (e: PointerEvent): void => {
-      const el = rayRef.current
-      if (!el) return
-      const r = el.getBoundingClientRect()
-      const ex = r.left + r.width * RAY_EYES.x
-      const ey = r.top + r.height * RAY_EYES.y
-      el.style.setProperty('--ray-lx', clamp1((e.clientX - ex) / 260).toFixed(2))
-      el.style.setProperty('--ray-ly', clamp1((e.clientY - ey) / 200).toFixed(2))
-    }
-    window.addEventListener('pointermove', onMove)
-    return () => window.removeEventListener('pointermove', onMove)
-  }, [])
+  useRayGaze(rayRef)
 
   function pet(): void {
     setMood('love')

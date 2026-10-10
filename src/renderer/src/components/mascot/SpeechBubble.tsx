@@ -8,7 +8,8 @@ interface Props {
   line: MascotLine
   /** Type the line out; otherwise show it whole. */
   typing: boolean
-  onClick: () => void
+  /** Move on to another line. Without it, the bubble is only for reading. */
+  onClick?: () => void
 }
 
 /**
@@ -49,7 +50,7 @@ export const SpeechBubble = forwardRef<HTMLDivElement, Props>(function SpeechBub
       className={`mascot-bubble mascot-bubble--${line.kind}`}
       aria-hidden="true"
       onClick={onClick}
-      title="Click for another"
+      title={onClick ? 'Click for another' : undefined}
     >
       {label && <span className="mascot-bubble-label">{label}</span>}
       <span className="mascot-bubble-text">

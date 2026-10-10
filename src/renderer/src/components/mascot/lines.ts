@@ -7,6 +7,8 @@
  * in a speech bubble, not a manual.
  */
 
+import type { StartupStage } from '../../startup'
+
 export type LineKind = 'rayfin' | 'tip' | 'ray' | 'quip' | 'chat'
 
 export interface MascotLine {
@@ -196,6 +198,25 @@ export function helpGreeting(now: Date = new Date()): string {
           ? 'Good evening!'
           : 'Up late? Me too.'
   return `${hello} I’m Ray.`
+}
+
+/** Ray's hello on the loading screen. The first one ever is an introduction. */
+export function splashGreeting(firstTime: boolean): string {
+  return firstTime
+    ? 'Hi, I’m Ray! Let’s get you ready to build.'
+    : 'Welcome back! Let me get things ready.'
+}
+
+/**
+ * What Ray says while Fabricator starts: a wink at each step, not its details.
+ * When a step takes a while, he moves on to its next line.
+ */
+export const SPLASH_LINES: Record<StartupStage, readonly string[]> = {
+  tools: ['Rummaging through the toolbox…', 'Fins? Check. Flippers? Check. Still looking…'],
+  accounts: ['Knocking on a few doors…', 'Still knocking. Fins make terrible knuckles.'],
+  ready: ['All set! Let’s make something great.'],
+  setup: ['A few things to set up first. I’ll show you around!'],
+  error: ['Hmm, something got tangled in the seaweed. Let’s take a look.']
 }
 
 /* ----------------------------- the deck ----------------------------- */
