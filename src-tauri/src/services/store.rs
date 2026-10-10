@@ -43,6 +43,7 @@ fn default_settings() -> AppSettings {
     ui_scale: Some(1.0),
     experiments: Some(default_flags()),
     full_diagnostics: Some(false),
+    mascot: Some(true),
   }
 }
 
@@ -130,6 +131,7 @@ pub fn set_settings(
   ui_scale: Option<f64>,
   experiments: Option<ExperimentFlags>,
   full_diagnostics: Option<bool>,
+  mascot: Option<bool>,
 ) -> AppSettings {
   with_cache(|c| {
     if let Some(t) = theme {
@@ -140,6 +142,9 @@ pub fn set_settings(
     }
     if let Some(v) = full_diagnostics {
       c.settings.full_diagnostics = Some(v);
+    }
+    if let Some(v) = mascot {
+      c.settings.mascot = Some(v);
     }
     if let Some(patch) = experiments {
       merge_experiments(&mut c.settings.experiments, patch);

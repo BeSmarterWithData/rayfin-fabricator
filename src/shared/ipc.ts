@@ -1512,6 +1512,11 @@ export interface AppSettings {
    * Settings → Diagnostics.
    */
   fullDiagnostics?: boolean
+  /**
+   * Show Ray, Fabricator's stingray mascot, while apps install and in Help.
+   * On unless turned off (an unset value means on).
+   */
+  mascot?: boolean
 }
 
 /** Opt-in experimental feature flags (Settings → Experiments). */

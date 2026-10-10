@@ -21,9 +21,17 @@ pub struct SettingsPatch {
   experiments: Option<ExperimentFlags>,
   #[serde(default)]
   full_diagnostics: Option<bool>,
+  #[serde(default)]
+  mascot: Option<bool>,
 }
 
 #[tauri::command]
 pub fn settings_set(patch: SettingsPatch) -> AppSettings {
-  store::set_settings(patch.theme, patch.ui_scale, patch.experiments, patch.full_diagnostics)
+  store::set_settings(
+    patch.theme,
+    patch.ui_scale,
+    patch.experiments,
+    patch.full_diagnostics,
+    patch.mascot,
+  )
 }
