@@ -419,6 +419,101 @@
   }
 }
 
+/* ----------------------------- a screen of his own ----------------------------- */
+
+/* Ray on the loading and deploy screens (RayPerch): his bubble above him, with
+   room for its longest line so he stays put whatever he says. A screen can size
+   the bubble with --perch-bubble-w and --perch-bubble-h. */
+.ray-perch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.ray-perch-bubble {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: var(--perch-bubble-w, 320px);
+  height: var(--perch-bubble-h, 66px);
+}
+
+.ray-perch-bubble .mascot-bubble {
+  position: relative;
+  max-width: calc(var(--perch-bubble-w, 320px) - 20px);
+  padding: 10px 14px 11px;
+  font-size: 14px;
+  text-align: center;
+  text-wrap: balance;
+  cursor: default;
+  transform: none;
+}
+
+.ray-perch-ray {
+  position: relative;
+  animation: rayPerchIn 1s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Swimming up: faster, deeper wingbeats, as when he roams. */
+.ray-perch-ray.is-arriving .ray {
+  --ray-flap: 0.42s;
+  --ray-lift: 15deg;
+  --ray-beat: 11deg;
+}
+
+.ray-perch-hit {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.ray-perch-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+.ray-perch-bob,
+.ray-perch-squish,
+.ray-perch-ray .ray {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ray-perch-bob {
+  animation: rayPerchBob 2.8s ease-in-out 1s infinite alternate;
+}
+
+.ray-perch-squish {
+  transform-origin: 50% 70%;
+}
+
+@keyframes rayPerchIn {
+  from {
+    opacity: 0;
+    transform: translateY(36px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes rayPerchBob {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(6px);
+  }
+}
+
 /* ----------------------------- the water ----------------------------- */
 
 /* The water Ray swims in. His wake is drawn here in the accent colour, as
@@ -559,7 +654,9 @@
   .ray-mouth--talk,
   .ray.is-waving .ray-half--r,
   .mascot-roamer-bob,
-  .mascot-bubble-text {
+  .mascot-bubble-text,
+  .ray-perch-ray,
+  .ray-perch-bob {
     animation: none;
   }
 

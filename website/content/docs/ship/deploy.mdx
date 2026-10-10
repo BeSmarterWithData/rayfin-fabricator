@@ -47,16 +47,25 @@ If it finds one, you see a warning that deploying there would replace that app. 
 
 ## What happens during deploy
 
-Fabricator streams `rayfin up` output and shows progress stages:
+While a deploy runs, the preview shows the deploy screen. Ray talks you through it, and below him a list shows the steps the deploy has been through, the one in progress, and the steps still to come.
+
+With Rayfin CLI 1.35 or newer, the steps come from the CLI's own progress reports, and the step in progress shows the CLI's words for what it's doing. A typical deploy goes through:
 
 1. **Connecting to Fabric**
-2. **Preparing deployment**
-3. **Building your app**
-4. **Packaging assets**
-5. **Uploading to Fabric**
-6. **Going live**
+2. **Finding your workspace**
+3. **Setting up your app in Fabric**
+4. **Applying settings**
+5. **Updating your database**, for apps that store data
+6. **Building and uploading your app**
+7. **Going live**
 
-![The workbench during a first deploy: chat is locked with a Deploying your app notice, and the preview shows the deploy at Packaging assets, step 4 of 6.](/screenshots/deploy-progress.webp)
+Some deploys have other steps, such as **Installing packages** when the project's packages are missing, **Getting Fabric capacity ready**, **Setting up file storage**, **Connecting your data sources** or **Deploying your functions**. If the CLI reports a step Fabricator doesn't know, the list shows it in the CLI's own words.
+
+Projects on Rayfin CLI 1.34 or older show **Connecting to Fabric**, **Preparing deployment**, **Building your app**, **Packaging assets**, **Uploading to Fabric** and **Going live** instead. To get the detailed steps, update the project's Rayfin. See [Keep Rayfin up to date](/docs/ship/rayfin-versions).
+
+If Fabric asks you to sign in again, the deploy waits for you to finish in your browser. With Ray turned off in **Settings → Appearance**, the Fabricator logo takes his place.
+
+![The deploy screen: Ray says "Building your app. Fins crossed!" above a list of steps. Five are checked off, Building and uploading your app is in progress with the CLI's words "Deploying static content" under it, and Going live is still to come.](/screenshots/deploy-progress.webp)
 
 During the deploy you can select **View logs** in the deploy screen. If a deploy fails after the preview returns, the error banner includes **View deploy logs**.
 

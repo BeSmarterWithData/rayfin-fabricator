@@ -22,7 +22,7 @@ function wait(ms: number): void {
 describe('SplashScreen', () => {
   it('is Ray’s while he is on, and builds the Fabricator mark when he is off', () => {
     const { container, unmount } = render(<SplashScreen />)
-    expect(container.querySelector('.splash-ray svg.ray')).not.toBeNull()
+    expect(container.querySelector('.ray-perch-ray svg.ray')).not.toBeNull()
     expect(container.querySelector('.splash-logo')).toBeNull()
     unmount()
 

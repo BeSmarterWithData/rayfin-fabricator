@@ -14,11 +14,8 @@ import {
   MARK_VIEWBOX,
   MarkGradient
 } from './FabricatorMark'
-import { Ray, RAY_MOUTH, RAY_VIEWBOX, type RayMood } from './mascot/Ray'
-import { Particles, useParticles } from './mascot/Particles'
-import { SpeechBubble, TYPE_MS } from './mascot/SpeechBubble'
-import { useReducedMotion } from './mascot/context'
-import { useRayGaze } from './mascot/gaze'
+import { type RayMood } from './mascot/Ray'
+import { RayPerch } from './mascot/RayPerch'
 import { firstMeeting, rememberMeeting, SPLASH_LINES, splashGreeting } from './mascot/lines'
 
 function BuildingLogo(): JSX.Element {
@@ -85,7 +82,6 @@ const LINE_MS = 1700
 /** When a step takes a while, Ray moves on to its next line this often. */
 const ROTATE_MS = 3600
 const RAY_W = 200
-const RAY_H = (RAY_W * RAY_VIEWBOX.h) / RAY_VIEWBOX.w
 
 /** The mark's tiles, cropped to their bounds so the F can sit on a baseline. */
 const F_BOUNDS = MARK_TILES.reduce(
@@ -210,107 +206,29 @@ function useNarration(stage: StartupStage, greeting: string): string {
  * checks out, and likes being petted.
  */
 function SplashRay({ stage }: { stage: StartupStage }): JSX.Element {
-  const reduced = useReducedMotion()
   const [firstTime] = useState(firstMeeting)
   const text = useNarration(stage, splashGreeting(firstTime))
   const said = stageOf(text)
-  const { particles, burst } = useParticles()
-  const rayRef = useRef<HTMLButtonElement>(null)
-  const squishRef = useRef<HTMLSpanElement>(null)
-  const petTimer = useRef(0)
-  const [arriving, setArriving] = useState(!reduced)
-  const [wave, setWave] = useState<number | undefined>(undefined)
-  const [talking, setTalking] = useState(false)
-  const [petted, setPetted] = useState(false)
-  useRayGaze(rayRef)
 
   // Introduced now, so his hellos elsewhere won't introduce him again.
   useEffect(() => {
     if (firstTime) rememberMeeting()
   }, [firstTime])
 
-  useEffect(() => {
-    const swim = window.setTimeout(() => setArriving(false), 1000)
-    const hello = window.setTimeout(() => setWave(1), 1050)
-    return () => {
-      window.clearTimeout(swim)
-      window.clearTimeout(hello)
-      window.clearTimeout(petTimer.current)
-    }
-  }, [])
-
-  // His mouth moves while a line types out.
-  useEffect(() => {
-    if (reduced) return
-    setTalking(true)
-    const timer = window.setTimeout(() => setTalking(false), Array.from(text).length * TYPE_MS)
-    return () => window.clearTimeout(timer)
-  }, [text, reduced])
-
-  useEffect(() => {
-    if (reduced) return
-    if (said === 'ready') {
-      burst('confetti', 24, { x: RAY_W / 2, y: RAY_H * 0.35 })
-      return
-    }
-    if (said === 'setup' || said === 'error') return
-    const timer = window.setInterval(
-      () => burst('bubble', 2, { x: RAY_W * RAY_MOUTH.x, y: RAY_H * RAY_MOUTH.y }),
-      3200
-    )
-    return () => window.clearInterval(timer)
-  }, [said, reduced, burst])
-
-  function pet(): void {
-    setPetted(true)
-    window.clearTimeout(petTimer.current)
-    petTimer.current = window.setTimeout(() => setPetted(false), 1400)
-    const el = squishRef.current
-    if (el && typeof el.animate === 'function') {
-      el.animate(
-        [
-          { transform: 'scale(1)' },
-          { transform: 'scale(1.12, 0.86)' },
-          { transform: 'scale(0.95, 1.07)' },
-          { transform: 'scale(1)' }
-        ],
-        { duration: 420, easing: 'ease-out' }
-      )
-    }
-    if (!reduced) burst('heart', 3, { x: RAY_W / 2, y: 12 })
-  }
-
-  const base: RayMood = said === 'ready' ? 'happy' : said === 'error' ? 'worried' : 'idle'
-  const mood: RayMood = petted ? 'love' : talking ? 'talk' : base
+  const mood: RayMood = said === 'ready' ? 'happy' : said === 'error' ? 'worried' : 'idle'
 
   return (
-    <div className="splash-scene">
-      <div className="splash-bubble">
-        <SpeechBubble key={text} line={{ kind: 'chat', text }} typing={!reduced} />
-      </div>
-      <div
-        className={`splash-ray${arriving ? ' is-arriving' : ''}`}
-        style={{ width: RAY_W, height: RAY_H }}
-      >
-        <button
-          type="button"
-          ref={rayRef}
-          className="splash-ray-hit"
-          onClick={pet}
-          aria-label="Ray, the Fabricator stingray. Select to pet him."
-        >
-          <span className="splash-ray-bob">
-            <span ref={squishRef} className="splash-ray-squish">
-              <Ray mood={mood} wave={wave} />
-            </span>
-          </span>
-        </button>
-        <Particles particles={particles} />
-      </div>
+    <RayPerch
+      line={{ kind: 'chat', text }}
+      mood={mood}
+      size={RAY_W}
+      bubbling={said !== 'ready' && said !== 'setup' && said !== 'error'}
+      celebrate={said === 'ready' ? 1 : 0}
+    >
       <span className="sr-only" role="status">
         {text}
       </span>
-    </div>
+    </RayPerch>
   )
 }
 

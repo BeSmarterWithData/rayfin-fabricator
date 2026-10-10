@@ -1260,67 +1260,6 @@ code {
 .splash--ray {
   gap: 26px;
 }
-.splash-scene {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-}
-/* Room for a two-line bubble, so Ray stays put whatever he says. */
-.splash-bubble {
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  width: 320px;
-  height: 66px;
-}
-.splash-bubble .mascot-bubble {
-  position: relative;
-  max-width: 300px;
-  padding: 10px 14px 11px;
-  font-size: 14px;
-  text-align: center;
-  text-wrap: balance;
-  cursor: default;
-  transform: none;
-}
-.splash-ray {
-  position: relative;
-  animation: splash-ray-in 1s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-/* Swimming up: faster, deeper wingbeats, as when he roams. */
-.splash-ray.is-arriving .ray {
-  --ray-flap: 0.42s;
-  --ray-lift: 15deg;
-  --ray-beat: 11deg;
-}
-.splash-ray-hit {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: 0;
-  border: none;
-  background: none;
-  cursor: pointer;
-}
-.splash-ray-hit:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-  border-radius: 50%;
-}
-.splash-ray-bob,
-.splash-ray-squish,
-.splash-ray .ray {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.splash-ray-bob {
-  animation: splash-ray-bob 2.8s ease-in-out 1s infinite alternate;
-}
-.splash-ray-squish {
-  transform-origin: 50% 70%;
-}
 .splash-brand {
   display: flex;
   flex-direction: column;
@@ -1395,24 +1334,6 @@ code {
   to {
     opacity: 1;
     transform: none;
-  }
-}
-@keyframes splash-ray-in {
-  from {
-    opacity: 0;
-    transform: translateY(36px) scale(0.92);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-@keyframes splash-ray-bob {
-  from {
-    transform: translateY(0);
-  }
-  to {
-    transform: translateY(6px);
   }
 }
 @keyframes splash-tile {
@@ -1584,8 +1505,6 @@ code {
   .tile,
   .splash-sheen,
   .splash-stage::before,
-  .splash-ray,
-  .splash-ray-bob,
   .splash-word-f rect,
   .splash-word-letter,
   .splash-tiles,
@@ -5497,10 +5416,10 @@ code {
 }
 
 /* ============================================================
-   Deploy view (DeployStage.tsx) — a flat, modern take on Fabricator's
-   self-building splash mark, shown while a deploy streams. Scoped
-   `.dstage-*`; solid fills only (no glow/bloom/shadow), color from
-   --accent / --accent-2 so it tracks both themes.
+   Deploy screen (DeployStage.tsx): Ray swims your app to Fabric above the
+   steps the deploy has been through. Scoped `.dstage-*`; flat like the rest
+   of the app: solid fills and hairlines, no glow or shadow, colour from
+   --accent so it tracks both themes.
    ============================================================ */
 .dstage {
   flex: 1;
@@ -5518,12 +5437,92 @@ code {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: clamp(22px, 5vh, 46px);
-  padding: 24px;
+  justify-content: safe center;
+  gap: clamp(16px, 3.5vh, 30px);
+  padding: 28px 24px;
+  overflow-y: auto;
 }
 
-/* The self-building mark — clean, no glow/shadow */
+/* Ray, with room in his bubble for a fact on a long build. */
+.dstage-ray {
+  position: relative;
+  flex: none;
+}
+.dstage-perch {
+  --perch-bubble-w: 340px;
+  --perch-bubble-h: 104px;
+  position: relative;
+  z-index: 1;
+}
+
+/* The current he swims against: short hairlines streaming past his wings, so
+   he reads as swimming up to Fabric. Gone once he's there. */
+.dstage-current {
+  position: absolute;
+  left: 50%;
+  bottom: -8px;
+  width: 290px;
+  height: 160px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.dstage-current i {
+  position: absolute;
+  top: 0;
+  width: 2px;
+  height: 20px;
+  border-radius: 1px;
+  background: var(--accent);
+  opacity: 0;
+  animation: dstage-current 1.7s linear infinite;
+}
+.dstage-current i:nth-child(1) {
+  left: 4%;
+  height: 16px;
+}
+.dstage-current i:nth-child(2) {
+  left: 14%;
+  height: 26px;
+  animation-delay: 0.6s;
+}
+.dstage-current i:nth-child(3) {
+  left: 24%;
+  height: 14px;
+  animation-delay: 1.15s;
+}
+.dstage-current i:nth-child(4) {
+  left: 75%;
+  height: 22px;
+  animation-delay: 0.3s;
+}
+.dstage-current i:nth-child(5) {
+  left: 85%;
+  height: 15px;
+  animation-delay: 0.9s;
+}
+.dstage-current i:nth-child(6) {
+  left: 95%;
+  height: 24px;
+  animation-delay: 1.4s;
+}
+.dstage-ray.is-live .dstage-current {
+  display: none;
+}
+@keyframes dstage-current {
+  0% {
+    opacity: 0;
+    transform: translateY(0);
+  }
+  25% {
+    opacity: 0.35;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(130px);
+  }
+}
+
+/* With Ray turned off: the self-building mark. */
 .dstage-mark {
   width: clamp(112px, 26vh, 164px);
   aspect-ratio: 428 / 424;
@@ -5563,12 +5562,13 @@ code {
   }
 }
 
-/* ---- Status block ---- */
+/* ---- What's happening ---- */
 .dstage-hud {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 11px;
+  gap: 10px;
+  width: min(340px, 100%);
   text-align: center;
 }
 .dstage-eyebrow {
@@ -5588,18 +5588,90 @@ code {
   font-weight: 650;
   color: var(--text);
 }
-.dstage-phase {
-  display: inline-flex;
-  align-items: center;
+.dstage-bar {
+  width: 100%;
+  height: 4px;
+  margin: 4px 0 6px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--accent) 14%, var(--border));
+}
+.dstage-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 0.9s linear;
+}
+
+/* The steps so far, the one in progress in the CLI's own words, and those
+   still to come: a check, a dot, a ring. */
+.dstage-steps {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+}
+.dstage-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
   font-size: 13px;
+  line-height: 18px;
+  color: var(--text-faint);
+  animation: dstage-step-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.dstage-step-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 18px;
+}
+.dstage-step-mark::before {
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--border);
+  border-radius: 50%;
+  content: '';
+}
+.dstage-step[data-state='active'] {
   color: var(--text);
 }
-.dstage-phase-label {
-  display: inline-block;
-  animation: dstage-phase-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+.dstage-step[data-state='active'] .dstage-step-label {
+  font-weight: 600;
 }
-@keyframes dstage-phase-in {
+.dstage-step[data-state='active'] .dstage-step-mark::before {
+  border-color: var(--accent);
+  background: var(--accent);
+  animation: dstage-dot 1.5s ease-in-out infinite;
+}
+.dstage-step[data-state='done'] {
+  color: var(--text-dim);
+}
+.dstage-step[data-state='done'] .dstage-step-mark::before {
+  content: none;
+}
+.dstage-step-mark .codicon {
+  font-size: 14px;
+  color: var(--accent);
+}
+.dstage-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.dstage-step-detail {
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+@keyframes dstage-step-in {
   from {
     opacity: 0;
     transform: translateY(4px);
@@ -5608,13 +5680,6 @@ code {
     opacity: 1;
     transform: none;
   }
-}
-.dstage-phase-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: dstage-dot 1.5s ease-in-out infinite;
 }
 @keyframes dstage-dot {
   0%,
@@ -5625,53 +5690,8 @@ code {
     opacity: 1;
   }
 }
-.dstage-phase-count {
-  font-variant-numeric: tabular-nums;
-  font-size: 12px;
-  color: var(--text-dim);
-  opacity: 0.7;
-}
-.dstage-steps {
-  display: flex;
-  gap: 6px;
-  width: min(300px, 74vw);
-}
-.dstage-step {
-  position: relative;
-  flex: 1;
-  height: 4px;
-  border-radius: 2px;
-  overflow: hidden;
-  background: color-mix(in srgb, var(--accent) 14%, var(--border));
-  transition: background 0.4s ease;
-}
-.dstage-step[data-state='done'] {
-  background: var(--accent);
-}
-.dstage-step-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 2px;
-  background: var(--accent);
-  transition: width 1s linear;
-  animation: dstage-fill-pulse 1.7s ease-in-out infinite;
-}
-@keyframes dstage-fill-pulse {
-  0%,
-  100% {
-    opacity: 0.72;
-  }
 
-  .chat-plan-question--interrupted {
-    border-color: color-mix(in srgb, var(--pending) 45%, var(--border));
-    background: color-mix(in srgb, var(--pending) 8%, var(--bg));
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
-/* ---- Footer: telemetry ticker + logs toggle ---- */
+/* ---- Footer: the CLI's latest line + logs toggle ---- */
 .dstage-timer {
   position: absolute;
   top: 12px;
@@ -5753,12 +5773,11 @@ code {
   border-radius: 0;
 }
 
-/* Reduced motion: show the assembled mark, no motion */
+/* Reduced motion: everything in place, nothing streaming or pulsing. */
 @media (prefers-reduced-motion: reduce) {
   .dstage-brick,
-  .dstage-phase-dot,
-  .dstage-phase-label,
-  .dstage-step-fill,
+  .dstage-step,
+  .dstage-step-mark::before,
   .dstage-ticker-cursor {
     animation: none !important;
   }
@@ -5766,11 +5785,13 @@ code {
     opacity: 1;
     transform: none;
   }
-  .dstage-step-fill {
+  .dstage-bar > span {
     transition: none;
   }
+  .dstage-current {
+    display: none;
+  }
 }
-
 .preview-loading {
   font-size: 11px;
   color: var(--text-dim);

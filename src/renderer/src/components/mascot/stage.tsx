@@ -40,6 +40,8 @@ interface StageApi {
     bounds?: RefObject<HTMLElement | null>
   ) => void
   drop: (id: string) => void
+  /** A screen showing Ray itself opened (`true`) or closed. */
+  hold: (id: string, held: boolean) => void
 }
 
 const StageContext = createContext<StageApi | null>(null)
@@ -55,15 +57,22 @@ export function resetMascotForTests(): void {
   dismissed = false
 }
 
+/** Sent away from his own button, he said he'd only be in Help from now on. */
+export function isRaySentAway(): boolean {
+  return dismissed
+}
+
 /**
  * The one Ray in the app. Screens report their installs through
  * {@link useMascotInstall}; the stage decides when he swims in, celebrates,
  * frets, or leaves. Living above the screens lets him stay on through a hand-off,
  * such as a clone finishing and the opened project checking its packages.
+ * While a screen shows him itself ({@link useRayOnScreen}), he stays off the stage.
  */
 function MascotStage({ children }: { children: ReactNode }): JSX.Element {
   const enabled = useMascot()
   const sessions = useRef(new Map<string, Session>()).current
+  const holds = useRef(new Set<string>()).current
   const [visit, setVisit] = useState<Visit | null>(null)
   const visitRef = useRef(visit)
   visitRef.current = visit
@@ -97,6 +106,8 @@ function MascotStage({ children }: { children: ReactNode }): JSX.Element {
       if (!session || session.status !== 'running' || dismissed) return
       session.engaged = true
       if (session.bounds) boundsRef.current = session.bounds
+      // Another screen is showing him: he joins this install once it closes.
+      if (holds.size) return
       setVisit((v) =>
         !v
           ? { id: Date.now(), occasion: session.occasion, phase: 'running', phaseKey: 0 }
@@ -105,7 +116,7 @@ function MascotStage({ children }: { children: ReactNode }): JSX.Element {
             : { ...v, occasion: session.occasion, phase: 'running', phaseKey: v.phaseKey + 1 }
       )
     },
-    [sessions]
+    [sessions, holds]
   )
 
   const api = useMemo<StageApi>(
@@ -148,9 +159,25 @@ function MascotStage({ children }: { children: ReactNode }): JSX.Element {
         window.clearTimeout(session.timer)
         sessions.delete(id)
         if (session.engaged && session.status !== 'success') settle()
+      },
+      hold(id, held) {
+        if (held) {
+          holds.add(id)
+          // He's on that screen now, so the roaming one swims off.
+          setVisit((v) =>
+            v && v.phase !== 'leaving' && v.phase !== 'bye'
+              ? { ...v, phase: 'leaving', phaseKey: v.phaseKey + 1 }
+              : v
+          )
+          return
+        }
+        holds.delete(id)
+        const next = running()
+        if (holds.size || dismissed || !next) return
+        setVisit((v) => v ?? { id: Date.now(), occasion: next.occasion, phase: 'running', phaseKey: 0 })
       }
     }),
-    [engage, running, sessions, settle, toPhase]
+    [engage, holds, running, sessions, settle, toPhase]
   )
 
   // Turned off in Settings: he leaves at once, mid-sentence or not.
@@ -166,11 +193,11 @@ function MascotStage({ children }: { children: ReactNode }): JSX.Element {
   const onGone = useCallback((): void => {
     const next = running()
     setVisit(
-      next && !dismissed
+      next && !dismissed && holds.size === 0
         ? { id: Date.now(), occasion: next.occasion, phase: 'running', phaseKey: 0 }
         : null
     )
-  }, [running])
+  }, [holds, running])
 
   const onDismiss = useCallback((): void => {
     dismissed = true
@@ -237,4 +264,19 @@ export function useMascotInstall(
     () => ({ succeed: () => api?.report(id, occasion, 'success', bounds) }),
     [api, id, occasion, bounds]
   )
+}
+
+/**
+ * For a screen that shows Ray itself, such as the deploy screen. While it's
+ * open, the roaming Ray swims off and stays away, so there's only ever one of
+ * him; he comes back for an install still running once it closes.
+ */
+export function useRayOnScreen(active: boolean): void {
+  const api = useContext(StageContext)
+  const id = useId()
+  useEffect(() => {
+    if (!api || !active) return
+    api.hold(id, true)
+    return () => api.hold(id, false)
+  }, [api, id, active])
 }

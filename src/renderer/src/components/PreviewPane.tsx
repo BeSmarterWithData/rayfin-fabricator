@@ -1011,7 +1011,11 @@ export default function PreviewPane({
 
       <div className="preview-body">
         {running ? (
-          <DeployStage log={deploy?.log ?? []} name={project.name} />
+          <DeployStage
+            log={deploy?.log ?? []}
+            name={project.name}
+            firstDeploy={!project.lastDeploy?.url}
+          />
         ) : showWebview ? (
           <div className="preview-canvas">
             <div className="preview-stage">

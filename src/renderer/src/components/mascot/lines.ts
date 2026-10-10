@@ -8,6 +8,7 @@
  */
 
 import type { StartupStage } from '../../startup'
+import type { DeployTopic } from '../../deployProgress'
 
 export type LineKind = 'rayfin' | 'tip' | 'ray' | 'quip' | 'chat'
 
@@ -217,6 +218,48 @@ export const SPLASH_LINES: Record<StartupStage, readonly string[]> = {
   ready: ['All set! Let’s make something great.'],
   setup: ['A few things to set up first. I’ll show you around!'],
   error: ['Hmm, something got tangled in the seaweed. Let’s take a look.']
+}
+
+/** Ray's hello on the deploy screen. */
+export function deployGreeting(name: string, firstDeploy: boolean): string {
+  return firstDeploy
+    ? `${name}’s first trip to Fabric! I’ll swim it over.`
+    : 'Taking your latest changes to Fabric!'
+}
+
+/** Ray's cheer when the deploy is done. */
+export function deployLiveLine(name: string): string {
+  return `${name} is live! Go take a look.`
+}
+
+/**
+ * What Ray says while an app deploys: a wink at each step, not its details
+ * (the step list has those). When a step takes a while, he moves on to its
+ * next line, and on a long one he shares facts.
+ */
+export const DEPLOY_LINES: Record<DeployTopic, readonly string[]> = {
+  packages: ['Grabbing a few packages before we set off…', 'npm is packing the suitcase…'],
+  connect: ['Saying hi to Fabric…', 'Knock knock, Fabric. It’s Ray.'],
+  signin: ['Fabric wants to see some ID. Check your browser!'],
+  capacity: ['Finding your app some room to swim…', 'Clearing a spot in the pond…'],
+  workspace: ['Swimming over to your workspace…', 'Making sure your workspace has room…'],
+  item: ['Saving your app a spot in Fabric…', 'Rolling out the welcome mat…'],
+  settings: ['Tuning a few knobs…', 'Checking who’s on the guest list…'],
+  data: ['Tidying up your tables…', 'Teaching your database some new tricks…'],
+  storage: ['Making room for your files…', 'Dusting off some shelves…'],
+  connectors: ['Plugging in your data connections…', 'Untangling a few cables…'],
+  build: [
+    'Building your app. Fins crossed!',
+    'Bundling it all up nice and tidy…',
+    'Sending it up the current to Fabric…'
+  ],
+  functions: ['Waking up your functions…', 'Functions, rise and shine!'],
+  prepare: ['Getting everything ready in Fabric…', 'Rolling out the welcome mat…'],
+  package: ['Wrapping it up with a bow…', 'Bundling it all up nice and tidy…'],
+  upload: ['Sending it up the current to Fabric…', 'Almost there. Swim, Ray, swim!'],
+  other: ['Doing a little Fabric magic…', 'Something new! Watching closely…'],
+  retry: ['Fabric’s a bit busy. Trying again…'],
+  live: ['It’s live! Go take a look.']
 }
 
 /* ----------------------------- the deck ----------------------------- */

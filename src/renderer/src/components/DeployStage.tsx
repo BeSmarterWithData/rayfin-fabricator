@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useId, type CSSProperties } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   MARK_BRACKET_RX,
   MARK_BRACKETS,
@@ -7,159 +7,49 @@ import {
   MARK_VIEWBOX,
   MarkGradient
 } from './FabricatorMark'
+import { Codicon } from './icons'
+import { deployRuns, readDeployProgress, type DeployTopic } from '../deployProgress'
+import { useMascot } from './mascot/context'
+import { isRaySentAway, useRayOnScreen } from './mascot/stage'
+import { RayPerch } from './mascot/RayPerch'
+import type { RayMood } from './mascot/Ray'
+import {
+  DEPLOY_LINES,
+  FactDeck,
+  deployGreeting,
+  deployLiveLine,
+  type MascotLine
+} from './mascot/lines'
 
 /**
- * The deploy view shown while a deploy streams — a flat, modern take on
- * Fabricator's signature splash: the brand mark quietly builds itself from
- * gliding tiles (looped for a long deploy), under a clean status block with the
- * live deploy phase + a flat segmented progress and a telemetry ticker. The raw
- * `rayfin up` console is one click away via "View logs".
+ * The deploy screen, shown in the preview while a deploy runs. It's Ray's: he
+ * swims up, talks you through the deploy in his own words, shares a fact or two
+ * on a long build, and celebrates when the app is live. Beneath him are the
+ * steps the deploy has been through, read from `rayfin up`'s output (see
+ * deployProgress.ts), with the CLI's own words for the step in progress. The
+ * raw output is one click away under View logs.
  *
- * Shares the exact tile/bracket geometry + gradient with <FabricatorMark> /
- * <SplashScreen>. Deliberately flat — solid fills, no glow/bloom/shadow — and
- * theme-aware (all color from --accent / --accent-2). Honours
- * prefers-reduced-motion (shows the assembled mark, no motion).
- *
- * The phase label / progress is a best-effort read of the log + an elapsed-time
- * floor, so upstream wording changes can never stall or break the view.
+ * With Ray turned off (Settings → Appearance) or sent away, the Fabricator mark
+ * builds itself in his place. Flat throughout: solid fills, no glow or shadow.
  */
 
-export interface PhaseDef {
-  id: string
-  label: string
-  markers: string[]
-}
+const RAY_SIZE = 168
+/** Each line stays up at least this long, so none flashes by unread. */
+const LINE_MS = 1700
+/** When a step takes a while, Ray moves on to its next line this often. */
+const ROTATE_MS = 4200
+/** On a step this long, he starts sharing facts, one this often. */
+const FACTS_AFTER_MS = 12_000
+const FACT_MS = 9000
+/** He hops when a step finishes, but not for every one of a quick run of them. */
+const HOP_GAP_MS = 900
 
-/**
- * Deploy phases in chronological order, each with loose lowercase fragments of
- * real `rayfin up` output that signal it has begun.
- *
- * Resilience is deliberate: markers are broad and redundant (several synonyms
- * each) so a CLI wording change in a future version degrades gracefully instead
- * of breaking, and they're ordered so an *earlier* log line never contains a
- * *later* phase's marker. In particular the ubiquitous words "deploy" /
- * "deploying" are never markers (they appear from the very first line), and
- * "workspace" / "item" aren't either (they show up in the early Targeting block).
- * Detection only ever moves forward (see {@link resolvePhaseIndex}), so a marker
- * that matches once keeps the phase even if later lines don't repeat it.
- */
-export const DEPLOY_PHASES: PhaseDef[] = [
-  { id: 'connect', label: 'Connecting to Fabric', markers: [] },
-  {
-    id: 'prepare',
-    label: 'Preparing deployment',
-    markers: [
-      'targeting',
-      'workload endpoint',
-      'publishable key',
-      'runtime settings',
-      'redeploy',
-      'reusing',
-      'deployment config',
-      'wrote deployment',
-      'database config'
-    ]
-  },
-  {
-    id: 'build',
-    label: 'Building your app',
-    markers: [
-      'build command',
-      'build:fabric',
-      'tsc -b',
-      'vite build',
-      'building client',
-      'transform',
-      'modules transformed',
-      'compiling',
-      'esbuild',
-      'webpack'
-    ]
-  },
-  {
-    id: 'package',
-    label: 'Packaging assets',
-    markers: [
-      'rendering chunks',
-      'gzip',
-      'built in',
-      'build command completed',
-      'content packaged',
-      'packaged (',
-      'packaging',
-      'bundling'
-    ]
-  },
-  {
-    id: 'upload',
-    label: 'Uploading to Fabric',
-    markers: ['content deployed', 'deployed (', 'uploading', 'pushing', 'hosting url', 'deployment id', 'static hosting']
-  },
-  {
-    id: 'live',
-    label: 'Going live',
-    markers: ['is now deployed', 'now deployed to fabric', 'deployed to fabric!', 'live at', 'is live', 'next steps', '🎉']
-  }
-]
+/** Steps where he puts his reading glasses on. */
+const READING: ReadonlySet<DeployTopic> = new Set(['data', 'storage', 'connectors'])
+/** Where he sticks to the point instead of sharing facts. */
+const NO_FACTS: ReadonlySet<DeployTopic> = new Set(['signin', 'retry', 'live'])
 
-/** Furthest phase whose markers appear anywhere in the (lowercased) log. */
-function markerPhaseIdx(text: string): number {
-  let reached = 0
-  DEPLOY_PHASES.forEach((p, i) => {
-    if (p.markers.length && p.markers.some((m) => text.includes(m))) reached = i
-  })
-  return reached
-}
-
-/**
- * Time floor so the label still advances during the CLI's initial silent period
- * (and as a last resort if a version renames every marker). Deliberately gentle
- * and capped at `Packaging`: the build dominates deploy time, so we never let the
- * clock alone claim assets are uploaded or the app is live — those need a real
- * marker, keeping the status honest.
- */
-function timePhaseIdx(elapsedSec: number): number {
-  if (elapsedSec >= 30) return 3
-  if (elapsedSec >= 9) return 2
-  if (elapsedSec >= 4) return 1
-  return 0
-}
-
-/** Resolve the current phase index — the furthest of the log markers and the
- *  time floor. Never regresses and never exceeds the last phase. */
-export function resolvePhaseIndex(logText: string, elapsedSec: number): number {
-  const text = logText.toLowerCase()
-  return Math.min(DEPLOY_PHASES.length - 1, Math.max(markerPhaseIdx(text), timePhaseIdx(elapsedSec)))
-}
-
-const TELEMETRY = [
-  'handshaking with fabric…',
-  'allocating compute lattice…',
-  'linking dependency graph…',
-  'optimizing render bundle…',
-  'verifying artifact signatures…',
-  'streaming assets to workspace…',
-  'provisioning host runtime…',
-  'warming the edge cache…'
-]
-
-function usePrefersReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(
-    () => window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
-  )
-  useEffect(() => {
-    const mq = window.matchMedia?.('(prefers-reduced-motion: reduce)')
-    if (!mq) return
-    const on = (): void => setReduced(mq.matches)
-    mq.addEventListener?.('change', on)
-    return () => mq.removeEventListener?.('change', on)
-  }, [])
-  return reduced
-}
-
-/** Per-brick fly-in offset + stagger, keyed by the shared MARK_* class name. The
- *  bricks glide in from these small offsets, hold assembled, then glide back out
- *  on a slow loop — the "builds itself" motion, kept subtle for a long deploy. */
+/** Per-brick fly-in offset + stagger for the self-building mark (Ray turned off). */
 const BUILD: Record<string, { tx: number; ty: number; d: number }> = {
   'tile--topbar': { tx: 0, ty: -22, d: 0 },
   'tile--stem': { tx: -22, ty: 0, d: 0.08 },
@@ -179,7 +69,12 @@ function BuildingMark(): JSX.Element {
   const gid = 'dstage-mark-' + useId().replace(/:/g, '')
   const fill = `url(#${gid})`
   return (
-    <svg className="dstage-logo" viewBox={MARK_VIEWBOX} aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <svg
+      className="dstage-logo"
+      viewBox={MARK_VIEWBOX}
+      aria-hidden="true"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <defs>
         <MarkGradient id={gid} />
       </defs>
@@ -198,7 +93,12 @@ function BuildingMark(): JSX.Element {
           />
         ))}
         {MARK_BRACKETS.map((b) => (
-          <g key={b.cls} className={`dstage-brick bracket ${b.cls}`} style={brickStyle(b.cls)} fill={fill}>
+          <g
+            key={b.cls}
+            className={`dstage-brick bracket ${b.cls}`}
+            style={brickStyle(b.cls)}
+            fill={fill}
+          >
             {b.rects.map((r, i) => (
               <rect key={i} x={r[0]} y={r[1]} width={r[2]} height={r[3]} rx={MARK_BRACKET_RX} />
             ))}
@@ -209,17 +109,121 @@ function BuildingMark(): JSX.Element {
   )
 }
 
-export default function DeployStage({ log, name }: { log: string[]; name?: string }): JSX.Element {
-  const [elapsed, setElapsed] = useState(0)
+/**
+ * What Ray says: his hello, then a line for each step, moving on to the step's
+ * next line when it takes a while, and to facts when it takes much longer. Every
+ * line stays up for LINE_MS at least, so he never talks faster than you can
+ * read; only the good news at the end doesn't wait.
+ */
+function useDeployNarration(topic: DeployTopic, greeting: string, liveLine: string): MascotLine {
+  const deck = useMemo(() => new FactDeck(), [])
+  const [said, setSaid] = useState<{ topic: DeployTopic; beat: number; fact: MascotLine | null }>(
+    { topic, beat: 0, fact: null }
+  )
+  useEffect(() => {
+    setSaid({ topic, beat: 0, fact: null })
+    const next = (): void => setSaid((s) => (s.topic === topic ? { ...s, beat: s.beat + 1 } : s))
+    const rotate = DEPLOY_LINES[topic].length > 1 ? window.setInterval(next, ROTATE_MS) : 0
+    let facts = 0
+    const share = (): void => {
+      const fact = deck.next()
+      setSaid((s) => (s.topic === topic ? { ...s, fact } : s))
+    }
+    const start = NO_FACTS.has(topic)
+      ? 0
+      : window.setTimeout(() => {
+          share()
+          facts = window.setInterval(share, FACT_MS)
+        }, FACTS_AFTER_MS)
+    return () => {
+      window.clearInterval(rotate)
+      window.clearTimeout(start)
+      window.clearInterval(facts)
+    }
+  }, [topic, deck])
+
+  const { beat, fact } = said.topic === topic ? said : { beat: 0, fact: null }
+  const wanted = useMemo<MascotLine>(() => {
+    if (topic === 'live') return { kind: 'chat', text: liveLine }
+    const lines = DEPLOY_LINES[topic]
+    return fact ?? { kind: 'chat', text: lines[beat % lines.length] }
+  }, [topic, liveLine, fact, beat])
+
+  const [shown, setShown] = useState<MascotLine>({ kind: 'chat', text: greeting })
+  const shownAt = useRef(Date.now())
+  useEffect(() => {
+    if (wanted.text === shown.text) return
+    const wait = topic === 'live' ? 0 : Math.max(0, shownAt.current + LINE_MS - Date.now())
+    const timer = window.setTimeout(() => {
+      shownAt.current = Date.now()
+      setShown(wanted)
+    }, wait)
+    return () => window.clearTimeout(timer)
+  }, [wanted, shown, topic])
+  return shown
+}
+
+/** Ray on the deploy screen, swimming hard against the current. */
+function DeployRay({
+  topic,
+  hop,
+  name,
+  firstDeploy
+}: {
+  topic: DeployTopic
+  hop: number
+  name: string
+  firstDeploy: boolean
+}): JSX.Element {
+  const line = useDeployNarration(topic, deployGreeting(name, firstDeploy), deployLiveLine(name))
+  const live = topic === 'live'
+  const reading = READING.has(topic)
+  const mood: RayMood = live ? 'happy' : topic === 'signin' ? 'surprised' : reading ? 'read' : 'idle'
+  return (
+    <div className={`dstage-ray${live ? ' is-live' : ''}`}>
+      <span className="dstage-current" aria-hidden="true">
+        {Array.from({ length: 6 }, (_, i) => (
+          <i key={i} />
+        ))}
+      </span>
+      <RayPerch
+        className="dstage-perch"
+        line={line}
+        mood={mood}
+        glasses={reading}
+        size={RAY_SIZE}
+        bubbling={!live && topic !== 'signin'}
+        celebrate={live ? 1 : 0}
+        confetti={40}
+        hop={hop}
+      />
+    </div>
+  )
+}
+
+export default function DeployStage({
+  log,
+  name,
+  firstDeploy = false
+}: {
+  log: string[]
+  name?: string
+  /** The app has never been deployed, so this is its first trip to Fabric. */
+  firstDeploy?: boolean
+}): JSX.Element {
+  const appName = name?.trim() ?? ''
+  const mascot = useMascot()
+  const [sentAway] = useState(isRaySentAway)
+  const withRay = mascot && !sentAway
+  useRayOnScreen(withRay)
+
+  const [now, setNow] = useState(() => Date.now())
+  const [startedAt] = useState(now)
   const [showLog, setShowLog] = useState(false)
-  const startRef = useRef(Date.now())
   const logRef = useRef<HTMLPreElement>(null)
-  const reduced = usePrefersReducedMotion()
 
   useEffect(() => {
-    const id = window.setInterval(() => {
-      setElapsed(Math.floor((Date.now() - startRef.current) / 1000))
-    }, 1000)
+    const id = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(id)
   }, [])
 
@@ -227,19 +231,51 @@ export default function DeployStage({ log, name }: { log: string[]; name?: strin
     if (showLog && logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight
   }, [log, showLog])
 
-  const logText = useMemo(() => log.join('\n'), [log])
-  const idx = resolvePhaseIndex(logText, elapsed)
-  const phase = DEPLOY_PHASES[idx]
-  const isLast = idx === DEPLOY_PHASES.length - 1
+  // An older CLI's progress is partly read off the clock, from when the CLI
+  // started in the latest run: a sign-in retry starts a new one, and installing
+  // packages doesn't count.
+  const runs = useMemo(() => deployRuns(log), [log])
+  const [cli, setCli] = useState<{ runs: number; at: number | null }>({ runs, at: startedAt })
+  const cliSec = cli.runs === runs && cli.at !== null ? Math.max(0, now - cli.at) / 1000 : 0
+  const progress = readDeployProgress(log, cliSec)
+  const installing = progress.current.id === 'packages'
+  if (cli.runs !== runs || (installing ? cli.at !== null : cli.at === null)) {
+    setCli({ runs, at: installing ? null : Date.now() })
+  }
 
-  // Smoothly fill the active phase's segment: remember when this phase became
-  // active, then ease its fill toward ~0.9 over a few seconds (never full until
-  // the phase actually advances), so progress reads as continuous, not stepwise.
-  const phaseAtRef = useRef({ idx: -1, at: Date.now() })
-  if (phaseAtRef.current.idx !== idx) phaseAtRef.current = { idx, at: Date.now() }
-  const inPhaseSec = (Date.now() - phaseAtRef.current.at) / 1000
-  const activeFrac = isLast ? 1 : Math.min(0.9, 0.14 + inPhaseSec / 8)
+  // When the current step began, and how many steps have gone by.
+  const [step, setStep] = useState({ id: progress.current.id, at: startedAt, count: 0 })
+  if (step.id !== progress.current.id) {
+    setStep({ id: progress.current.id, at: Date.now(), count: step.count + 1 })
+  }
 
+  // The bar: where the step began, easing toward where the next one would, and
+  // never back. The CLI's own percentage wins when it gives one.
+  const span = progress.next - progress.at
+  const inStepSec = Math.max(0, now - step.at) / 1000
+  const tau = progress.topic === 'build' || progress.topic === 'upload' ? 16 : 6
+  const target = progress.live
+    ? 1
+    : progress.percent !== null
+      ? progress.at + (span * progress.percent) / 100
+      : progress.at + span * 0.85 * (1 - Math.exp(-inStepSec / tau))
+  const high = useRef({ runs, value: 0 })
+  const bar = Math.max(high.current.runs === runs ? high.current.value : 0, target)
+  useEffect(() => {
+    high.current = { runs, value: bar }
+  }, [runs, bar])
+
+  const [hop, setHop] = useState(0)
+  const lastHop = useRef(0)
+  useEffect(() => {
+    if (step.count === 0 || progress.live) return
+    const at = Date.now()
+    if (at - lastHop.current < HOP_GAP_MS) return
+    lastHop.current = at
+    setHop((n) => n + 1)
+  }, [step.count, progress.live])
+
+  const elapsed = Math.floor((now - startedAt) / 1000)
   const elapsedLabel = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`
 
   const lastLine = useMemo(() => {
@@ -252,52 +288,75 @@ export default function DeployStage({ log, name }: { log: string[]; name?: strin
     }
     return ''
   }, [log])
-  const ticker = lastLine || TELEMETRY[Math.floor(elapsed / 3) % TELEMETRY.length]
 
   return (
-    <div className="dstage" data-reduced={reduced ? 'true' : undefined}>
+    <div className="dstage">
       <div className="dstage-scene">
         <span className="dstage-timer" aria-hidden="true">
           {elapsedLabel}
         </span>
 
-        <div className="dstage-mark">
-          <BuildingMark />
-        </div>
+        {withRay ? (
+          <DeployRay
+            topic={progress.topic}
+            hop={hop}
+            name={appName || 'Your app'}
+            firstDeploy={firstDeploy}
+          />
+        ) : (
+          <div className="dstage-mark">
+            <BuildingMark />
+          </div>
+        )}
 
         <div className="dstage-hud">
-          <span className="dstage-eyebrow">Fabricating</span>
+          <span className="dstage-eyebrow">{progress.live ? 'Shipped' : 'Fabricating'}</span>
           <h3 className="dstage-title">
-            Deploying <b>{name?.trim() || 'your app'}</b>
+            {progress.live ? (
+              <>
+                <b>{appName || 'Your app'}</b> is live
+              </>
+            ) : (
+              <>
+                Deploying <b>{appName || 'your app'}</b>
+              </>
+            )}
           </h3>
-          <div className="dstage-phase" role="status" aria-live="polite">
-            <span className="dstage-phase-dot" />
-            <span key={idx} className="dstage-phase-label">
-              {phase.label}
-            </span>
-            <span className="dstage-phase-count">
-              {idx + 1}/{DEPLOY_PHASES.length}
-            </span>
+          <div
+            className="dstage-bar"
+            role="progressbar"
+            aria-label="Deploy progress"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(bar * 100)}
+          >
+            <span style={{ width: `${(bar * 100).toFixed(1)}%` }} />
           </div>
-          <div className="dstage-steps" aria-hidden="true">
-            {DEPLOY_PHASES.map((p, i) => {
-              const state = i < idx ? 'done' : i === idx ? 'active' : 'todo'
-              return (
-                <span key={p.id} className="dstage-step" data-state={state}>
-                  {state === 'active' && (
-                    <span className="dstage-step-fill" style={{ width: `${Math.round(activeFrac * 100)}%` }} />
+          <ol className="dstage-steps" aria-label="Deploy steps">
+            {progress.steps.map((s) => (
+              <li key={s.id} className="dstage-step" data-state={s.state}>
+                <span className="dstage-step-mark" aria-hidden="true">
+                  {s.state === 'done' && <Codicon name="check" />}
+                </span>
+                <span className="dstage-step-text">
+                  <span className="dstage-step-label">{s.label}</span>
+                  {s.state === 'active' && progress.detail && (
+                    <span className="dstage-step-detail">{progress.detail}</span>
                   )}
                 </span>
-              )
-            })}
-          </div>
+              </li>
+            ))}
+          </ol>
+          <span className="sr-only" role="status">
+            {progress.current.label}
+          </span>
         </div>
       </div>
 
       <div className="dstage-foot">
         <div className="dstage-ticker">
           <span className="dstage-ticker-caret">›</span>
-          <span className="dstage-ticker-text">{ticker}</span>
+          <span className="dstage-ticker-text">{lastLine || 'Starting the deploy…'}</span>
           <span className="dstage-ticker-cursor" aria-hidden="true" />
         </div>
         <button className="dstage-logbtn" type="button" onClick={() => setShowLog((s) => !s)}>

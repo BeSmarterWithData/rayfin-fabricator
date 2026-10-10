@@ -14,7 +14,7 @@ Everything here is a maintainer tool. It isn't part of the app or of CI.
 | `scrub.js` | Replaces personal details (names, emails, tenant, workspace and repo names, paths) in a page |
 | `capture-window.ps1` | Captures the app window, including the native preview webview a DevTools screenshot can't see |
 | `optimize.mjs` | Crops, resizes and converts a capture to WebP (uses `sharp` from `website/node_modules`) |
-| `harness/` + `capture-harness.ps1` | Renders components with sample data (team overview, publish menu, Rayfin update popover, port-conflict dialog, Skills and Secrets views) and captures them with headless Edge |
+| `harness/` + `capture-harness.ps1` | Renders components with sample data (team overview, publish menu, Rayfin update popover, port-conflict dialog, Skills and Secrets views, deploy screen) and captures them with headless Edge |
 
 ## Before you start
 
@@ -88,6 +88,7 @@ by adding a case to `harness/docs-harness.tsx`.
 ```powershell
 node optimize.mjs $shots\setup.png ..\..\website\public\screenshots\setup.webp
 node optimize.mjs $shots\share.png ..\..\website\public\screenshots\share.webp --crop 400,240,640,420
+node optimize.mjs $shots\deploy-progress.png ..\..\website\public\screenshots\deploy-progress.webp --crop 340,90,760,720
 ```
 
 `--crop x,y,width,height` is in window (CSS) pixels. Reference images in pages as

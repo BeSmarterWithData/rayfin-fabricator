@@ -5,7 +5,7 @@
 // Open /docs-harness.html?shot=<id>. Every value here is sample data.
 import '@vscode/codicons/dist/codicon.css'
 import './assets/main.css'
-import { useEffect, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
 import type {
   AuthStatus,
@@ -32,6 +32,7 @@ import PortConflictModal from './components/PortConflictModal'
 import PlanCard from './components/PlanCard'
 import SkillsView from './components/SkillsView'
 import SecretsView from './components/SecretsView'
+import DeployStage from './components/DeployStage'
 import './components/chat/chat.css'
 
 const ok = <T,>(value: T) => (): Promise<T> => Promise.resolve(value)
@@ -382,6 +383,49 @@ function Open({ selector, children }: { selector: string; children: ReactNode })
   return <>{children}</>
 }
 
+/**
+ * A Rayfin 1.36 deploy of the sample app, as `rayfin up` streams it, timed so the
+ * capture (10 s of virtual time) lands in the build.
+ */
+const DEPLOY_LOG: Array<[number, string]> = [
+  [0, 'Deploying Contoso Expenses to Fabric…\n'],
+  [600, '👀 Found Rayfin project root: C:\\Users\\avery\\RayfinProjects\\contoso-expenses\n'],
+  [2500, '[rayfin] license: Checking user license\n'],
+  [3200, '[rayfin] dependencies: Inspecting project dependencies\n[rayfin] workspace: Resolving workspace\n'],
+  [3500, '[rayfin] item: Resolving Rayfin item\n[rayfin] target: Resolving workload endpoint\n'],
+  [4200, '[rayfin] settings: Applying runtime settings\n'],
+  [4700, '[rayfin] data: Applying database configuration\n'],
+  [6000, '[rayfin] persist: Recording deployment\n[rayfin] static: Deploying static content\n']
+]
+
+/** The deploy screen in a preview-sized frame, fed the sample deploy's log. */
+function Deploying(): JSX.Element {
+  const [log, setLog] = useState<string[]>([])
+  useEffect(() => {
+    const timers = DEPLOY_LOG.map(([at, chunk]) => window.setTimeout(() => setLog((l) => [...l, chunk]), at))
+    return () => timers.forEach((t) => window.clearTimeout(t))
+  }, [])
+  return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      {/* Headless time runs ahead of CSS transitions: show the bar where it is. */}
+      <style>{'.dstage-bar > span { transition: none !important; }'}</style>
+      <div
+        style={{
+          width: 760,
+          height: 720,
+          display: 'flex',
+          flexDirection: 'column',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          overflow: 'hidden'
+        }}
+      >
+        <DeployStage log={log} name="Contoso Expenses" />
+      </div>
+    </div>
+  )
+}
+
 function Shot({ id }: { id: string | null }): JSX.Element {
   switch (id) {
     case 'team-overview': {
@@ -496,6 +540,8 @@ function Shot({ id }: { id: string | null }): JSX.Element {
       )
     case 'help':
       return <HelpView onClose={noop} onAction={noop} onReportIssue={noop} appVersion="1.11.0" />
+    case 'deploy-progress':
+      return <Deploying />
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>
   }

@@ -145,7 +145,7 @@ in `.md`.
 | `home` | Home with the project actions and recent projects | `/docs/start/tour`, `/docs/build/projects` |
 | `new-project` | New project screen with a name entered | `/docs/start/first-app`, `/docs/build/projects` |
 | `first-deploy` | The Deploy your app step of a new project | `/docs/start/first-app`, `/docs/ship/deploy` |
-| `deploy-progress` | The workbench during a first deploy | `/docs/ship/deploy` |
+| `deploy-progress` | The deploy screen during a deploy: Ray and the steps so far (sample data) | `/docs/ship/deploy` |
 | `chat-working` | Chat during a turn, with the live work log | `/docs/build/chat`, `/docs/start/first-app` |
 | `chat-done` | A finished turn with the "Worked for …" summary and changed-file chips | `/docs/build/chat` |
 | `chat-diff` | The diff for one changed file, opened from its chip | `/docs/build/chat` |

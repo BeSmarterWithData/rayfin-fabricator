@@ -1,7 +1,13 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useRef, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { MascotProvider, resetMascotForTests, useMascotInstall, type InstallStatus } from './stage'
+import {
+  MascotProvider,
+  resetMascotForTests,
+  useMascotInstall,
+  useRayOnScreen,
+  type InstallStatus
+} from './stage'
 import type { Occasion } from './lines'
 
 function Install({
@@ -134,5 +140,30 @@ describe('Ray during installs', () => {
     render(stage(<Install status="running" />, false))
     wait(5000)
     expect(ray()).toBeNull()
+  })
+
+  it('makes way while a screen shows him itself, and comes back for the install after', () => {
+    function OwnRay({ active }: { active: boolean }): null {
+      useRayOnScreen(active)
+      return null
+    }
+    const tree = (held: boolean): JSX.Element =>
+      stage(
+        <>
+          <Install status="running" />
+          <OwnRay active={held} />
+        </>
+      )
+    const view = render(tree(false))
+    wait(700)
+    expect(ray()).not.toBeNull()
+
+    view.rerender(tree(true))
+    wait(5000)
+    expect(ray()).toBeNull()
+
+    view.rerender(tree(false))
+    wait(100)
+    expect(ray()).not.toBeNull()
   })
 })
