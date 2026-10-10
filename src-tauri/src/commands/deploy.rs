@@ -360,9 +360,29 @@ pub(crate) async fn run_deploy(
     Ok(lease) => lease,
     Err(error) => return deployment_error(error),
   };
-  let result = run_deploy_inner(app.clone(), project_id.clone(), workspace).await;
-  record_deploy(&project_id, &result);
+  let mut detail = None;
+  let result = run_deploy_inner(app.clone(), project_id.clone(), workspace, &mut detail).await;
+  record_deploy(&project_id, &result, detail);
   result
+}
+
+/// How much of a failed run's output the journal keeps: enough for the step it
+/// was on and the CLI's own account of the failure.
+const FAILURE_DETAIL_LINES: usize = 16;
+
+/// The end of a failed run's output, as the journal's detail.
+///
+/// The error the UI shows is one line, and often only the headline — "Runtime
+/// settings sync failed: 400 Bad Request" — while the line that explains it
+/// ("Details: The PostgreSQLDatabase feature is not enabled.") comes after.
+/// Help reads the journal to answer "why did my deploy fail?", so it needs both.
+fn failure_detail(output: &str) -> Option<String> {
+  let clean = crate::commands::chat_tools::strip_ansi(output);
+  let lines: Vec<&str> = clean.lines().map(str::trim_end).filter(|line| !line.trim().is_empty()).collect();
+  if lines.is_empty() {
+    return None;
+  }
+  Some(lines[lines.len().saturating_sub(FAILURE_DETAIL_LINES)..].join("\n"))
 }
 
 /// Note the outcome of a deploy in the activity journal.
@@ -370,7 +390,7 @@ pub(crate) async fn run_deploy(
 /// Both outcomes are recorded. "Did my deploy work?" is one of the most common
 /// questions the Help assistant is asked, and a journal that only ever noted
 /// failures would answer a successful deploy with the last one that went wrong.
-fn record_deploy(project_id: &str, result: &DeployResult) {
+fn record_deploy(project_id: &str, result: &DeployResult, detail: Option<String>) {
   use journal::{Area, Level};
   let message = if result.ok {
     match result.url.as_deref() {
@@ -389,7 +409,7 @@ fn record_deploy(project_id: &str, result: &DeployResult) {
   .operation(format!("deploy_run:{}", result.outcome))
   .project(Some(project_id.to_string()));
   if !result.ok {
-    entry = entry.surface(journal::Surface::Backend);
+    entry = entry.surface(journal::Surface::Backend).detail(detail);
   }
   entry.write();
 }
@@ -448,6 +468,7 @@ async fn run_deploy_inner(
   app: AppHandle,
   project_id: String,
   workspace: Option<String>,
+  detail: &mut Option<String>,
 ) -> DeployResult {
   let Some(project) = store::find_project(&project_id) else {
     return DeployResult {
@@ -494,6 +515,7 @@ async fn run_deploy_inner(
   if let Err(error) =
     exec::ensure_project_dependencies(Path::new(&project.path), Some(on_data.clone())).await
   {
+    *detail = failure_detail(&captured.lock().unwrap());
     patch_deploy(&project_id, |d| {
       d.status = Some("error".into());
       d.outcome = Some("error".into());
@@ -535,6 +557,9 @@ async fn run_deploy_inner(
   .await;
 
   let captured_text = captured.lock().unwrap().clone();
+  if !result.ok {
+    *detail = failure_detail(&captured_text);
+  }
 
   if result.not_found {
     let error = error_text(&result, &captured_text, "The project's Rayfin CLI could not be started.");
@@ -946,6 +971,34 @@ mod tests {
     }
     let result = failed_run("", &format!("Error: {}", "x".repeat(1000)));
     assert_eq!(error_text(&result, "", "fallback").chars().count(), 500);
+  }
+
+  #[test]
+  fn a_failure_keeps_the_lines_that_explain_it_for_help() {
+    // The one-line error is only the headline; the cause is on the lines after it.
+    let output = "Deploying Contoso Expenses to Fabric…\n\
+      [rayfin] settings: Applying runtime settings\n\n\
+      \x1b[31m❌ Deployment failed: Runtime settings sync failed: 400 Bad Request\x1b[0m\n\
+      \x20  Details: The PostgreSQLDatabase feature is not enabled.\n\
+      \x20  RootActivityId: 81ae282a-1f0e-4226-8643-eebd435b2c17\n";
+    let error = error_text(&failed_run(output, ""), output, "fallback");
+    assert!(!error.contains("PostgreSQLDatabase"), "the headline alone doesn't say why");
+
+    let detail = failure_detail(output).expect("a failed run has output to keep");
+    assert!(detail.contains("Details: The PostgreSQLDatabase feature is not enabled."));
+    assert!(detail.contains("[rayfin] settings: Applying runtime settings"), "and the step it was on");
+    assert!(!detail.contains('\x1b'), "colour codes are stripped");
+    assert!(!detail.contains("\n\n"), "blank lines are dropped");
+  }
+
+  #[test]
+  fn a_failure_detail_keeps_only_the_end_of_a_long_run() {
+    let output: String = (1..=100).map(|i| format!("line {i}\n")).collect();
+    let detail = failure_detail(&output).unwrap();
+    assert_eq!(detail.lines().count(), FAILURE_DETAIL_LINES);
+    assert!(detail.ends_with("line 100"));
+    assert!(!detail.contains("line 84\n"), "the start of the run is left out");
+    assert_eq!(failure_detail("  \n\n"), None, "no output, no detail");
   }
 
   #[test]

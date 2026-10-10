@@ -147,6 +147,15 @@ describe('workbenchFacts', () => {
     expect(facts.some((f) => f.includes('local preview'))).toBe(true)
   })
 
+  it('says the last deploy failed while that is still the latest word', () => {
+    const failed = workbenchFacts(project, { deployFailed: true })
+    expect(failed.some((f) => f.includes('most recent deploy of "Expenses" failed'))).toBe(true)
+    // A new deploy under way supersedes it.
+    const retrying = workbenchFacts(project, { deployFailed: true, deploying: true })
+    expect(retrying.some((f) => f.includes('failed'))).toBe(false)
+    expect(workbenchFacts(project).some((f) => f.includes('failed'))).toBe(false)
+  })
+
   it('handles no open app', () => {
     expect(workbenchFacts(null, { projectCount: 3 })[0]).toContain('list of 3 app(s)')
     expect(workbenchFacts(null)[0]).toContain('none have been created')

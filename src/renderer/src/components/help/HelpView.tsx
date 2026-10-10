@@ -65,6 +65,12 @@ export interface HelpViewProps {
    */
   surface?: 'setup' | 'home' | 'project'
   appVersion?: string
+  /**
+   * A question to ask as soon as Help opens, such as "Why did my last deploy
+   * fail?" from a failed deploy. It's asked once, after any saved conversation
+   * has been restored, so it follows on from that rather than replacing it.
+   */
+  initialQuestion?: string
 }
 
 function newId(): string {
@@ -87,7 +93,8 @@ export function HelpView({
   onReportIssue,
   facts,
   surface,
-  appVersion
+  appVersion,
+  initialQuestion
 }: HelpViewProps): JSX.Element {
   const toast = useToast()
   useSuppressPreview()
@@ -98,6 +105,10 @@ export function HelpView({
   const [busy, setBusy] = useState(false)
   /** When the restored part of the conversation was last saved, if any. */
   const [resumedAt, setResumedAt] = useState<string | null>(null)
+  /** The saved conversation has been restored, or there was none. */
+  const [historyReady, setHistoryReady] = useState(false)
+  /** `initialQuestion` has been asked. */
+  const [askedInitial, setAskedInitial] = useState(false)
 
   const scrollRef = useRef<HTMLDivElement | null>(null)
   /** Latest `stop`, so history effects can use it before it is declared. */
@@ -130,6 +141,8 @@ export function HelpView({
       } catch (reason) {
         // A conversation we can't read is not worth failing over.
         reportThrown(reason, { operation: 'help_history_load', area: 'app' })
+      } finally {
+        if (!cancelled) setHistoryReady(true)
       }
     })()
     return () => {
@@ -169,9 +182,10 @@ export function HelpView({
         const current = await window.api.help.grounding()
         if (cancelled) return
         setGrounding(current)
-        // Fetch in the background on first open; the assistant still answers
-        // from the logs while this is in flight.
-        if (!current.sourceReady || !current.docsReady) {
+        // Fetch in the background on first open, and again after an update
+        // brings a version whose release notes aren't mirrored yet; the
+        // assistant still answers from the logs while this is in flight.
+        if (!current.sourceReady || !current.docsReady || !current.notesReady) {
           setPreparing(true)
           const ready = await window.api.help.prepare(false)
           if (!cancelled) setGrounding(ready)
@@ -322,6 +336,18 @@ export function HelpView({
   }, [])
   stopRef.current = stop
 
+  // Ask what Help was opened to ask, once the saved conversation is back, so
+  // the restore can't replace it and the earlier turns are replayed with it.
+  // The ref is the guard: another render can land before the state update does.
+  const askedInitialRef = useRef(false)
+  useEffect(() => {
+    const question = initialQuestion?.trim()
+    if (!historyReady || !question || askedInitialRef.current) return
+    askedInitialRef.current = true
+    setAskedInitial(true)
+    void ask(question, [])
+  }, [historyReady, initialQuestion, ask])
+
   /* ----------------------------- chrome ----------------------------- */
 
   useEffect(() => {
@@ -348,7 +374,9 @@ export function HelpView({
     stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
   }, [])
 
-  const empty = exchanges.length === 0
+  // While a question Help was opened to ask is on its way, the starter
+  // questions would only flash up and vanish.
+  const empty = exchanges.length === 0 && !(initialQuestion?.trim() && !askedInitial)
 
   return (
     <div className="help" role="dialog" aria-modal="true" aria-label="Help">

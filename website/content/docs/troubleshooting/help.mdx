@@ -17,6 +17,8 @@ Help opens full screen over the app. Your project and chat stay exactly as you l
 
 Help is also available during setup: connect GitHub Copilot in step 1 and a **Help** button appears at the bottom of the setup screen. It answers the same way, but only offers the actions setup can actually carry out — re-checking your tools, signing in to Copilot, opening the logs or the documentation — because the rest of the app isn't running yet.
 
+When a deploy fails, you don't have to open Help yourself. Ray swims in above the preview and offers **Find out why**. Select it, or select Ray, and Help opens and asks "Why did my last deploy fail?" for you. It reads the end of the deploy's log, so it can quote the line that explains the failure.
+
 Describe the problem the way you would to a colleague. These all work:
 
 - "Why did my last deploy fail?"
@@ -24,6 +26,10 @@ Describe the problem the way you would to a colleague. These all work:
 - "The preview won't start"
 - "Find me my expenses app"
 - "Share my app with someone"
+
+## Find out what's new
+
+Ask "What's new in this release?" to hear what changed in the version of Fabricator you're running, in plain language, with a link to its release notes. It is one of the questions Help offers when you open it. You can also ask about an earlier version, or about everything that changed since the version you used before, such as "What changed since 1.12?"
 
 ## Your conversation is kept
 
@@ -35,12 +41,13 @@ A conversation you haven't touched for a day is dropped, so an unrelated problem
 
 ## What Help can see
 
-Help reads four things, and nothing else:
+Help reads five things, and nothing else:
 
 | Source | What it is used for |
 | --- | --- |
 | Your activity history | What Fabricator has done recently, and how each of those went |
 | The documentation | How a feature is meant to work, and the steps to fix it |
+| The release notes | What changed in each version of Fabricator |
 | Your open project | Your app's files, when the question is about your app |
 | Fabricator's own code | Tracing an error message back to the condition that caused it |
 
@@ -51,7 +58,7 @@ Help is also told what is true at the moment you ask: which accounts are connect
 The badge next to **fabricator help** at the top shows what Help has available. When it shows a version such as `v1.9.5`, Help is reading the exact code your copy of Fabricator is built from, so its answers match the app in front of you. Select the badge to download a fresh copy.
 
 > [!NOTE]
-> Help downloads the documentation and Fabricator's code once, then works offline. The first question after an update takes a few seconds longer while it refreshes.
+> Help downloads the documentation, the release notes and Fabricator's code once, then works offline. The first question after an update takes a few seconds longer while it refreshes.
 
 ## What Help can and can't do
 

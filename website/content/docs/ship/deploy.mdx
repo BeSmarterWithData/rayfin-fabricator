@@ -67,7 +67,7 @@ If Fabric asks you to sign in again, the deploy waits for you to finish in your 
 
 ![The deploy screen: Ray says "Building your app. Fins crossed!" above a list of steps. Five are checked off, Building and uploading your app is in progress with the CLI's words "Deploying static content" under it, and Going live is still to come.](/screenshots/deploy-progress.webp)
 
-During the deploy you can select **View logs** in the deploy screen. If a deploy fails after the preview returns, the error banner includes **View deploy logs**.
+During the deploy you can select **View logs** in the deploy screen. If the deploy fails, Ray stays above the preview and offers **Find out why**, which opens Help to explain what went wrong, and **View logs** for the deploy's output. See [A deploy failed](/docs/troubleshooting/deploy#a-deploy-failed).
 
 ## Redeploy changes
 
@@ -128,7 +128,7 @@ Fabricator does not show a per-deployment delete action in this panel.
 
 ## Refresh Fabric authentication
 
-If deployment repeatedly fails even though you recently signed in, use **Refresh Fabric authentication** from the account menu or the preview error banner. Fabricator runs the selected project's `rayfin logout`, then `rayfin login`, verifies the new Fabric credential, and does not redeploy automatically. After it succeeds, select **Redeploy**.
+If deployment repeatedly fails even though you recently signed in, use **Refresh Fabric authentication** from the account menu. When a deploy fails because Fabric wants you to sign in again, the notice above the preview offers it too. Fabricator runs the selected project's `rayfin logout`, then `rayfin login`, verifies the new Fabric credential, and does not redeploy automatically. After it succeeds, select **Redeploy**.
 
 See [setup and sign-in troubleshooting](/docs/troubleshooting/setup-and-sign-in) and [deploy troubleshooting](/docs/troubleshooting/deploy) for recovery steps.
 

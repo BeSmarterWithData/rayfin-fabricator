@@ -33,6 +33,7 @@ import PlanCard from './components/PlanCard'
 import SkillsView from './components/SkillsView'
 import SecretsView from './components/SecretsView'
 import DeployStage from './components/DeployStage'
+import PreviewPane from './components/PreviewPane'
 import './components/chat/chat.css'
 
 const ok = <T,>(value: T) => (): Promise<T> => Promise.resolve(value)
@@ -173,6 +174,8 @@ function SelectSecret({ name, children }: { name: string; children: ReactNode })
 function installApi(): void {
   const api = {
     openExternal: ok(undefined),
+    // The native preview surface: every call is a no-op, so a pane renders without one.
+    preview: {},
     skills: {
       list: ok(skills),
       source: (_project: string, id: string) =>
@@ -335,7 +338,13 @@ const setupAuth: AuthStatus = {
   az: { signedIn: true, user: 'avery.chen@contoso.com' }
 }
 
-const groundedHelp = { sourceReady: true, docsReady: true, reference: 'v1.11.0', pinned: true }
+const groundedHelp = {
+  sourceReady: true,
+  docsReady: true,
+  notesReady: true,
+  reference: 'v1.11.0',
+  pinned: true
+}
 
 /**
  * One finished Help exchange: a deploy that failed, diagnosed from the journal
@@ -421,6 +430,58 @@ function Deploying(): JSX.Element {
         }}
       >
         <DeployStage log={log} name="Contoso Expenses" />
+      </div>
+    </div>
+  )
+}
+
+/** The sample app's deploy failing on a Fabric feature its tenant hasn't turned on, as Rayfin 1.36 reports it. */
+const FAILED_DEPLOY_LOG = [
+  'Deploying Contoso Expenses to Fabric…\n',
+  '[rayfin] license: Checking user license\n',
+  '[rayfin] dependencies: Inspecting project dependencies\n',
+  '[rayfin] workspace: Resolving workspace\n',
+  '[rayfin] item: Resolving Rayfin item\n',
+  '[rayfin] target: Resolving workload endpoint\n',
+  '[rayfin] settings: Applying runtime settings\n',
+  '\n❌ Deployment failed: Runtime settings sync failed: 400 Bad Request\n',
+  '   Details: The PostgreSQLDatabase feature is not enabled.\n'
+]
+
+/** The preview after that deploy failed: Ray above it, offering to find out why. */
+function DeployFailed(): JSX.Element {
+  const app = {
+    id: 'p2',
+    name: 'Contoso Expenses',
+    path: 'C:/Users/avery/RayfinProjects/contoso-expenses',
+    addedAt: '',
+    lastDeploy: { url: 'https://contoso-expenses-1a2b3c4d5e-westus.webapp.fabricapps.net', status: 'success' }
+  } as StudioProject
+  return (
+    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div
+        style={{
+          width: 900,
+          height: 560,
+          display: 'flex',
+          flexDirection: 'column',
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          overflow: 'hidden'
+        }}
+      >
+        <PreviewPane
+          project={app}
+          deploy={{
+            running: false,
+            log: FAILED_DEPLOY_LOG,
+            result: { ok: false, outcome: 'error', error: '❌ Deployment failed: Runtime settings sync failed: 400 Bad Request' }
+          }}
+          focused={false}
+          onToggleFocus={noop}
+          onDiagnoseDeploy={noop}
+          onRefreshAuth={noop}
+        />
       </div>
     </div>
   )
@@ -542,6 +603,8 @@ function Shot({ id }: { id: string | null }): JSX.Element {
       return <HelpView onClose={noop} onAction={noop} onReportIssue={noop} appVersion="1.11.0" />
     case 'deploy-progress':
       return <Deploying />
+    case 'deploy-error':
+      return <DeployFailed />
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>
   }

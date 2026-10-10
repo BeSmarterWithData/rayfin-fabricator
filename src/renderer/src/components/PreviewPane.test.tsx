@@ -21,7 +21,8 @@ function Harnessed({
   deploy,
   localPreviewUrl,
   onRefreshAuth,
-  authBusy
+  authBusy,
+  onDiagnoseDeploy
 }: {
   project: StudioProject
   suppressed: boolean
@@ -29,6 +30,7 @@ function Harnessed({
   localPreviewUrl?: string | null
   onRefreshAuth?: () => void
   authBusy?: boolean
+  onDiagnoseDeploy?: () => void
 }): JSX.Element {
   return (
     <OverlayProvider>
@@ -38,6 +40,7 @@ function Harnessed({
         deploy={deploy}
         onRefreshAuth={onRefreshAuth}
         authBusy={authBusy}
+        onDiagnoseDeploy={onDiagnoseDeploy}
         localPreviewUrl={localPreviewUrl}
         focused={false}
         onToggleFocus={() => {}}
@@ -78,29 +81,37 @@ afterEach(() => {
 })
 
 describe('PreviewPane visibility', () => {
-  it('keeps failed redeploy diagnostics and recovery accessible beside a live preview', async () => {
+  it('offers a sign-in failure its fix beside the live preview, with the logs folded away', async () => {
     const project = makeProject('p1')
     const onRefreshAuth = vi.fn()
+    const onDiagnoseDeploy = vi.fn()
     const log = 'Build succeeded\nError: Could not acquire the token-cache lock\n'
     const deploy: DeployUiState = {
       running: false,
       log: [log],
       result: { ok: false, outcome: 'auth-cache-error', error: 'Refresh is needed' }
     }
-    render(<Harnessed project={project} suppressed={false} deploy={deploy} onRefreshAuth={onRefreshAuth} />)
+    render(
+      <Harnessed
+        project={project}
+        suppressed={false}
+        deploy={deploy}
+        onRefreshAuth={onRefreshAuth}
+        onDiagnoseDeploy={onDiagnoseDeploy}
+      />
+    )
     await settle(e)
-    expect(screen.getByRole('alert').textContent).toBe('Refresh is needed')
-    expect(screen.getByText('View deploy logs')).toBeTruthy()
-    fireEvent.click(screen.getByText('View deploy logs'))
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Fabric wants you to sign in again before this app can deploy.'
+    )
+    expect(screen.queryByText(/Build succeeded/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'View logs' }))
     expect(screen.getByText(/Build succeeded/).textContent).toBe(log)
     expect(e.api.showUrl).toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh Fabric authentication' }))
     expect(onRefreshAuth).toHaveBeenCalledTimes(1)
-    fireEvent.click(screen.getByRole('button', { name: 'Troubleshoot deploys' }))
-    const { openExternal } = (window as unknown as { api: { openExternal: ReturnType<typeof vi.fn> } }).api
-    expect(openExternal).toHaveBeenCalledWith(
-      'https://spatney.github.io/rayfin-fabricator/docs/troubleshooting/deploy#a-deploy-failed'
-    )
+    fireEvent.click(screen.getByRole('button', { name: 'Find out why' }))
+    expect(onDiagnoseDeploy).toHaveBeenCalledTimes(1)
   })
 
   it('shows a first-deploy IPC error even before project state has refreshed', async () => {
@@ -112,7 +123,58 @@ describe('PreviewPane visibility', () => {
         deploy={{ running: false, log: [], result: { ok: false, outcome: 'error', error: 'Deploy process disconnected' } }}
       />
     )
-    expect(screen.getByRole('alert').textContent).toBe('Deploy process disconnected')
+    expect(screen.getByRole('region', { name: 'Deploy failed' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Show details' }))
+    expect(screen.getByText('Deploy process disconnected')).toBeTruthy()
+  })
+
+  it('asks Help why a deploy failed, from Ray or from the button', async () => {
+    const onDiagnoseDeploy = vi.fn()
+    const onRefreshAuth = vi.fn()
+    render(
+      <Harnessed
+        project={makeProject('p1')}
+        suppressed={false}
+        onRefreshAuth={onRefreshAuth}
+        onDiagnoseDeploy={onDiagnoseDeploy}
+        deploy={{
+          running: false,
+          log: ['❌ Deployment failed: Runtime settings sync failed: 400 Bad Request\n'],
+          result: { ok: false, outcome: 'error', error: 'Runtime settings sync failed: 400 Bad Request' }
+        }}
+      />
+    )
+    await settle(e)
+    expect(screen.getByRole('alert').textContent).toBe(
+      'That deploy didn’t make it to Fabric. Want me to find out why?'
+    )
+    // The headline is in the logs, not spelled out over the preview.
+    expect(screen.queryByText(/400 Bad Request/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /^Ray, the Fabricator stingray/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Find out why' }))
+    expect(onDiagnoseDeploy).toHaveBeenCalledTimes(2)
+    // Signing in again is offered only when that's what went wrong.
+    expect(screen.queryByRole('button', { name: 'Refresh Fabric authentication' })).toBeNull()
+  })
+
+  it('keeps a dismissed failure away until the next deploy fails', async () => {
+    const project = makeProject('p1')
+    const failed: DeployUiState = {
+      running: false,
+      log: ['Deploy failed: no capacity\n'],
+      result: { ok: false, outcome: 'error', error: 'no capacity' }
+    }
+    const { rerender } = render(<Harnessed project={project} suppressed={false} deploy={failed} />)
+    await settle(e)
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    await settle(e)
+    expect(screen.queryByRole('region', { name: 'Deploy failed' })).toBeNull()
+
+    rerender(<Harnessed project={project} suppressed={false} deploy={{ running: true, log: [] }} />)
+    await settle(e)
+    rerender(<Harnessed project={project} suppressed={false} deploy={{ ...failed }} />)
+    await settle(e)
+    expect(screen.getByRole('region', { name: 'Deploy failed' })).toBeTruthy()
   })
 
   it('offers recovery for a persisted failure but disables it during another auth operation', async () => {

@@ -14,7 +14,7 @@ Everything here is a maintainer tool. It isn't part of the app or of CI.
 | `scrub.js` | Replaces personal details (names, emails, tenant, workspace and repo names, paths) in a page |
 | `capture-window.ps1` | Captures the app window, including the native preview webview a DevTools screenshot can't see |
 | `optimize.mjs` | Crops, resizes and converts a capture to WebP (uses `sharp` from `website/node_modules`) |
-| `harness/` + `capture-harness.ps1` | Renders components with sample data (team overview, publish menu, Rayfin update popover, port-conflict dialog, Skills and Secrets views, deploy screen) and captures them with headless Edge |
+| `harness/` + `capture-harness.ps1` | Renders components with sample data (team overview, publish menu, Rayfin update popover, port-conflict dialog, Skills and Secrets views, deploy screen, failed deploy) and captures them with headless Edge |
 
 ## Before you start
 

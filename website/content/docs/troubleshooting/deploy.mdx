@@ -7,20 +7,22 @@ Use this page when Fabricator cannot publish your app to Microsoft Fabric or the
 
 ## A deploy failed
 
-You see **Deploy failed** in the preview status or a deploy toast. The preview error banner may include **Refresh Fabric authentication** and **View deploy logs**. A build failure can say "❌ Deployment failed: Static build command failed. Fix the build errors and re-run, or use 'rayfin up staticapp deploy --skip-build' to deploy existing content."
+You see **Deploy failed** in the preview status or a deploy toast, and Ray swims in above the preview to say "That deploy didn’t make it to Fabric. Want me to find out why?" With Ray turned off, the notice says "The deploy didn’t finish. Help can find out why." A build failure's log can say "❌ Deployment failed: Static build command failed. Fix the build errors and re-run, or use 'rayfin up staticapp deploy --skip-build' to deploy existing content."
 
-![The preview after a failed deploy: a red banner with the error message, a Refresh Fabric authentication button, and the deploy logs expanded.](/screenshots/deploy-error.webp)
+![Ray above the preview after a failed deploy, saying the deploy didn't make it to Fabric, with Find out why and View logs beside him.](/screenshots/deploy-error.webp)
 
 Fabricator runs the project's pinned Rayfin CLI with `rayfin up -y --force`. The log is the source of truth: it includes Rayfin CLI output, dependency recovery, build errors, Fabric authentication failures, workspace targeting errors, and Fabric API failures.
 
-1. In the preview's error banner, open **View deploy logs**.
-2. Read the first real error near the end of the log. Ignore a final generic "Deploy failed" line if a more specific line appears above it.
+1. Select **Find out why**, or select Ray. Help opens and asks "Why did my last deploy fail?" for you. It reads the end of the deploy's log, explains the cause in plain language, and offers the fix as a button when there is one.
+2. To read the log yourself, select **View logs**. Read the first real error near the end. Ignore a final generic "Deploy failed" line if a more specific line appears above it. The `Details:` line under the error usually says why, such as "Details: The PostgreSQLDatabase feature is not enabled."
 3. If the log says the project has no workspace or asks for a workspace, choose a deployment workspace and deploy again.
 4. If the log mentions authentication, expired credentials, a token-cache lock, `HTTP 401`, or `unauthorized`, use **Refresh Fabric authentication**, then select **Redeploy**.
 5. If the log mentions a build or TypeScript error, ask Copilot to fix that error, then deploy again.
 6. If the log says "Environment variable '…' referenced in rayfin.yml (…) is not defined.", your app's `rayfin/rayfin.yml` uses a setting that isn't set on this computer. Add that variable to the project's `rayfin/.env`, then select **Redeploy**.
 7. If the log mentions Fabric capacity, permissions, a workspace conflict, or a Fabric API failure, fix that Fabric workspace issue and select **Redeploy**.
 8. If the log mentions destructive data-model changes, note that Fabricator already runs deploy with `--force`; the failure is coming from the CLI or Fabric after that forced deploy attempt.
+
+To put the notice away, select the **×** beside it. It comes back if the next deploy fails.
 
 If the log is unclear, [Report a problem](/docs/troubleshooting/report-a-problem) and attach diagnostics.
 
@@ -40,18 +42,17 @@ This is an open reliability issue for some long sessions.
 
 ## Fabric authentication blocks deploy
 
-A deploy repeatedly fails even though setup shows you signed in, or the error banner offers **Refresh Fabric authentication**.
+A deploy repeatedly fails even though setup shows you signed in, or the notice above the preview says Fabric wants you to sign in again and offers **Refresh Fabric authentication**.
 
 ![The account menu opened from the avatar in the top-right corner, showing the signed-in Fabric account with Refresh Fabric authentication and Sign out.](/screenshots/account-menu.webp)
 
 Fabricator deploys with the Rayfin CLI credentials for the project. **Refresh Fabric authentication** runs the selected project's `rayfin logout`, then `rayfin login`, and verifies the refreshed credential against Fabric. It does not clear Copilot, Azure CLI, or preview-browser sessions.
 
-1. Open the preview error banner or the account menu in the app bar.
-2. Select **Refresh Fabric authentication**.
-3. In the dialog, select **Clear credentials and sign in**.
-4. Complete the browser sign-in.
-5. Wait for Fabricator to show that authentication is verified.
-6. Select **Redeploy**. Authentication refresh does not redeploy automatically.
+1. Select **Refresh Fabric authentication** in the notice above the preview, or open the account menu in the app bar and select it there.
+2. In the dialog, select **Clear credentials and sign in**.
+3. Complete the browser sign-in.
+4. Wait for Fabricator to show that authentication is verified.
+5. Select **Redeploy**. Authentication refresh does not redeploy automatically.
 
 If refresh fails, update the app's Rayfin packages to Rayfin 1.35.1 or newer from the Rayfin version control, then try again. If it still fails, [Report a problem](/docs/troubleshooting/report-a-problem).
 

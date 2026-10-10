@@ -5808,18 +5808,160 @@ code {
   overflow: auto;
 }
 
-.preview-error-message {
-  margin-bottom: 6px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+/* ============================================================
+   A failed deploy (DeployFailedNotice.tsx): Ray swims in above the preview,
+   worried, and offers to find out why in Help. It's in the layout, not over the
+   preview, because the preview is a native surface nothing can cover. Calm on
+   purpose: the status says "Deploy failed" in red already, and the log stays
+   folded away until asked for.
+   ============================================================ */
+.deploy-trouble {
+  flex: none;
+  max-height: 55%;
+  overflow: auto;
+  padding: 10px 10px 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--danger) 5%, var(--bg));
 }
 
-.preview-error-banner details {
-  margin-top: 8px;
+.deploy-trouble-main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.preview-error-banner summary {
+.deploy-trouble-ray {
+  position: relative;
+  flex: none;
+  display: block;
+  padding: 0;
+  border: none;
+  background: none;
+  animation: deployTroubleSwimIn 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+button.deploy-trouble-ray {
   cursor: pointer;
+}
+
+button.deploy-trouble-ray:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 50%;
+}
+
+/* Swimming in: faster, deeper wingbeats, as when he roams. */
+.deploy-trouble-ray.is-arriving .ray {
+  --ray-flap: 0.42s;
+  --ray-lift: 15deg;
+  --ray-beat: 11deg;
+}
+
+.deploy-trouble-bob,
+.deploy-trouble-ray .ray {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.deploy-trouble-bob {
+  animation: rayPerchBob 2.8s ease-in-out 0.7s infinite alternate;
+}
+
+.deploy-trouble-icon {
+  flex: none;
+  color: var(--danger);
+  font-size: 18px;
+}
+
+.deploy-trouble-say {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+}
+
+/* Ray's bubble sits beside him, its tail pointing back at him. It holds its
+   size while the line types, so the buttons beside it never shift. */
+.deploy-trouble-bubble {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  min-height: 40px;
+  align-items: center;
+  margin-left: 6px;
+}
+
+.deploy-trouble-bubble .mascot-bubble {
+  position: relative;
+  max-width: 400px;
+  padding: 8px 12px 9px;
+  font-size: 13px;
+  cursor: default;
+  transform: none;
+}
+
+.deploy-trouble-bubble .mascot-bubble-tail {
+  top: calc(50% - 5px);
+  bottom: auto;
+  left: -6px;
+  margin-left: 0;
+  transform: rotate(135deg);
+}
+
+.deploy-trouble-text {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.deploy-trouble-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* With Ray, the choices appear as he finishes swimming in. */
+.deploy-trouble--ray .deploy-trouble-actions {
+  animation: mascotPop 0.18s ease-out 0.7s both;
+}
+
+.deploy-trouble-log {
+  margin-top: 10px;
+}
+
+.deploy-trouble.is-leaving {
+  animation: deployTroubleOut 0.24s ease-in both;
+}
+
+@keyframes deployTroubleSwimIn {
+  from {
+    opacity: 0;
+    transform: translateX(-56px) rotate(-10deg);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes deployTroubleOut {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deploy-trouble-ray,
+  .deploy-trouble-bob,
+  .deploy-trouble--ray .deploy-trouble-actions,
+  .deploy-trouble.is-leaving {
+    animation: none;
+  }
 }
 
 /* Deployments switcher popover */

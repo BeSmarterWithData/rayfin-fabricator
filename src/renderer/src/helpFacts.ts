@@ -132,6 +132,8 @@ export function workbenchFacts(
     onHome?: boolean
     previewUrl?: string | null
     deploying?: boolean
+    /** The most recent deploy failed, and none has run since. */
+    deployFailed?: boolean
   } = {}
 ): string[] {
   const facts: string[] = []
@@ -169,6 +171,13 @@ export function workbenchFacts(
   }
 
   if (options.deploying) facts.push('A deploy is running right now.')
+  else if (options.deployFailed) {
+    // State, not the event: the journal has the failure itself, and this says
+    // it is still the latest word rather than something a later deploy fixed.
+    facts.push(
+      `The most recent deploy of "${active.name}" failed, and the preview says "Deploy failed". No deploy has run since.`
+    )
+  }
   if (options.previewUrl) facts.push(`A local preview of "${active.name}" is running.`)
 
   return facts

@@ -21,9 +21,9 @@ chatting with GitHub Copilot. You are talking to the person using the app, insid
   s.push_str(
     "# Who you are talking to\n\n\
 Most Fabricator users are analysts and makers, not professional developers. Many are opening the \
-app for the first time. They are talking to you because something went wrong, or because they \
-don't know how to do something. Assume they want to get back to work, not to learn how Fabricator \
-is built.\n\n",
+app for the first time. They are talking to you because something went wrong, because they don't \
+know how to do something, or to find out what changed in an update. Assume they want to get back \
+to work, not to learn how Fabricator is built.\n\n",
   );
 
   s.push_str(
@@ -42,9 +42,10 @@ history is not the present.\n\
 2. **The activity journal and logs** — what actually happened on this machine. `activity-*.jsonl` \
 has one JSON record per notable event, oldest first. `diagnostics-*.jsonl` has one record per \
 chat turn. `main-*.log` has crashes.\n\
-3. **The documentation** — the published user guide, mirrored locally. This is the source of \
-truth for how a feature is *meant* to work and for fix instructions. Prefer it over your own \
-knowledge, and prefer it over the source code.\n\
+3. **The documentation and the release notes** — the published user guide and the notes for each \
+release, mirrored locally. The guide is the source of truth for how a feature is *meant* to work \
+and for fix instructions; the release notes are the source of truth for what changed in each \
+version. Prefer them over your own knowledge, and prefer them over the source code.\n\
 4. **The user's project** — their app's files, when the question is about their app.\n\
 5. **Fabricator's own source code** — a checkout of the app you are running inside.\n\n",
   );
@@ -57,11 +58,25 @@ failure. The journal is not a list of problems; most of it is things working.\n\
 - **A failure followed by a later success in the same area is already resolved.** If you see \
 `setup` errors and then `setup.completed`, setup works — say so. Do not report a problem the \
 user has already got past, and never describe a resolved failure as if it were happening now.\n\
-- **`dev: true` means the record came from a development build run from source.** That is \
-somebody editing Fabricator's own code, not a fault in the installed app. Ignore those unless \
-the user asks about them specifically, and never present them to a user as their problem.\n\
-- Check the time. Something from days ago is rarely the answer to \"what is wrong now\".\n\n",
+- **A record's `detail` is the evidence behind its one-line `message`.** For `deploy.failed` it \
+is the end of the deploy's output, and the cause is usually on the lines after the error, such \
+as `Details: …`, which the message leaves out. Read it before you answer, quote the line that \
+explains the failure, and never send the user to find it in the logs themselves. The \
+`Diagnostic log:` file it names belongs to the Rayfin CLI and is outside what you can read.\n",
   );
+  // Both kinds of build write to the same journal. In the installed app, a dev
+  // record is someone's half-finished edit to Fabricator; in a dev build it is
+  // this very session, and ignoring it hides the answer.
+  s.push_str(if ctx.dev_build {
+    "- **`dev: true` marks a record from a development build run from source — which is what \
+you are running in now.** Those records are this user's own activity: read them like any other \
+and present what they show.\n"
+  } else {
+    "- **`dev: true` means the record came from a development build run from source.** That is \
+somebody editing Fabricator's own code, not a fault in the installed app. Ignore those unless \
+the user asks about them specifically, and never present them to a user as their problem.\n"
+  });
+  s.push_str("- Check the time. Something from days ago is rarely the answer to \"what is wrong now\".\n\n");
 
   s.push_str(
     "## How to use the source code\n\n\
@@ -93,6 +108,9 @@ numbered steps.\n\
 control is before saying what to do with it: \"In the app bar, select **Redeploy**.\"\n\
 - Quote the exact error message the user saw when you have it.\n\
 - Link to the docs with full URLs, like https://spatney.github.io/rayfin-fabricator/docs/troubleshooting/deploy.\n\
+- When the user asks what's new or what changed, answer from the release notes: the running \
+version's, or every release since the version they mention. Give each release a few short bullets \
+in plain language, keep the app's labels in bold, and cite its page with `help_cite`.\n\
 - Write in plain language, address the user as \"you\", and use the present tense.\n\
 - Never say \"simply\", \"just\", \"easy\" or \"powerful\".\n\
 - Use Markdown. Short paragraphs, numbered steps for procedures, backticks for literal values \
@@ -108,7 +126,7 @@ Search and read files to ground your answer; you cannot modify anything.\n\n\
 - When the user wants to get somewhere or do something the app can do for them, call \
 `help_offer_action` so the UI shows a button. Prefer this over telling them where to click. \
 \"Open my expenses app\" and \"share my app\" are both answered with a button, not directions.\n\
-- Call `help_cite` when an answer rests on a documentation page.\n\
+- Call `help_cite` when an answer rests on a documentation page or a release's notes.\n\
 - Call `help_draft_issue` when the problem looks like a fault in Fabricator rather than something \
 the user can fix, when they ask you to report something, or when they ask for a feature or an \
 improvement that doesn't exist yet. Write it for them from what you found, set `kind` to match \
@@ -165,10 +183,12 @@ mod tests {
   fn ctx() -> HelpContext {
     HelpContext {
       app_version: "1.10.0".into(),
+      dev_build: false,
       os: "windows".into(),
       source_dir: Some("C:\\data\\assistant\\source".into()),
       source_ref: Some("v1.10.0".into()),
       docs_dir: Some("C:\\data\\assistant\\docs".into()),
+      release_notes: None,
       logs_dir: "C:\\data\\logs".into(),
       project: None,
       projects: Vec::new(),
@@ -193,6 +213,38 @@ mod tests {
     let logs = frame.find("activity journal").unwrap();
     let source = frame.find("Fabricator's own source code").unwrap();
     assert!(logs < source, "the logs are introduced before the source");
+  }
+
+  #[test]
+  fn the_frame_answers_whats_new_from_the_release_notes() {
+    let frame = system_frame(&ctx());
+    assert!(frame.contains("the release notes are the source of truth for what changed"));
+    assert!(frame.contains("When the user asks what's new or what changed, answer from the release notes"));
+  }
+
+  #[test]
+  fn the_frame_sends_the_model_to_a_failures_detail() {
+    let frame = system_frame(&ctx());
+    assert!(frame.contains("A record's `detail` is the evidence behind its one-line `message`"));
+    assert!(frame.contains("never send the user to find it in the logs themselves"));
+  }
+
+  #[test]
+  fn the_installed_app_sets_dev_records_aside() {
+    let frame = system_frame(&ctx());
+    assert!(frame.contains("Ignore those unless the user asks about them specifically"));
+  }
+
+  #[test]
+  fn a_dev_build_reads_its_own_dev_records() {
+    // Every record a dev build writes is `dev: true`. Told to ignore them, Help
+    // had "The PostgreSQLDatabase feature is not enabled." in front of it and
+    // sent the user to the logs to find the cause instead.
+    let mut c = ctx();
+    c.dev_build = true;
+    let frame = system_frame(&c);
+    assert!(frame.contains("which is what you are running in now"));
+    assert!(!frame.contains("Ignore those unless"));
   }
 
   #[test]

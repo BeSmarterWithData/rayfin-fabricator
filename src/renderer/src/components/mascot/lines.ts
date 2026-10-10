@@ -232,6 +232,19 @@ export function deployLiveLine(name: string): string {
   return `${name} is live! Go take a look.`
 }
 
+/** Why a deploy didn't finish, as far as what to offer goes. */
+export type DeployTrouble = 'failed' | 'signin' | 'stopped'
+
+/**
+ * What Ray says when a deploy fails: what happened, in a sentence, and that he
+ * can find out why. The details are a click away; he doesn't read them out.
+ */
+export const DEPLOY_TROUBLE_LINES: Record<DeployTrouble, string> = {
+  failed: 'That deploy didn’t make it to Fabric. Want me to find out why?',
+  signin: 'Fabric wants you to sign in again before this app can deploy.',
+  stopped: 'That deploy was stopped before it finished.'
+}
+
 /**
  * What Ray says while an app deploys: a wink at each step, not its details
  * (the step list has those). When a step takes a while, he moves on to its

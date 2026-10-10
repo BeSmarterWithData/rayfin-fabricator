@@ -8,7 +8,6 @@ import type {
   TeamRunStatus
 } from '@shared/ipc'
 import { usePreviewSuppressed } from '../overlay'
-import { openDocs } from '../docsLinks'
 import { measurePreviewBounds, watchPreviewPixelRatio } from '../previewBounds'
 import { DEVICES, deviceHostWidth, type DeviceId } from '../design/devices'
 import { readFabricatorTheme } from '../design/hostTheme'
@@ -28,6 +27,7 @@ import {
   PhoneIcon
 } from './icons'
 import DeployStage from './DeployStage'
+import DeployFailedNotice from './DeployFailedNotice'
 import TeamDeployCard from './team/TeamDeployCard'
 import TeamRunStrip from './team/TeamRunStrip'
 
@@ -93,6 +93,8 @@ interface Props {
   /** Offer an explicit credential reset without automatically replaying a deploy. */
   onRefreshAuth?: () => void
   authBusy?: boolean
+  /** Open Help and ask it why the last deploy failed. */
+  onDiagnoseDeploy?: () => void
   /** True when the preview pane is expanded to fill the build view (chat hidden). */
   focused: boolean
   /** Toggle preview focus (full-width preview ⇄ split with chat). */
@@ -205,6 +207,7 @@ export default function PreviewPane({
   deploy,
   onRefreshAuth,
   authBusy = false,
+  onDiagnoseDeploy,
   focused,
   onToggleFocus,
   onPreviewModeChanged,
@@ -243,6 +246,13 @@ export default function PreviewPane({
   // prompt instead of a dead error so the user can pick a target and retry.
   const outcome = deploy?.result?.outcome ?? project.lastDeploy?.outcome
   const needsWorkspace = !running && outcome === 'needs-workspace'
+  // A failed deploy's notice can be put away until the next deploy, or another
+  // app, comes along.
+  const [failureDismissed, setFailureDismissed] = useState(false)
+  useEffect(() => {
+    if (running) setFailureDismissed(false)
+  }, [running])
+  useEffect(() => setFailureDismissed(false), [project.id])
 
   const hostRef = useRef<HTMLDivElement>(null)
   const prevRunningRef = useRef(running)
@@ -987,26 +997,17 @@ export default function PreviewPane({
 
       {surfaceError && <div className="preview-error-banner" role="alert">{surfaceError}</div>}
 
-      {status === 'error' && !running && !needsWorkspace && (
-        <div className="preview-error-banner">
-          <div className="preview-error-message" role="alert">
-            {error || 'The deployment did not complete.'}
-          </div>
-          {onRefreshAuth && outcome !== 'not-found' && outcome !== 'cancelled' && (
-            <button className="btn btn--sm" disabled={authBusy} onClick={onRefreshAuth}>
-              Refresh Fabric authentication
-            </button>
-          )}
-          {deploy?.log.length ? (
-            <details>
-              <summary>View deploy logs</summary>
-              <pre className="deploy-log deploy-log--static">{deploy.log.join('')}</pre>
-            </details>
-          ) : null}
-          <button className="btn btn--sm btn--link" onClick={() => openDocs('deployFailed')}>
-            Troubleshoot deploys
-          </button>
-        </div>
+      {status === 'error' && !running && !needsWorkspace && !failureDismissed && (
+        <DeployFailedNotice
+          key={project.id}
+          outcome={outcome}
+          log={deploy?.log}
+          error={error || 'The deployment did not complete.'}
+          onDiagnose={onDiagnoseDeploy}
+          onRefreshAuth={onRefreshAuth}
+          authBusy={authBusy}
+          onDismiss={() => setFailureDismissed(true)}
+        />
       )}
 
       <div className="preview-body">

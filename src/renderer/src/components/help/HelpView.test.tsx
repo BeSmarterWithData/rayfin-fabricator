@@ -11,6 +11,7 @@ let emit: (envelope: HelpEventEnvelope) => void = () => {}
 const ready: HelpGrounding = {
   sourceReady: true,
   docsReady: true,
+  notesReady: true,
   pinned: true,
   reference: 'v1.10.0'
 }
@@ -74,6 +75,17 @@ describe('opening Help', () => {
   it('offers starter questions before anything is asked', async () => {
     setup()
     expect(await screen.findByText('Why did my last deploy fail?')).toBeTruthy()
+    expect(screen.getByText('What\u2019s new in this release?')).toBeTruthy()
+  })
+
+  it('asks what is new when that starter question is picked', async () => {
+    setup()
+    fireEvent.click(await screen.findByText('What\u2019s new in this release?'))
+    await waitFor(() =>
+      expect(ask).toHaveBeenCalledWith(
+        expect.objectContaining({ question: 'What\u2019s new in this release?' })
+      )
+    )
   })
 
   it('shows the pinned source reference so the user knows it matches their build', async () => {
@@ -82,7 +94,18 @@ describe('opening Help', () => {
   })
 
   it('downloads the grounding when it is missing', async () => {
-    grounding.mockResolvedValueOnce({ sourceReady: false, docsReady: false, pinned: false })
+    grounding.mockResolvedValueOnce({
+      sourceReady: false,
+      docsReady: false,
+      notesReady: false,
+      pinned: false
+    })
+    setup()
+    await waitFor(() => expect(prepare).toHaveBeenCalledWith(false))
+  })
+
+  it('downloads the release notes for a version it has none for, such as after an update', async () => {
+    grounding.mockResolvedValueOnce({ ...ready, notesReady: false })
     setup()
     await waitFor(() => expect(prepare).toHaveBeenCalledWith(false))
   })
@@ -349,6 +372,58 @@ describe('keeping the conversation', () => {
     loadHistory.mockRejectedValueOnce(new Error('disk gone'))
     setup()
     expect(await screen.findByText('Why did my last deploy fail?')).toBeTruthy()
+  })
+})
+
+describe('opening Help to ask something', () => {
+  const earlier = [
+    {
+      id: 'ask-old',
+      question: 'how do I share my app?',
+      answer: 'Select Share in the app bar.',
+      attachments: [],
+      tools: [],
+      actions: [],
+      citations: [],
+      status: 'done'
+    }
+  ]
+
+  it('asks the question it was opened with straight away, once', async () => {
+    setup({ initialQuestion: 'Why did my last deploy fail?', projectId: 'proj-1' })
+
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1))
+    expect(ask).toHaveBeenCalledWith(
+      expect.objectContaining({ question: 'Why did my last deploy fail?', projectId: 'proj-1' })
+    )
+    // In the transcript, not on the welcome screen's list of starters.
+    expect(screen.getByText('Why did my last deploy fail?').closest('.help-prompts')).toBeNull()
+    expect(document.querySelector('.help-prompts')).toBeNull()
+  })
+
+  it('asks after the saved conversation is back, as its next turn', async () => {
+    loadHistory.mockResolvedValueOnce({ savedAt: new Date().toISOString(), data: earlier })
+    setup({ initialQuestion: 'Why did my last deploy fail?' })
+
+    await waitFor(() => expect(ask).toHaveBeenCalledTimes(1))
+    expect(ask).toHaveBeenCalledWith(
+      expect.objectContaining({
+        question: 'Why did my last deploy fail?',
+        history: [{ question: 'how do I share my app?', answer: 'Select Share in the app bar.' }]
+      })
+    )
+    expect(screen.getByText('how do I share my app?')).toBeTruthy()
+    expect(screen.getByText('Why did my last deploy fail?')).toBeTruthy()
+  })
+
+  it('does not ask again once the answer is in, or after starting over', async () => {
+    ask.mockResolvedValueOnce({ text: 'Your workspace has no capacity.', actions: [], citations: [], elapsedMs: 10 })
+    setup({ initialQuestion: 'Why did my last deploy fail?' })
+    await screen.findByText(/Your workspace has no capacity/)
+
+    fireEvent.click(screen.getByText('New'))
+    expect(await screen.findByText('Why did my last deploy fail?')).toBeTruthy()
+    expect(ask).toHaveBeenCalledTimes(1)
   })
 })
 

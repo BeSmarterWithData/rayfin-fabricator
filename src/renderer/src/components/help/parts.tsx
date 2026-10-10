@@ -1,9 +1,12 @@
 import { Codicon } from '../icons'
 
+/** What Help is asked when a failed deploy's **Find out why** opens it. */
+export const DEPLOY_QUESTION = 'Why did my last deploy fail?'
+
 /** Starter questions shown on an empty Help screen. */
 export const PROMPTS = [
-  'Why did my last deploy fail?',
-  'What went wrong most recently?',
+  DEPLOY_QUESTION,
+  'What&apos;s new in this release?',
   'The preview won&apos;t start',
   'How do I share my app with someone?'
 ].map((text) => text.replace(/&apos;/g, '\u2019'))

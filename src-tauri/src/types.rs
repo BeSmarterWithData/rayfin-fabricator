@@ -3058,6 +3058,9 @@ pub struct HelpGrounding {
   pub source_ready: bool,
   /// The documentation mirror is available.
   pub docs_ready: bool,
+  /// The release notes are mirrored and current for the running version.
+  #[serde(default)]
+  pub notes_ready: bool,
   /// The git ref the cached source came from.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub reference: Option<String>,

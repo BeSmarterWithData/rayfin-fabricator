@@ -2457,6 +2457,8 @@ export interface HelpGrounding {
   sourceReady: boolean
   /** The documentation mirror is available. */
   docsReady: boolean
+  /** The release notes are mirrored and current for the running version. */
+  notesReady: boolean
   /** The git ref the cached source came from, e.g. `v1.9.5`. */
   reference?: string
   /** True when the cached source matches the running build exactly. */
@@ -2961,9 +2963,9 @@ export interface RayfinStudioApi {
     /** What grounding is cached right now, for the overlay's status line. */
     grounding: () => Promise<HelpGrounding>
     /**
-     * Download or refresh the source checkout and the docs mirror. Resolves the
-     * resulting status; a failure leaves the assistant working with less, so it
-     * is reported through the status rather than thrown.
+     * Download or refresh the source checkout, the docs mirror and the release
+     * notes. Resolves the resulting status; a failure leaves the assistant
+     * working with less, so it is reported through the status rather than thrown.
      */
     prepare: (force?: boolean) => Promise<HelpGrounding>
     /**

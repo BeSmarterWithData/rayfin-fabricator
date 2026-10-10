@@ -168,7 +168,7 @@ in `.md`.
 | `settings` | The Settings dialog | `/docs/reference/settings` |
 | `settings-experiments` | Settings' Experiments section with **Team workspaces** | `/docs/team` |
 | `account-menu` | The account menu with **Refresh Fabric authentication** | `/docs/start/tour`, `/docs/troubleshooting/deploy` |
-| `deploy-error` | The preview's deploy error banner with **View deploy logs** | `/docs/troubleshooting/deploy` |
+| `deploy-error` | Ray above the preview after a failed deploy, offering **Find out why** and **View logs** (sample data) | `/docs/troubleshooting/deploy` |
 | `port-conflict` | The dialog shown when the preview's port is in use | `/docs/troubleshooting/preview` |
 | `team-home` | Home's team workspaces section | `/docs/team` |
 | `team-create` | The create team workspace dialog | `/docs/team/create` |

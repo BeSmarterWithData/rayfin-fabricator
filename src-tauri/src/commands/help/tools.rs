@@ -300,12 +300,12 @@ impl ToolHandler for CiteTool {
       Err(e) => return Ok(fail(format!("Invalid citation: {e}"))),
     };
     let url = params.url.trim();
-    if !super::docs_url_allowed(url) {
-      return Ok(fail(
-        "Cite only the Fabricator documentation (https://spatney.github.io/rayfin-fabricator) or \
-https://rayfin.ai."
-          .to_string(),
-      ));
+    if !super::docs_url_allowed(url) && !super::release_notes_url(url) {
+      return Ok(fail(format!(
+        "Cite only the Fabricator documentation (https://spatney.github.io/rayfin-fabricator), \
+Fabricator's release notes ({}), or https://rayfin.ai.",
+        crate::services::grounding::RELEASES_URL
+      )));
     }
     let citation = HelpCitation { title: clip(&params.title, 80), url: url.to_string() };
     {
@@ -406,8 +406,8 @@ action, after you have explained why it helps. Offer at most three per answer, m
 
   let cite = Tool::new(CITE_TOOL)
     .with_description(
-      "Cite the documentation page your answer is based on, so the user can read more. Call it \
-once per page, at most three times per answer.",
+      "Cite the documentation page or release notes your answer is based on, so the user can read \
+more. Call it once per page, at most three times per answer.",
     )
     .with_parameters(json!({
       "type": "object",

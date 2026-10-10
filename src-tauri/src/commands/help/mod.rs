@@ -10,6 +10,7 @@
 //!   that go?" both have real answers;
 //! * the **published documentation**, mirrored locally, for how things are meant
 //!   to work;
+//! * the **release notes**, mirrored locally, for what changed in each version;
 //! * **Fabricator's own source**, pinned to the running release, so a symptom
 //!   can be traced to its cause;
 //! * the user's **project**, and anything they attach.
@@ -75,6 +76,10 @@ const ALLOWED_URL_HOSTS: &[&str] = &[
 /// many unrelated projects. A link there must be inside this project.
 const DOCS_PATH_PREFIX: &str = "/rayfin-fabricator";
 
+/// Where Fabricator's releases are published on `github.com`, which hosts
+/// everyone's projects. These pages are the only ones reachable there.
+const RELEASES_PATH: &str = "/spatney/rayfin-fabricator/releases";
+
 /// Built-in tools the assistant must not use. The permission policy enforces
 /// read-only regardless; excluding them stops the model from trying.
 const EXCLUDED_TOOLS: &[&str] = &[
@@ -120,8 +125,13 @@ const EXCLUDED_TOOLS: &[&str] = &[
 /// Parsed rather than prefix-matched: `https://rayfin.ai.evil.example/` and
 /// `https://rayfin.ai@evil.example/` both *start with* an allowed host but are
 /// served by an attacker's. Userinfo and the port are stripped, matching
-/// [`crate::commands::advisor`]'s treatment of the same problem.
+/// [`crate::commands::advisor`]'s treatment of the same problem. A backslash is
+/// refused outright: browsers read it as `/`, so `https://evil.example\@rayfin.ai/`
+/// opens `evil.example` even though it appears to name `rayfin.ai`.
 fn split_https(url: &str) -> Option<(String, String)> {
+  if url.contains('\\') {
+    return None;
+  }
   let rest = url.trim().strip_prefix("https://")?;
   let (authority, path) = match rest.find(['/', '?', '#']) {
     Some(at) => (&rest[..at], &rest[at..]),
@@ -135,9 +145,37 @@ fn split_https(url: &str) -> Option<(String, String)> {
   Some((host, path.to_string()))
 }
 
-/// Whether the agent may fetch `url` when its local mirror is stale.
+/// Whether the agent may fetch `url`: the documentation hosts, for when the
+/// local mirror is stale, and Fabricator's release pages, for when the mirrored
+/// release notes don't have the version being asked about.
 fn url_allowed(url: &str) -> bool {
   split_https(url).is_some_and(|(host, _)| ALLOWED_URL_HOSTS.contains(&host.as_str()))
+    || release_notes_url(url)
+}
+
+/// Whether `url` is one of Fabricator's release pages on GitHub: the list of
+/// releases, the latest one, or one release by its tag.
+///
+/// Matched exactly rather than by prefix, because `github.com` serves everyone:
+/// `…/releases/tag/../../../someone-else` must not pass, so a tag is limited to
+/// the characters a version tag uses.
+pub(super) fn release_notes_url(url: &str) -> bool {
+  let Some((host, path)) = split_https(url) else {
+    return false;
+  };
+  let path = path.split(['?', '#']).next().unwrap_or_default();
+  let Some(rest) = path.strip_prefix(RELEASES_PATH) else {
+    return false;
+  };
+  host == "github.com"
+    && match rest {
+      "" | "/" | "/latest" => true,
+      _ => rest.strip_prefix("/tag/").is_some_and(|tag| {
+        tag.chars().any(|c| c.is_ascii_alphanumeric())
+          && !tag.contains("..")
+          && tag.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+      }),
+    }
 }
 
 /// Whether `url` is a documentation page the assistant may link the user to.
@@ -364,12 +402,14 @@ pub fn help_grounding(app: AppHandle) -> HelpGrounding {
   HelpGrounding {
     source_ready: status.source_ready,
     docs_ready: status.docs_ready,
+    notes_ready: status.notes_ready,
     reference: status.reference,
     pinned: status.pinned,
   }
 }
 
-/// Download (or refresh) the source checkout and the documentation mirror.
+/// Download (or refresh) the source checkout, the documentation mirror and the
+/// release notes.
 ///
 /// Runs on first open and when the user asks to refresh. Failures are reported
 /// through the returned status rather than as an error: the assistant still
@@ -381,6 +421,7 @@ pub async fn help_prepare(app: AppHandle, force: bool) -> HelpGrounding {
   HelpGrounding {
     source_ready: status.source_ready,
     docs_ready: status.docs_ready,
+    notes_ready: status.notes_ready,
     reference: status.reference,
     pinned: status.pinned,
   }
@@ -672,10 +713,12 @@ mod tests {
   fn ctx() -> HelpContext {
     HelpContext {
       app_version: "1.10.0".into(),
+      dev_build: false,
       os: "windows".into(),
       source_dir: None,
       source_ref: None,
       docs_dir: None,
+      release_notes: None,
       logs_dir: "C:\\data\\logs".into(),
       project: None,
       projects: Vec::new(),
@@ -756,6 +799,58 @@ mod tests {
     assert!(fabricator_docs_url("https://spatney.github.io/rayfin-fabricator/docs/ship/deploy"));
     assert!(!fabricator_docs_url("https://rayfin.ai/docs"), "that is Rayfin's site, not ours");
     assert!(!fabricator_docs_url("https://spatney.github.io/other/docs"));
+    assert!(
+      !fabricator_docs_url(&grounding::release_page("1.14.0")),
+      "release notes are cited, not opened as docs"
+    );
+  }
+
+  #[test]
+  fn a_backslash_cannot_disguise_the_host() {
+    // Browsers treat `\` as `/`, so each of these opens evil.example.
+    assert!(!url_allowed("https://evil.example\\@rayfin.ai/docs"));
+    assert!(!docs_url_allowed("https://evil.example\\@spatney.github.io/rayfin-fabricator/docs"));
+    assert!(!release_notes_url("https://evil.example\\@github.com/spatney/rayfin-fabricator/releases"));
+  }
+
+  #[test]
+  fn fabricators_release_pages_can_be_read_and_cited() {
+    for url in [
+      grounding::RELEASES_URL.to_string(),
+      grounding::release_page("1.14.0"),
+      "https://github.com/spatney/rayfin-fabricator/releases/".to_string(),
+      "https://github.com/spatney/rayfin-fabricator/releases/latest".to_string(),
+      "https://github.com/spatney/rayfin-fabricator/releases/tag/v1.3.4-experimental.mac-sso.1".to_string(),
+      "https://github.com/spatney/rayfin-fabricator/releases?page=2".to_string(),
+      "https://github.com/spatney/rayfin-fabricator/releases/tag/v1.14.0#see-every-step-of-a-deploy".to_string(),
+    ] {
+      assert!(release_notes_url(&url), "{url} is one of our release pages");
+      assert!(policy().permits(&url_request(&url)), "{url} can be fetched");
+    }
+  }
+
+  #[test]
+  fn nothing_else_on_github_is_reachable() {
+    for url in [
+      "https://github.com/spatney/rayfin-fabricator",
+      "https://github.com/spatney/rayfin-fabricator/issues/new",
+      "https://github.com/spatney/rayfin-fabricator/releases/download/v1.14.0/latest.json",
+      "https://github.com/spatney/rayfin-fabricator-evil/releases",
+      "https://github.com/spatney/rayfin-fabricator/releasesx",
+      "https://github.com/someone/else/releases",
+      "https://github.com/spatney/rayfin-fabricator/releases/tag/../../../evil/phish",
+      "https://github.com/spatney/rayfin-fabricator/releases/tag/v1.14.0/../../../../evil",
+      "https://github.com/spatney/rayfin-fabricator/releases/tag/%2e%2e/%2e%2e",
+      "https://github.com/spatney/rayfin-fabricator/releases/tag/.",
+      "https://github.com/spatney/rayfin-fabricator/releases/tag/",
+      "https://github.com.evil.example/spatney/rayfin-fabricator/releases",
+      "https://github.com@evil.example/spatney/rayfin-fabricator/releases",
+      "https://api.github.com/repos/spatney/rayfin-fabricator/releases",
+      "http://github.com/spatney/rayfin-fabricator/releases",
+    ] {
+      assert!(!release_notes_url(url), "{url} is not a release page of ours");
+      assert!(!policy().permits(&url_request(url)), "{url} cannot be fetched");
+    }
   }
 
   #[test]

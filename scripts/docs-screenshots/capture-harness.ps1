@@ -14,7 +14,7 @@
 param(
   [Parameter(Mandatory)] [string] $Checkout,
   [Parameter(Mandatory)] [string] $Out,
-  [string[]] $Shots = @('team-overview', 'team-publish', 'rayfin-version', 'port-conflict', 'skills', 'secrets', 'deploy-progress'),
+  [string[]] $Shots = @('team-overview', 'team-publish', 'rayfin-version', 'port-conflict', 'skills', 'secrets', 'deploy-progress', 'deploy-error'),
   [int] $Port = 1437,
   [int] $Width = 1440,
   [int] $Height = 900,

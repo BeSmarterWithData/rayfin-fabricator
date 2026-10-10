@@ -41,11 +41,23 @@ pub struct ProjectSummary {
   pub deployed: bool,
 }
 
+/// The mirrored release notes.
+#[derive(Clone, Debug)]
+pub struct ReleaseNotes {
+  pub path: String,
+  /// Whether they have a section for the running version. A mirror fetched
+  /// before an update, or for a build that hasn't been released, doesn't.
+  pub has_this_version: bool,
+}
+
 /// Everything one Help conversation is allowed to read, plus the facts worth
 /// telling the model up front.
 #[derive(Clone, Debug)]
 pub struct HelpContext {
   pub app_version: String,
+  /// This copy of Fabricator is a development build run from source, so the
+  /// journal records it writes are marked `dev: true`.
+  pub dev_build: bool,
   pub os: String,
   /// Fabricator's own source checkout, when the grounding cache is populated.
   pub source_dir: Option<String>,
@@ -53,6 +65,8 @@ pub struct HelpContext {
   pub source_ref: Option<String>,
   /// The mirrored documentation.
   pub docs_dir: Option<String>,
+  /// The mirrored release notes, when there are any.
+  pub release_notes: Option<ReleaseNotes>,
   /// The app's logs directory, which holds the activity journal.
   pub logs_dir: String,
   pub project: Option<ProjectContext>,
@@ -81,13 +95,19 @@ impl HelpContext {
   ) -> Self {
     let status = grounding::status(app_version);
     let project = project_id.and_then(project_context);
+    let notes_file = grounding::release_notes_file();
 
     Self {
       app_version: app_version.to_string(),
+      dev_build: cfg!(debug_assertions),
       os: std::env::consts::OS.to_string(),
       source_dir: status.source_ready.then(|| grounding::source_dir().to_string_lossy().into_owned()),
       source_ref: status.reference,
       docs_dir: status.docs_ready.then(|| grounding::docs_dir().to_string_lossy().into_owned()),
+      release_notes: notes_file.is_file().then(|| ReleaseNotes {
+        path: notes_file.to_string_lossy().into_owned(),
+        has_this_version: grounding::notes_cover(app_version),
+      }),
       logs_dir: paths::logs_dir().to_string_lossy().into_owned(),
       project,
       projects: all_projects(),
@@ -108,6 +128,9 @@ impl HelpContext {
     if let Some(d) = &self.docs_dir {
       roots.push(PathBuf::from(d));
     }
+    if let Some(notes) = &self.release_notes {
+      roots.push(PathBuf::from(&notes.path));
+    }
     if let Some(p) = &self.project {
       roots.push(PathBuf::from(&p.path));
     }
@@ -126,6 +149,12 @@ impl HelpContext {
   pub fn describe(&self) -> String {
     let mut s = String::new();
     s.push_str(&format!("- Fabricator version: {}\n", self.app_version));
+    if self.dev_build {
+      s.push_str(
+        "- This is a development build of Fabricator, run from source. The journal records it \
+writes are marked `dev: true`.\n",
+      );
+    }
     s.push_str(&format!("- Operating system: {}\n", self.os));
 
     match &self.project {
@@ -178,6 +207,33 @@ and point the user at https://spatney.github.io/rayfin-fabricator/docs.\n",
       ),
     }
 
+    let this_release = grounding::release_page(&self.app_version);
+    match &self.release_notes {
+      Some(notes) => {
+        s.push_str(&format!(
+          "- Fabricator's release notes, newest first: `{}`. Each release starts with a \
+`# v<version>` heading, then its date and its page. Answer \"what's new\" and \"what changed\" \
+questions from these, not from the source or your own knowledge.\n",
+          notes.path
+        ));
+        if notes.has_this_version {
+          s.push_str(&format!("  The running version's notes are under `# v{}`.\n", self.app_version));
+        } else {
+          s.push_str(&format!(
+            "  They don't include v{}, the version running now. If it has been released, its \
+notes are at {this_release}; fetch that page.\n",
+            self.app_version
+          ));
+        }
+      }
+      None => s.push_str(&format!(
+        "- Fabricator's release notes are not cached on this machine. For \"what's new\" and \
+\"what changed\" questions, fetch {this_release} for this version's notes, or {} for every \
+release.\n",
+        grounding::RELEASES_URL
+      )),
+    }
+
     match (&self.source_dir, &self.source_ref) {
       (Some(d), Some(r)) => s.push_str(&format!(
         "- Fabricator's own source code: `{d}` (checked out at `{r}`, matching the running build). \
@@ -226,10 +282,15 @@ mod tests {
   fn ctx() -> HelpContext {
     HelpContext {
       app_version: "1.10.0".into(),
+      dev_build: false,
       os: "windows".into(),
       source_dir: Some("C:\\cache\\source".into()),
       source_ref: Some("v1.10.0".into()),
       docs_dir: Some("C:\\cache\\docs".into()),
+      release_notes: Some(ReleaseNotes {
+        path: "C:\\cache\\docs\\release-notes.md".into(),
+        has_this_version: true,
+      }),
       logs_dir: "C:\\data\\logs".into(),
       project: Some(ProjectContext {
         name: "Contoso Expenses".into(),
@@ -264,12 +325,21 @@ mod tests {
   }
 
   #[test]
+  fn a_development_build_says_so() {
+    let mut c = ctx();
+    assert!(!c.describe().contains("development build"));
+    c.dev_build = true;
+    assert!(c.describe().contains("This is a development build of Fabricator"));
+  }
+
+  #[test]
   fn roots_cover_every_readable_location() {
     let roots = ctx().roots();
     let shown: Vec<String> = roots.iter().map(|p| p.to_string_lossy().into_owned()).collect();
     assert!(shown.contains(&"C:\\data\\logs".to_string()));
     assert!(shown.contains(&"C:\\cache\\source".to_string()));
     assert!(shown.contains(&"C:\\cache\\docs".to_string()));
+    assert!(shown.contains(&"C:\\cache\\docs\\release-notes.md".to_string()));
     assert!(shown.contains(&"C:\\projects\\contoso".to_string()));
     assert!(shown.contains(&"C:\\Users\\me\\Desktop\\shot.png".to_string()));
   }
@@ -288,11 +358,39 @@ mod tests {
     c.source_dir = None;
     c.source_ref = None;
     c.docs_dir = None;
+    c.release_notes = None;
     c.project = None;
     let text = c.describe();
     assert!(text.contains("no project open"));
     assert!(text.contains("documentation is not cached"));
     assert!(text.contains("source is not cached"));
+    assert!(text.contains("release notes are not cached"));
+    assert!(
+      text.contains(&grounding::release_page("1.10.0")),
+      "without a mirror, the running version's page is the place to look"
+    );
+  }
+
+  #[test]
+  fn whats_new_is_answered_from_the_release_notes() {
+    let text = ctx().describe();
+    assert!(text.contains("C:\\cache\\docs\\release-notes.md"));
+    assert!(text.contains("\"what's new\""));
+    assert!(text.contains("under `# v1.10.0`"), "the running version's section is named");
+  }
+
+  #[test]
+  fn release_notes_without_this_version_point_at_its_page() {
+    // Fetched before the update, and the refresh hasn't reached GitHub yet.
+    let mut c = ctx();
+    c.release_notes = Some(ReleaseNotes {
+      path: "C:\\cache\\docs\\release-notes.md".into(),
+      has_this_version: false,
+    });
+    let text = c.describe();
+    assert!(text.contains("don't include v1.10.0"));
+    assert!(text.contains(&grounding::release_page("1.10.0")));
+    assert!(!text.contains("under `# v1.10.0`"));
   }
 
   #[test]
@@ -300,6 +398,7 @@ mod tests {
     let mut c = ctx();
     c.source_dir = None;
     c.docs_dir = None;
+    c.release_notes = None;
     c.extra_roots.clear();
     let roots = c.roots();
     assert_eq!(roots.len(), 2, "only the logs and the project remain");

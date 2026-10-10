@@ -651,6 +651,38 @@ describe('Workbench app bar', () => {
     expect(screen.getByLabelText('Chat draft')).toBe(draft)
   })
 
+  it('opens Help to find out why a deploy failed, and asks straight away', async () => {
+    const api = installApi(true)
+    api.deploy.run.mockResolvedValueOnce({ ok: false, outcome: 'error', error: 'Runtime settings sync failed' })
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    fireEvent.click(screen.getByRole('button', { name: 'Test deploy' }))
+    await waitFor(() =>
+      expect(screen.getByTestId('deploy-state').textContent).toBe('Runtime settings sync failed')
+    )
+
+    act(() => previewProps.mock.lastCall![0].onDiagnoseDeploy?.())
+    expect(screen.getByRole('dialog', { name: 'Help' })).toBeTruthy()
+    const props = helpProps.mock.lastCall![0]
+    expect(props.initialQuestion).toBe('Why did my last deploy fail?')
+    expect(props.facts?.some((f) => f.includes('most recent deploy of "Project One" failed'))).toBe(true)
+  })
+
+  it('forgets the question once Help closes, so opening it later asks nothing', async () => {
+    installApi(true)
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+
+    act(() => previewProps.mock.lastCall![0].onDiagnoseDeploy?.())
+    fireEvent.keyDown(window, { key: 'j', ctrlKey: true })
+    expect(screen.queryByRole('dialog', { name: 'Help' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Help' }))
+    expect(screen.getByRole('dialog', { name: 'Help' })).toBeTruthy()
+    expect(helpProps.mock.lastCall![0].initialQuestion).toBeUndefined()
+    expect(helpProps.mock.lastCall![0].facts?.some((f) => f.includes('failed'))).toBe(false)
+  })
+
   it('opens Share once for Help, so coming back to the project does not open it again', async () => {
     installApi(true)
     render(<Workbench {...makeProps()} />, { wrapper: Wrapper })

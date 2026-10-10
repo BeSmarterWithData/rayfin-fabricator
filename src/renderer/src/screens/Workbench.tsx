@@ -67,6 +67,7 @@ import { branchLabel } from './statusbar'
 import { openDocs } from '../docsLinks'
 import { HelpView } from '../components/help/HelpView'
 import HelpUnavailableModal from '../components/help/HelpUnavailableModal'
+import { DEPLOY_QUESTION } from '../components/help/parts'
 import { setErrorProject } from '../errorReport'
 import { accountFacts, workbenchFacts } from '../helpFacts'
 import type { HelpAction, HelpIssueDraft } from '@shared/ipc'
@@ -165,6 +166,12 @@ function deploymentKey(project: StudioProject): string {
   return `${project.workspace ?? ''}|${project.lastDeploy?.url ?? ''}`
 }
 
+/** Whether a project's most recent deploy failed and none has run since. */
+function lastDeployFailed(project: StudioProject, deploy: DeployUiState | undefined): boolean {
+  if (deploy?.running) return false
+  return deploy?.result ? !deploy.result.ok : project.lastDeploy?.status === 'error'
+}
+
 interface Props {
   auth: AuthStatus
   /** What the launch's background check found that setup would have caught. */
@@ -206,6 +213,8 @@ export default function Workbench({
   const [showSettings, setShowSettings] = useState(false)
   /** The full-screen Help assistant, opened from the status bar or Ctrl/Cmd+J. */
   const [showHelp, setShowHelp] = useState(false)
+  /** What Help was opened to ask, such as why a deploy failed. */
+  const [helpQuestion, setHelpQuestion] = useState<string | null>(null)
   /** The static fallback shown when the assistant can't run. */
   const [showHelpOffline, setShowHelpOffline] = useState(false)
   /**
@@ -1497,9 +1506,14 @@ export default function Workbench({
   // kind of problem someone opens Help about — so instead of a dead end, show
   // the static version of the same offer. `checking` means the background check
   // hasn't finished: assume it will work rather than pre-empting with a dialog.
-  function openHelp(): void {
+  // `question` is asked straight away, as when a failed deploy offers to find
+  // out why.
+  function openHelp(question?: string): void {
     if (!auth.copilot.signedIn && !auth.copilot.checking) setShowHelpOffline(true)
-    else setShowHelp(true)
+    else {
+      setHelpQuestion(question ?? null)
+      setShowHelp(true)
+    }
   }
 
   function toggleHelp(): void {
@@ -1937,6 +1951,7 @@ export default function Workbench({
                           }
                           onRefreshAuth={active.team ? undefined : () => openAuthRefresh(active)}
                           authBusy={fabricAuthBusy}
+                          onDiagnoseDeploy={() => openHelp(DEPLOY_QUESTION)}
                           localPreviewUrl={
                             devServers[active.id]?.status === 'running'
                               ? (devServers[active.id]?.url ?? null)
@@ -2144,7 +2159,7 @@ export default function Workbench({
         <span className="statusbar-actions">
           <button
             className="statusbar-report statusbar-help"
-            onClick={openHelp}
+            onClick={() => openHelp()}
             title="Ask Help — debug a problem, browse the docs, or report an issue (Ctrl+J)"
           >
             <Codicon name="comment-discussion" className="statusbar-ico" />
@@ -2171,6 +2186,7 @@ export default function Workbench({
           projectId={active?.id}
           projectName={active?.name}
           appVersion={versions?.app}
+          initialQuestion={helpQuestion ?? undefined}
           facts={[
             ...accountFacts(auth),
             ...workbenchFacts(active, {
@@ -2181,7 +2197,8 @@ export default function Workbench({
                 active && devServers[active.id]?.status === 'running'
                   ? (devServers[active.id]?.url ?? null)
                   : null,
-              deploying: Boolean(active && deploys[active.id]?.running)
+              deploying: Boolean(active && deploys[active.id]?.running),
+              deployFailed: Boolean(active && lastDeployFailed(active, deploys[active.id]))
             })
           ]}
           surface={showHome || !active ? 'home' : 'project'}
