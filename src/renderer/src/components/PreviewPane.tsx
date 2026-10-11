@@ -111,7 +111,8 @@ interface Props {
   /** Send the queued design changes to chat (the composer text is the note). */
   onDesignSend?: () => void
   /** Report the surface Design can run on — the deployed app, directly or
-   *  embedded in Fabric, or the manual-deploy local preview — or null while unavailable. */
+   *  embedded in Fabric, or the local preview Deploy manually keeps between
+   *  turns — or null while it can't (deploying, loading, local mid-turn). */
   onDesignSurface?: (surface: DesignSurface | null) => void
   /** Report the project-load overlay state so the parent can render a centered
    *  "Loading <name>…" over the whole build view (a project switch reloads the
@@ -126,6 +127,9 @@ interface Props {
   /** Deploy manually (experimental): the local preview runs whenever the app is
    *  open, instead of only during turns. */
   manualDeploy?: boolean
+  /** A chat turn is running for this app, so its local preview changes as
+   *  Copilot works. */
+  turnRunning?: boolean
   /** A team app (experimental): its pipeline deploys it, so there's no Deploy here. */
   team?: boolean
   /** Team apps: the deployment the local preview's data comes from. */
@@ -218,6 +222,7 @@ export default function PreviewPane({
   onLoadingChange,
   localPreviewUrl,
   manualDeploy = false,
+  turnRunning = false,
   team = false,
   localBackend,
   teamRun,
@@ -744,18 +749,22 @@ export default function PreviewPane({
   // ── Design mode ("visual chat") ───────────────────────────────────────────
   // The session (queue, polling, AI requests, capture) lives in the Workbench so
   // the chat composer can show and send the queue; this pane reports the surface
-  // Design can run on — the deployed app or the manual-deploy local preview — and
-  // renders the design toolbar + device width. See `useDesignSession` and the
-  // injected `design_agent.js`.
+  // Design can run on — the deployed app, direct or embedded in Fabric, or the
+  // local preview Deploy manually keeps between turns — and renders the design
+  // toolbar + device width. See `useDesignSession` and the injected
+  // `design_agent.js`.
   const designActive = Boolean(design?.active)
+  // Mid-turn, Copilot's edits change the local page under the session, so a
+  // turn starting ends it (the queue stays in the composer).
+  const localDesign = isLocal && manualDeploy && !turnRunning
   const embedded = !isLocal && previewMode === 'fabric' && Boolean(fabricUrl)
   const designAppUrl = isLocal ? previewUrl : deployedUrl
   const designSurface = useMemo<DesignSurface | null>(
     () =>
-      showWebview && !transitioning && (!isLocal || manualDeploy) && previewUrl && designAppUrl
+      showWebview && !transitioning && (!isLocal || localDesign) && previewUrl && designAppUrl
         ? { url: previewUrl, embedded, appUrl: designAppUrl }
         : null,
-    [showWebview, transitioning, isLocal, manualDeploy, previewUrl, designAppUrl, embedded]
+    [showWebview, transitioning, isLocal, localDesign, previewUrl, designAppUrl, embedded]
   )
   useEffect(() => {
     onDesignSurface?.(designSurface)
@@ -897,7 +906,9 @@ export default function PreviewPane({
                   ? 'Leave Design — your queued changes stay in the chat composer'
                   : isLocal && !manualDeploy
                     ? 'Design works on the deployed app — available once this turn finishes'
-                    : 'Design — click anything in your app to change it, preview the result live, then send it all to Copilot at once'
+                    : isLocal && turnRunning
+                      ? 'Copilot is working — Design is available once this turn finishes'
+                      : 'Design — click anything in your app to change it, preview the result live, then send it all to Copilot at once'
               }
             >
               <DesignIcon />

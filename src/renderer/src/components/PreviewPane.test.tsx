@@ -864,6 +864,32 @@ describe('PreviewPane design mode', () => {
     expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
   })
 
+  it('ends local Design when a turn starts and offers it again once the turn finishes', async () => {
+    const props = {
+      project: makeProject('p1'),
+      localPreviewUrl: 'http://localhost:5173',
+      manualDeploy: true
+    }
+    const { rerender } = render(<DesignHarnessed {...props} />)
+    await settle(e)
+    fireEvent.click(screen.getByRole('button', { name: /^design/i }))
+    await settle(e)
+    expect(screen.getByRole('toolbar', { name: 'Design tools' })).toBeTruthy()
+
+    // Copilot's edits change the local page mid-turn, so Design waits for the turn.
+    rerender(<DesignHarnessed {...props} turnRunning />)
+    await settle(e)
+    expect(screen.queryByRole('toolbar', { name: 'Design tools' })).toBeNull()
+    expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
+    const designBtn = screen.getByRole<HTMLButtonElement>('button', { name: /^design/i })
+    expect(designBtn.disabled).toBe(true)
+    expect(designBtn.title).toContain('once this turn finishes')
+
+    rerender(<DesignHarnessed {...props} />)
+    await settle(e)
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: /^design/i }).disabled).toBe(false)
+  })
+
   it('no longer renders an Annotate button (design mode replaced it)', async () => {
     render(<Harnessed project={makeProject('p1')} suppressed={false} />)
     await settle(e)
@@ -877,12 +903,14 @@ function DesignHarnessed({
   deploy,
   localPreviewUrl,
   manualDeploy,
+  turnRunning,
   onSend
 }: {
   project: StudioProject
   deploy?: DeployUiState
   localPreviewUrl?: string | null
   manualDeploy?: boolean
+  turnRunning?: boolean
   onSend?: () => void
 }): JSX.Element {
   const [surface, setSurface] = useState<DesignSurface | null>(null)
@@ -894,6 +922,7 @@ function DesignHarnessed({
         deploy={deploy}
         localPreviewUrl={localPreviewUrl}
         manualDeploy={manualDeploy}
+        turnRunning={turnRunning}
         focused={false}
         onToggleFocus={() => {}}
         design={design}

@@ -1958,6 +1958,7 @@ export default function Workbench({
                               : null
                           }
                           manualDeploy={manualDeploy && !active.team}
+                          turnRunning={activeChatBusy}
                           focused={focusPane === 'preview'}
                           onToggleFocus={() =>
                             setFocusPane((f) => (f === 'preview' ? null : 'preview'))

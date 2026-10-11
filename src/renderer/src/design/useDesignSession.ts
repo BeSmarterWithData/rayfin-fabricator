@@ -366,7 +366,8 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
   }, [active, syncOnce])
 
   // A different project or preview surface (project switch, Fabric toggle,
-  // deploy, local preview) ends the session; the queue stays with its project.
+  // deploy, local preview, a turn starting on it) ends the session; the queue
+  // stays with its project.
   const surfaceKey = surface ? `${surface.url}|${surface.embedded ? 1 : 0}` : ''
   useEffect(() => {
     if (activeRef.current) void stop(false)

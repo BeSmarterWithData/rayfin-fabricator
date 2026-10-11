@@ -1213,6 +1213,21 @@ describe('Workbench live preview ports', () => {
     expect(previewProps.mock.lastCall?.[0].localPreviewUrl).toBe('http://localhost:5174')
   })
 
+  it('tells the preview while a turn runs, so Design waits for it on the local preview', async () => {
+    await mountManual()
+    expect(previewProps.mock.lastCall?.[0].turnRunning).toBe(false)
+    const setPending = (pending: boolean): void =>
+      act(() => {
+        chatProps.mock.lastCall?.[0].onChange(() => [
+          { id: 'a1', role: 'assistant', text: '', tools: [], pending }
+        ] as never)
+      })
+    setPending(true)
+    expect(previewProps.mock.lastCall?.[0].turnRunning).toBe(true)
+    setPending(false)
+    expect(previewProps.mock.lastCall?.[0].turnRunning).toBe(false)
+  })
+
   it('starts the local preview again when the app moves to another deployment', async () => {
     const { api, dev } = await mountManual()
     const moved: StudioProject = {
