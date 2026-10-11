@@ -24,6 +24,31 @@ part of the app or of CI. The published files are in `website/public/video/`.
 | `public/audio/` | The voice clips, effects and music the video uses. Committed, so a render needs no API calls |
 | `tools/` | Node scripts for ElevenLabs, audio, review and publishing. Nothing in `src/` imports them |
 
+## The story
+
+Each line in `script/lines.ts` has a scene with the same id, in the same order in `SCENE_IDS`
+(`src/timing.ts`) and `SCENES` (`src/Intro.tsx`):
+
+| Scene | What it shows |
+| --- | --- |
+| `hello` | Ray swims in and says hi |
+| `old-way` | The old way, with CLIs, Copilot, git and a browser, until the room spins |
+| `one-window` | Fabricator puts it all in one window |
+| `describe` | Name the app, then describe it: the first prompt is typed and sent, the agent's work log fills in, and the app comes up in the preview |
+| `fabric` | Deploy it: the app's window shrinks into its tile, and Ray swims it into Microsoft Fabric |
+| `backend` | Rayfin gives the app the backend it needs, inside the organization's boundary |
+| `preview` | The tile grows back into the running app, and Design points at a change |
+| `ship` | Fabricator redeploys after a chat turn, and the app is shared |
+| `tricks` | Advisor, Blueprint, and Ray digging through the logs |
+| `outro` | The end card |
+| `stinger` | One last fact from Ray |
+
+The app asks for a first deploy before the first chat; the story leaves that step out. A scene
+starts where the one before it left off. Ray's path runs on from scene to scene, and whatever a
+scene hands over (a window, a tile, a burst still in the air) it stops drawing at the next
+scene's first frame, where the next scene draws it instead. `ctx.at()` finds a word in another
+scene's line, for carrying on something the scene before started.
+
 ## Before you start
 
 - Windows 11, for the app's `Segoe UI Variable Display` font, and Node.js 24, which runs the
@@ -84,7 +109,8 @@ Ray's lips follow the new words on their own. `src/ray/lipsync.ts` reads each li
 timings from `src/timeline.json`, spreads each word's letters across its span, and picks a
 mouth shape for each sound: lips shut for m, b and p, rounded for o and u, spread for e and i.
 The mouth moves two frames ahead of the voice, opens wider when he's louder, and rests in
-pauses. His mood stays on his face while he talks.
+pauses, unless the voice carries on without words there (a cheer, a giggle). His mood stays
+on his face while he talks.
 
 `npm run audition` reads the first two lines in a few library voices and some voices
 designed from a description of Ray. The chosen voice is `VOICE` in `script/lines.ts`.
@@ -97,9 +123,12 @@ designed from a description of Ray. The chosen voice is `VOICE` in `script/lines
   `public/ui/`: `<id>.webp` feeds the dark cut and `<id>.light.webp` the light one. The scenes
   point at places in the screenshots (the composer, the Redeploy button, the share dialog,
   the Blueprint map), in image pixels shared by both themes, so check both cuts in contact
-  sheets. The "Describe it" scene shows `chat-working`'s last turn arriving row by row, with
-  the idle composer from `workbench` until the prompt is sent, so those two need the same
-  chat layout.
+  sheets. The "Describe it" scene (`src/ui/FirstTurn.tsx`) makes a new project's first chat
+  from `chat-working`: it hides the earlier turns, draws the typed prompt's bubble and the
+  agent's two narration lines in the app's style, and shows the shot's own work log under them,
+  row by row, with the idle composer from `workbench` until the prompt is sent. If the chat's
+  layout changes, update the row positions at the top of that file, and keep the two
+  screenshots' chat layout the same.
 - **A screenshot has no light version yet.** `npm run assets` says so and gives the light cut
   a stand-in, the dark screenshot with its colors inverted, in `public/ui/` only. That's
   enough to check the light cut's timing and layout. `publish` refuses until the site has the

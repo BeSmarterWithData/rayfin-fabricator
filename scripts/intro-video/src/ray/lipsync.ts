@@ -6,7 +6,8 @@
  * spread across its span, vowels held longer than consonants, and each sound picks one of a
  * few mouth shapes (visemes). Lips meet for m, b and p, and stay shut for at least two frames
  * so it reads. The mouth moves a couple of frames ahead of the sound, as animators time it,
- * and rests in any pause longer than about 120 ms. Loudness opens it wider on stressed words.
+ * and rests in any pause longer than about 120 ms, unless the voice carries on without words
+ * (a cheer, a giggle). Loudness opens it wider on stressed words.
  */
 import type { RayMood } from './RayActor';
 import type { TimelineLine } from '../timing';
@@ -70,6 +71,11 @@ export const LEAD = 2;
 const PAUSE_MS = 120;
 /** Below this loudness (0…1) the voice is silent. */
 const SILENT = 0.04;
+/**
+ * In a pause, a voice this loud is a sound without words (a cheer, a giggle, a gasp), and the
+ * mouth opens with it; a breath stays well under it.
+ */
+const VOCAL = 0.3;
 
 interface Sound {
   v: Viseme;
@@ -186,6 +192,13 @@ export function lipTrack(line: TimelineLine, fps: number): LipTrack {
     // Between words: hold the last sound through a short gap, rest through a pause.
     const next = words[n + 1];
     if (next && next.startMs - word.endMs <= PAUSE_MS) fill(at(to), at(toFrame(next.startMs)), visemes[pos - 1] ?? 'mid');
+    // A pause with a voice in it, though, is a sound without words: the mouth goes with it.
+    else if (next) {
+      for (let f = Math.ceil(to); f < toFrame(next.startMs); f++) {
+        const i = at(f);
+        if (i >= pos && i >= 0 && i < length && level(f) >= VOCAL) visemes[i] = level(f) >= 0.55 ? 'open' : 'mid';
+      }
+    }
   });
 
   // Where the voice is silent for longer than a pause, rest whatever the timings say.

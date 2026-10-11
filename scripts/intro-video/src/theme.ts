@@ -103,6 +103,11 @@ export interface Theme {
   pill: { bg: string; liveBg: string; text: string; track: string };
   /** The sample app, Contoso Expenses: dark in the dark screenshots, light in the light ones. `mark` is its icon's blue. */
   sampleApp: { bg: string; mark: string; title: string; sub: string; live: string; dot: string };
+  /**
+   * Chat pieces the screenshots don't have, drawn as the app draws them (chat.css): a user's
+   * message bubble, and the work log's narration.
+   */
+  chat: { bubble: string; bubbleBorder: string; text: string; note: string };
   /** The browser in the "old way" montage, which never finishes loading. */
   browser: { chrome: string; field: string; url: string; icons: string; page: string; ring: string; spinner: string };
   /** The middle of the Fabric portal. */
@@ -182,6 +187,8 @@ const DARK: Theme = {
   keycap: { bg: '#2b3445', border: '#46536a', edge: '#161c26', text: '#f4f8fc' },
   pill: { bg: '#131a26', liveBg: '#0f2a1d', text: '#f4f8fc', track: '#26303d' },
   sampleApp: { bg: '#292929', mark: '#115ea4', title: '#ffffff', sub: '#c2beb8', live: '#4ade80', dot: '#22c55e' },
+  // --user-bubble and --user-bubble-border: the accent mixed 14% into --bg-elev and 26% into --border.
+  chat: { bubble: '#172a3b', bubbleBorder: '#284a67', text: '#eceff5', note: '#9aa4b8' },
   browser: { chrome: '#2b2b2b', field: '#1c1c1c', url: '#d6d6d6', icons: '#a3a3a3', page: '#202020', ring: '#3d3d3d', spinner: '#35a3ea' },
   portal: 'radial-gradient(circle, #46ccb055 0%, #35a3ea33 45%, transparent 70%)',
 
@@ -259,6 +266,8 @@ const LIGHT: Theme = {
   keycap: { bg: '#ffffff', border: '#c3ccd8', edge: '#a9b4c3', text: '#12161d' },
   pill: { bg: '#ffffff', liveBg: '#e8f6ee', text: '#12161d', track: '#e3e8ef' },
   sampleApp: { bg: '#ffffff', mark: '#0f6cbf', title: '#0a0e12', sub: '#4a5160', live: '#15803d', dot: '#22c55e' },
+  // The accent mixed 10% into --bg-elev and 22% into --border.
+  chat: { bubble: '#e7f0f8', bubbleBorder: '#a9c3dd', text: '#12161d', note: '#4a5361' },
   browser: { chrome: '#dfe3e8', field: '#ffffff', url: '#3a414b', icons: '#5b6470', page: '#f3f4f6', ring: '#c9d2dc', spinner: '#0f6cbd' },
   portal: 'radial-gradient(circle 150px, rgba(255,255,255,0.75) 0 80%, transparent 80.5%)',
 

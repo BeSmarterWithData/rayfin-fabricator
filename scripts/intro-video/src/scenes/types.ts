@@ -40,6 +40,11 @@ export interface SceneCtx {
   w: (word: string, nth?: number) => number;
   /** Scene-relative frame where it ends. */
   wEnd: (word: string, nth?: number) => number;
+  /**
+   * Scene-relative frame where `word` starts in another scene's line (negative for one before
+   * this scene): for carrying on something the previous scene started, such as a burst.
+   */
+  at: (id: SceneId, word: string, nth?: number) => number;
 }
 
 /** Ray's part in a scene, in scene-relative frames. Scenes hand him over to each other. */

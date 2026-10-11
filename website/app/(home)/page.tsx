@@ -50,7 +50,7 @@ const steps = [
 
     title: 'Describe it',
 
-    text: 'Tell Fabricator what to change. The built-in GitHub Copilot agent edits the project and shows its work log, diffs and decisions as it goes.',
+    text: 'Tell Fabricator what to change. Fabricator’s agent, powered by GitHub Copilot, edits the project and shows its work log, diffs and decisions as it goes.',
 
     href: '/docs/build/chat',
 
@@ -242,14 +242,14 @@ export default function HomePage() {
           Fabricator is a desktop workbench<br />
           for Rayfin apps.<br />
           Describe what you want.<br />
-          Watch GitHub Copilot build it.<br />
+          Watch Fabricator’s agent build it.<br />
           See it running live.<br />
           Ship it to Microsoft Fabric.<br />
-          All in one window, with the Copilot<br />
-          account you already have.
+          All in one window, with the GitHub<br />
+          Copilot account you already have.
         </p>
         <p className="mt-5 hidden max-w-3xl text-xl leading-8 text-fd-muted-foreground sm:block">
-          Fabricator is a desktop workbench for Rayfin apps. Describe what you want, watch GitHub Copilot build it, see it running live, and ship it to Microsoft Fabric — all in one window, with the Copilot account you already have.
+          Fabricator is a desktop workbench for Rayfin apps. Describe what you want, watch Fabricator’s agent build it, see it running live, and ship it to Microsoft Fabric — all in one window, with the GitHub Copilot account you already have.
         </p>
         <div className="mt-8 w-full">
 

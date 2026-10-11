@@ -47,3 +47,11 @@ test('it rests in a pause, and holds through a short gap', () => {
   const gap = lipTrack(line([['hi', 300, 500], ['there', 560, 800]]), FPS);
   for (let f = 9 - LEAD; f < 23 - LEAD; f++) assert.notEqual(at(gap, f), 'rest', `frame ${f}`);
 });
+
+test('a voice without words in a pause, such as a cheer, opens the mouth', () => {
+  const cheer = line([['code', 300, 500], ['and', 1100, 1300]]);
+  for (let f = 18; f < 30; f++) cheer.envelope[f] = 0.7;
+  const track = lipTrack(cheer, FPS);
+  for (let f = 18 - LEAD; f < 30 - LEAD; f++) assert.equal(at(track, f), 'open', `frame ${f}`);
+  assert.equal(at(track, 31 - LEAD), 'rest');
+});

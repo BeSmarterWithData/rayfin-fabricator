@@ -2,7 +2,8 @@ import type { ReactNode } from 'react';
 import { AbsoluteFill, useCurrentFrame, useVideoConfig } from 'remotion';
 import { ease, fadeOut, pop, ramp, track } from '../anim';
 import { Burst } from '../fx/Burst';
-import { AppWindow, Patch, SHOTS, ShotRegion, Spotlight, Typed, onScreen } from '../ui/AppWindow';
+import { OVERLAP } from '../timing';
+import { AppWindow, Patch, SHOTS, Spotlight, Typed, onScreen } from '../ui/AppWindow';
 import { AppTile } from '../ui/Brand';
 import { Cursor } from '../ui/Cursor';
 import { Chip, KineticTitle } from '../ui/Kit';
@@ -59,7 +60,7 @@ const ICONS = {
   ),
 };
 
-/* -------------------------------- 5. Backend -------------------------------- */
+/* -------------------------------- 6. Backend -------------------------------- */
 
 const TILES = [
   { word: 'database', label: 'Database', sub: 'From your TypeScript', icon: ICONS.database },
@@ -101,7 +102,7 @@ export const backend: SceneDef = {
   }),
   sfx: (c) => [
     { f: 4, id: 'swim-whoosh', volume: 0.3 },
-    { f: c.w('sets'), id: 'sweep', volume: 0.3 },
+    { f: c.w('backend'), id: 'sweep', volume: 0.3 },
     ...TILES.map((t) => ({ f: c.w(t.word), id: 'pop' as const, volume: 0.6 })),
     { f: c.w('Scalable'), id: 'chime', volume: 0.35 },
     { f: c.w('governed'), id: 'stamp', volume: 0.55 },
@@ -114,264 +115,152 @@ export const backend: SceneDef = {
     const C = useTheme();
     const shrink = ramp(frame, 0, 16, ease.inOut);
     const app = pop(frame, fps, 10, 12, 0.7);
-    const panel = ramp(frame, ctx.w('sets') - 4, 22, ease.out);
+    // "your app": the tile it's all for gets a nudge.
+    const yours = Math.sin(Math.PI * ramp(frame, ctx.w('your') - 2, 14, ease.linear));
+    const panel = ramp(frame, ctx.w('backend') - 4, 22, ease.out);
     const auto = pop(frame, fps, ctx.w('automatically'), 12, 0.6);
     const scaleOut = ctx.w('Scalable');
     const boundary = ramp(frame, ctx.w('inside') - 4, ctx.wEnd('boundary') - ctx.w('inside') + 8, ease.inOut);
     const out = fadeOut(frame, ctx.span.duration, 10);
+    // From the next scene's first frame, it carries on with the app's tile.
+    const handOff = ctx.span.duration - OVERLAP;
 
     return (
-      <AbsoluteFill style={{ opacity: out }}>
-        {shrink < 1 ? (
-          <AppWindow shot={SHOTS.deployProgress} x={1170 + (960 - 1170) * shrink} y={545 + (205 - 545) * shrink} width={740} scale={1 - 0.8 * shrink} opacity={1 - shrink} />
-        ) : null}
+      <AbsoluteFill>
+        <AbsoluteFill style={{ opacity: out }}>
+          {shrink < 1 ? (
+            <AppWindow shot={SHOTS.deployProgress} x={1170 + (960 - 1170) * shrink} y={545 + (205 - 545) * shrink} width={740} scale={1 - 0.8 * shrink} opacity={1 - shrink} />
+          ) : null}
 
-        {/* The organization's boundary, drawn around everything. */}
-        {boundary > 0 ? (
+          {/* The organization's boundary, drawn around everything. */}
+          {boundary > 0 ? (
+            <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
+              <defs>
+                <mask id="boundary-draw">
+                  <rect x="200" y="100" width="1520" height="745" rx="40" fill="none" stroke="#fff" strokeWidth="14" pathLength={1} strokeDasharray={`${boundary} 1`} />
+                </mask>
+              </defs>
+              <rect x="200" y="100" width="1520" height="745" rx="40" fill={alpha(C.accent2, 0.05 * boundary)} stroke={C.accent2} strokeWidth="4" strokeDasharray="18 12" mask="url(#boundary-draw)" />
+            </svg>
+          ) : null}
+          <Chip x={560} y={100} from={ctx.w("organization's")} to={ctx.span.duration + 20} accent={C.accent2} size={26}>
+            Your organization’s boundary · Microsoft Fabric
+          </Chip>
+
+          {/* Connectors from each service up to the app. */}
           <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
-            <defs>
-              <mask id="boundary-draw">
-                <rect x="200" y="100" width="1520" height="745" rx="40" fill="none" stroke="#fff" strokeWidth="14" pathLength={1} strokeDasharray={`${boundary} 1`} />
-              </mask>
-            </defs>
-            <rect x="200" y="100" width="1520" height="745" rx="40" fill={alpha(C.accent2, 0.05 * boundary)} stroke={C.accent2} strokeWidth="4" strokeDasharray="18 12" mask="url(#boundary-draw)" />
+            {TILES.map((t, i) => {
+              const p = ramp(frame, ctx.w(t.word) + 2, 12, ease.out);
+              if (p <= 0) return null;
+              const x = tileX(i);
+              return (
+                <path
+                  key={t.word}
+                  d={`M ${x} ${TILE_Y - 100} C ${x} ${TILE_Y - 200}, 960 ${360}, 960 ${262}`}
+                  fill="none"
+                  stroke={C.accent}
+                  strokeWidth={3}
+                  strokeOpacity={0.7}
+                  pathLength={1}
+                  strokeDasharray={`${p} 1`}
+                />
+              );
+            })}
           </svg>
-        ) : null}
-        <Chip x={560} y={100} from={ctx.w("organization's")} to={ctx.span.duration + 20} accent={C.accent2} size={26}>
-          Your organization’s boundary · Microsoft Fabric
-        </Chip>
 
-        <AppTile x={960} y={205} scale={0.85 * app} opacity={Math.min(1, app * 1.5)} live />
+          {/* The platform the services sit on. */}
+          <div
+            style={{
+              position: 'absolute',
+              left: 250,
+              top: 405,
+              width: 1420,
+              height: 390,
+              borderRadius: 30,
+              background: C.panel.bg,
+              border: `2px solid ${C.panel.border}`,
+              boxShadow: C.shadow.panel,
+              transform: `scaleX(${panel})`,
+              opacity: Math.min(1, panel * 2),
+            }}
+          >
+            <div style={{ position: 'absolute', left: 36, top: 22, fontFamily: FONT, fontSize: 30, fontWeight: 700, color: C.ink, opacity: ramp(frame, ctx.w('Rayfin') - 4, 8) }}>
+              Rayfin <span style={{ color: C.dim, fontWeight: 500 }}>backend</span>
+            </div>
+            <div style={{ position: 'absolute', right: 36, top: 18, display: 'flex', alignItems: 'center', gap: 10, fontFamily: FONT, fontSize: 26, color: C.accent2, opacity: Math.min(1, auto * 1.4), transform: `scale(${0.7 + 0.3 * auto})` }}>
+              <span style={{ display: 'inline-block', transform: `rotate(${frame * 4}deg)` }}>{icon(ICONS.gear, C.accent2, 34)}</span>
+              Set up automatically on deploy
+            </div>
+          </div>
 
-        {/* Connectors from each service up to the app. */}
-        <svg width={1920} height={1080} style={{ position: 'absolute', inset: 0 }}>
           {TILES.map((t, i) => {
-            const p = ramp(frame, ctx.w(t.word) + 2, 12, ease.out);
-            if (p <= 0) return null;
-            const x = tileX(i);
-            return (
-              <path
-                key={t.word}
-                d={`M ${x} ${TILE_Y - 100} C ${x} ${TILE_Y - 200}, 960 ${360}, 960 ${262}`}
-                fill="none"
-                stroke={C.accent}
-                strokeWidth={3}
-                strokeOpacity={0.7}
-                pathLength={1}
-                strokeDasharray={`${p} 1`}
-              />
-            );
-          })}
-        </svg>
-
-        {/* The platform the services sit on. */}
-        <div
-          style={{
-            position: 'absolute',
-            left: 250,
-            top: 405,
-            width: 1420,
-            height: 390,
-            borderRadius: 30,
-            background: C.panel.bg,
-            border: `2px solid ${C.panel.border}`,
-            boxShadow: C.shadow.panel,
-            transform: `scaleX(${panel})`,
-            opacity: Math.min(1, panel * 2),
-          }}
-        >
-          <div style={{ position: 'absolute', left: 36, top: 22, fontFamily: FONT, fontSize: 30, fontWeight: 700, color: C.ink, opacity: ramp(frame, ctx.w('Rayfin') - 4, 8) }}>
-            Rayfin <span style={{ color: C.dim, fontWeight: 500 }}>backend</span>
-          </div>
-          <div style={{ position: 'absolute', right: 36, top: 18, display: 'flex', alignItems: 'center', gap: 10, fontFamily: FONT, fontSize: 26, color: C.accent2, opacity: Math.min(1, auto * 1.4), transform: `scale(${0.7 + 0.3 * auto})` }}>
-            <span style={{ display: 'inline-block', transform: `rotate(${frame * 4}deg)` }}>{icon(ICONS.gear, C.accent2, 34)}</span>
-            Set up automatically on deploy
-          </div>
-        </div>
-
-        {TILES.map((t, i) => {
-          const at = ctx.w(t.word);
-          const p = pop(frame, fps, at, 11, 0.6);
-          if (frame < at) return null;
-          const ghosts = [1, 2].map((g) => pop(frame, fps, scaleOut + i * 2 + g * 3, 12, 0.6));
-          const card = (key: string, dx: number, dy: number, alpha: number) => (
-            <div
-              key={key}
-              style={{
-                position: 'absolute',
-                left: tileX(i) - TILE_W / 2 + dx,
-                top: TILE_Y - 100 + dy,
-                width: TILE_W,
-                height: 200,
-                borderRadius: 22,
-                background: C.panel.ghost,
-                border: `2px solid ${C.accent}66`,
-                opacity: alpha,
-              }}
-            />
-          );
-          return (
-            <div key={t.word}>
-              {ghosts[1] > 0.01 ? card('g2', 26 * ghosts[1], -26 * ghosts[1], 0.35 * ghosts[1]) : null}
-              {ghosts[0] > 0.01 ? card('g1', 13 * ghosts[0], -13 * ghosts[0], 0.6 * ghosts[0]) : null}
+            const at = ctx.w(t.word);
+            const p = pop(frame, fps, at, 11, 0.6);
+            if (frame < at) return null;
+            const ghosts = [1, 2].map((g) => pop(frame, fps, scaleOut + i * 2 + g * 3, 12, 0.6));
+            const card = (key: string, dx: number, dy: number, alpha: number) => (
               <div
+                key={key}
                 style={{
                   position: 'absolute',
-                  left: tileX(i) - TILE_W / 2,
-                  top: TILE_Y - 100,
+                  left: tileX(i) - TILE_W / 2 + dx,
+                  top: TILE_Y - 100 + dy,
                   width: TILE_W,
                   height: 200,
                   borderRadius: 22,
-                  background: C.panel.tile,
-                  border: `2px solid ${C.accent}`,
-                  boxShadow: `${C.shadow.tile}, ${C.glow(`${C.accent}33`, 26)}`,
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  transform: `translateY(${(1 - p) * 60}px) scale(${0.5 + 0.5 * p})`,
-                  opacity: Math.min(1, p * 1.6),
-                  fontFamily: FONT,
+                  background: C.panel.ghost,
+                  border: `2px solid ${C.accent}66`,
+                  opacity: alpha,
                 }}
-              >
-                {icon(t.icon, C.accent, 58)}
-                <div style={{ fontSize: 32, fontWeight: 700, color: C.ink }}>{t.label}</div>
-                <div style={{ fontSize: 19, color: C.dim, whiteSpace: 'nowrap' }}>{t.sub}</div>
+              />
+            );
+            return (
+              <div key={t.word}>
+                {ghosts[1] > 0.01 ? card('g2', 26 * ghosts[1], -26 * ghosts[1], 0.35 * ghosts[1]) : null}
+                {ghosts[0] > 0.01 ? card('g1', 13 * ghosts[0], -13 * ghosts[0], 0.6 * ghosts[0]) : null}
+                <div
+                  style={{
+                    position: 'absolute',
+                    left: tileX(i) - TILE_W / 2,
+                    top: TILE_Y - 100,
+                    width: TILE_W,
+                    height: 200,
+                    borderRadius: 22,
+                    background: C.panel.tile,
+                    border: `2px solid ${C.accent}`,
+                    boxShadow: `${C.shadow.tile}, ${C.glow(`${C.accent}33`, 26)}`,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    transform: `translateY(${(1 - p) * 60}px) scale(${0.5 + 0.5 * p})`,
+                    opacity: Math.min(1, p * 1.6),
+                    fontFamily: FONT,
+                  }}
+                >
+                  {icon(t.icon, C.accent, 58)}
+                  <div style={{ fontSize: 32, fontWeight: 700, color: C.ink }}>{t.label}</div>
+                  <div style={{ fontSize: 19, color: C.dim, whiteSpace: 'nowrap' }}>{t.sub}</div>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
 
-        <Chip x={470} y={330} from={ctx.w('Scalable')} to={ctx.span.duration + 20} size={30}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-            {icon(ICONS.scale, C.accent, 34)} Scalable
-          </span>
-        </Chip>
-        <Chip x={1450} y={330} from={ctx.w('governed')} to={ctx.span.duration + 20} accent={C.accent2} size={30}>
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-            {icon(ICONS.shield, C.accent2, 34)} Governed
-          </span>
-        </Chip>
-        <Burst kind="sparkles" at={ctx.w('governed')} x={1450} y={330} count={10} seed={21} spread={1.6} />
-        <Burst kind="bubbles" at={ctx.w('fin')} x={960} y={900} count={8} seed={22} />
-      </AbsoluteFill>
-    );
-  },
-};
-
-/* ------------------------------- 6. Describe it ------------------------------- */
-
-/** The prompt in chat-working, typed into the composer before it's sent. */
-const PROMPT = 'Show at most 10 rows in the recent expenses table, with a Show more button that loads the next 10.';
-
-/**
- * chat-working's new turn, top to bottom, in image pixels: the prompt's bubble, then each row
- * of the work log. Every boundary lies in the gap between two rows, so a row shows whole.
- */
-const TURN = [405, 520, 596, 629, 662, 696, 729, 762, 801, 848] as const;
-
-function Keycap({ x, y, from }: { x: number; y: number; from: number }): JSX.Element | null {
-  const frame = useCurrentFrame();
-  const { fps } = useVideoConfig();
-  const { keycap } = useTheme();
-  if (frame < from || frame > from + 22) return null;
-  const p = pop(frame, fps, from, 10, 0.5);
-  const press = frame - from < 5 ? 3 : 0;
-  return (
-    <div style={{ position: 'absolute', left: x, top: y + press, transform: `translate(-50%, -50%) scale(${p})`, opacity: fadeOut(frame, from + 22, 6), padding: '8px 18px', borderRadius: 10, background: keycap.bg, border: `2px solid ${keycap.border}`, boxShadow: `0 ${6 - press}px 0 ${keycap.edge}`, color: keycap.text, fontFamily: FONT, fontSize: 26, fontWeight: 600, whiteSpace: 'nowrap' }}>
-      Enter ↵
-    </div>
-  );
-}
-
-export const describe: SceneDef = {
-  id: 'describe',
-  ray: (c) => ({
-    keys: [
-      { f: 0, x: 960, y: 930, s: 0.55 },
-      { f: 30, x: 1790, y: 945, s: 0.45, e: ease.inOut },
-      { f: c.w('and', 1) - 4, x: 1790, y: 945 },
-      { f: c.w('cheer') - 2, x: 1650, y: 800, s: 0.6, e: ease.out },
-      { f: c.span.duration, x: 1660, y: 790 },
-    ],
-    moods: [
-      { f: 0, mood: 'happy' },
-      { f: 34, mood: 'idle' },
-      { f: c.w('GitHub'), mood: 'surprised' },
-      { f: c.w('and', 1), mood: 'happy' },
-    ],
-    hops: [c.w('cheer'), c.w('cheer') + 18],
-    squishes: [c.w('cheer') + 9],
-    gaze: [
-      [0, 0, 0.1],
-      [32, -1, 0.3],
-      [c.w('GitHub'), -0.9, -0.4],
-      [c.w('and', 1), 0, 0.1],
-    ],
-  }),
-  sfx: (c) => [
-    { f: 2, id: 'swim-whoosh', volume: 0.25 },
-    { f: c.w('describe'), id: 'typing', volume: 0.32, duration: c.w('English') + 10 - c.w('describe') },
-    { f: c.w('English') + 16, id: 'click', volume: 0.6 },
-    { f: c.w('code') + 2, id: 'chime', volume: 0.3 },
-    { f: c.w('cheer'), id: 'confetti', volume: 0.5 },
-  ],
-  View: ({ ctx }) => {
-    const frame = useCurrentFrame();
-    const { fps } = useVideoConfig();
-    const C = useTheme();
-    const enter = pop(frame, fps, 28, 13, 0.8);
-    const typeFrom = ctx.w('describe');
-    const typeTo = ctx.w('English') + 10;
-    const send = ctx.w('English') + 16;
-    const code = ctx.w('code');
-    // The bubble appears as the prompt is sent; then Copilot's work log fills in, row by row.
-    const shown = TURN.slice(0, -1).map((_, i) => (i === 0 ? send + 2 : send + 8 + ((i - 1) * (code - send - 8)) / (TURN.length - 3)));
-    const zoom = track(frame, [
-      [28, 1.8],
-      [send, 1.8],
-      [send + 24, 1.3],
-      [code, 1.3],
-      [code + 30, 1],
-    ]);
-    const fy = track(frame, [
-      [28, 900],
-      [send, 900],
-      [send + 24, 640],
-      [code, 640],
-      [code + 30, 500],
-    ]);
-    const fx = track(frame, [
-      [28, 400],
-      [code, 400],
-      [code + 30, 800],
-    ]);
-    const y = 1450 - (1450 - 560) * enter;
-    // Fades under the next scene's entrance rather than vanishing from under it.
-    const out = fadeOut(frame, ctx.span.duration, 10);
-    return (
-      <AbsoluteFill style={{ opacity: out }}>
-        {frame >= 26 ? (
-          <AppWindow shot={SHOTS.chatWorking} x={960} y={y} width={1400} zoom={zoom} fx={fx} fy={fy}>
-            {TURN.slice(0, -1).map((top, i) => {
-              const hidden = 1 - ramp(frame, shown[i], 5);
-              return hidden > 0 ? <Patch key={top} x={0} y={top} w={787} h={TURN[i + 1] - top} color={C.bg} opacity={hidden} /> : null;
-            })}
-            {frame < send ? (
-              <>
-                {/* Until it's sent, the composer is idle, as in the workbench shot, and the prompt types into it. */}
-                <ShotRegion shot={SHOTS.workbench} x={4} y={844} w={789} h={109} />
-                {frame >= typeFrom ? <Patch x={28} y={866} w={320} h={28} color={C.composer} /> : null}
-                <Typed text={PROMPT} frame={frame} from={typeFrom} to={typeTo} style={{ position: 'absolute', left: 32, top: 868, fontSize: 14.5, lineHeight: '22px', color: C.text, whiteSpace: 'nowrap' }} />
-              </>
-            ) : null}
-          </AppWindow>
-        ) : null}
-        <Keycap x={1440} y={958} from={send - 2} />
-        <KineticTitle text="Describe it." from={0} to={30} />
-        <Burst kind="confetti" at={ctx.w('cheer')} x={1650} y={720} count={46} seed={31} />
-        <Burst kind="bubbles" at={ctx.w('cheer') + 4} x={1650} y={760} count={8} seed={32} />
+          <Chip x={470} y={330} from={ctx.w('Scalable')} to={ctx.span.duration + 20} size={30}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              {icon(ICONS.scale, C.accent, 34)} Scalable
+            </span>
+          </Chip>
+          <Chip x={1450} y={330} from={ctx.w('governed')} to={ctx.span.duration + 20} accent={C.accent2} size={30}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+              {icon(ICONS.shield, C.accent2, 34)} Governed
+            </span>
+          </Chip>
+          <Burst kind="sparkles" at={ctx.w('governed')} x={1450} y={330} count={10} seed={21} spread={1.6} />
+          <Burst kind="bubbles" at={ctx.w('fin')} x={960} y={900} count={8} seed={22} />
+        </AbsoluteFill>
+        {frame < handOff ? <AppTile x={960} y={205} scale={0.85 * app * (1 + 0.08 * yours)} opacity={Math.min(1, app * 1.5)} live /> : null}
       </AbsoluteFill>
     );
   },
@@ -385,7 +274,7 @@ export const preview: SceneDef = {
   id: 'preview',
   ray: (c) => ({
     keys: [
-      { f: 0, x: 1660, y: 790, s: 0.6 },
+      { f: 0, x: 960, y: 930, s: 0.55 },
       { f: 30, x: 235, y: 720, s: 0.58, e: ease.inOut },
       { f: c.w('See') - 4, x: 235, y: 720 },
       { f: c.w('See') + 16, x: 520, y: 640, s: 0.66, e: ease.inOut },
@@ -421,7 +310,10 @@ export const preview: SceneDef = {
     const { fps } = useVideoConfig();
     const C = useTheme();
     const see = ctx.w('See');
-    const dimTitle = 1 - ramp(frame, 26, 10);
+    const dimTitle = ramp(frame, 0, 6) * (1 - ramp(frame, 26, 10));
+    // The app's tile, where the last scene left it, grows back into the app's window.
+    const grow = ramp(frame, 0, 20, ease.inOut);
+    const tile = 1 - ramp(frame, 0, 8);
     const zoom = track(frame, [
       [ctx.w('Your') - 4, 1],
       [ctx.w('live') - 2, 1.85],
@@ -457,11 +349,22 @@ export const preview: SceneDef = {
     return (
       <AbsoluteFill style={{ opacity: out }}>
         {swap < 1 ? (
-          <AppWindow shot={SHOTS.workbench} x={1080} y={560} width={1300} zoom={zoom} fx={fx} fy={fy} opacity={1 - swap} scale={1 - 0.05 * swap}>
+          <AppWindow
+            shot={SHOTS.workbench}
+            x={960 + (1080 - 960) * grow}
+            y={205 + (560 - 205) * grow}
+            width={1300}
+            zoom={zoom}
+            fx={fx}
+            fy={fy}
+            opacity={ramp(frame, 0, 6) * (1 - swap)}
+            scale={(0.26 + 0.74 * grow) * (1 - 0.05 * swap)}
+          >
             <Spotlight x={918} y={57} w={436} h={28} opacity={liveSpot} radius={14} />
             <Spotlight x={4} y={98} w={790} h={856} opacity={chatSpot} radius={10} dim={0.35} />
           </AppWindow>
         ) : null}
+        {tile > 0 ? <AppTile x={960} y={205} scale={0.85 * (1 + 0.15 * grow)} opacity={tile} live /> : null}
         {frame >= see ? (
           <AppWindow shot={SHOTS.design} x={1230} y={560} width={DESIGN_W} height={940} opacity={Math.min(1, design * 1.4)} scale={0.9 + 0.1 * design}>
             <Spotlight x={65} y={360} w={934} h={74} opacity={totalSpot} radius={8} />
@@ -554,7 +457,7 @@ export const ship: SceneDef = {
     const frame = useCurrentFrame();
     const { fps } = useVideoConfig();
     const C = useTheme();
-    const dimTitle = 1 - ramp(frame, 24, 10);
+    const dimTitle = ramp(frame, 0, 6) * (1 - ramp(frame, 24, 10));
     const turn = ctx.w('successful');
     const redeploy = ctx.w('Fabricator');
     const live = ctx.w('live');

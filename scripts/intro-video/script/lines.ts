@@ -42,16 +42,18 @@ export const LINES: readonly ScriptLine[] = [
     text: '[relieved] Fabricator puts it all in one window.',
   },
   {
+    id: 'describe',
+    text: "Name your app, then describe what you want, in plain English. Fabricator's agent writes the code… [cheering] and I cheer!",
+  },
+  {
     id: 'fabric',
-    text: "Name your app, and I'll swim it over to Microsoft Fabric. [delighted] Hey, that's me! Fins crossed.",
+    text: "Deploy it, and I'll swim it over to Microsoft Fabric. [delighted] Hey, that's me! Fins crossed.",
+    seed: 99,
   },
   {
     id: 'backend',
-    text: "[impressed] And on deploy, Rayfin sets up your whole backend, automatically: database, APIs, auth, storage, functions and hosting. Scalable, governed, and inside your organization's boundary. [proudly] You didn't lift a fin.",
-  },
-  {
-    id: 'describe',
-    text: 'Then describe what you want, in plain English. GitHub Copilot writes the code… [cheering] and I cheer!',
+    text: "[impressed] And Rayfin gives your app the backend it needs, automatically: database, APIs, auth, storage, functions and hosting. Scalable, governed, and inside your organization's boundary. [proudly] You didn't lift a fin.",
+    seed: 512,
   },
   {
     id: 'preview',

@@ -2,9 +2,9 @@ import { Audio } from '@remotion/media';
 import { AbsoluteFill, Sequence, staticFile, useCurrentFrame } from 'remotion';
 import { ease, track } from './anim';
 import { RayActor, type MoodCue, type RayKey, type Speech } from './ray/RayActor';
-import { backend, describe, preview, ship } from './scenes/middle';
+import { backend, preview, ship } from './scenes/middle';
 import { outro, stinger, tricks } from './scenes/closing';
-import { fabric, hello, oldWay, oneWindow } from './scenes/opening';
+import { describe, fabric, hello, oldWay, oneWindow } from './scenes/opening';
 import { RAY_SIZE, type SceneCtx, type SceneDef, type SfxCue } from './scenes/types';
 import { layout, wordAt, type Timeline } from './timing';
 import { THEMES, ThemeProvider, type ThemeName } from './theme';
@@ -15,11 +15,15 @@ const timeline = timelineJson as Timeline;
 export const LAYOUT = layout(timeline);
 const FPS = LAYOUT.fps;
 
-const SCENES: SceneDef[] = [hello, oldWay, oneWindow, fabric, backend, describe, preview, ship, tricks, outro, stinger];
+const SCENES: SceneDef[] = [hello, oldWay, oneWindow, describe, fabric, backend, preview, ship, tricks, outro, stinger];
 
 function contextFor(def: SceneDef): SceneCtx {
-  const line = timeline.lines.find((l) => l.id === def.id);
-  if (!line) throw new Error(`No line for scene ${def.id}`);
+  const lineOf = (id: string) => {
+    const found = timeline.lines.find((l) => l.id === id);
+    if (!found) throw new Error(`No line for scene ${id}`);
+    return found;
+  };
+  const line = lineOf(def.id);
   const span = LAYOUT.scenes[def.id];
   const lead = LAYOUT.lines[def.id].from - span.from;
   return {
@@ -30,6 +34,7 @@ function contextFor(def: SceneDef): SceneCtx {
     fps: FPS,
     w: (word, nth = 1) => lead + wordAt(line, FPS, word, { nth }),
     wEnd: (word, nth = 1) => lead + wordAt(line, FPS, word, { nth, edge: 'end' }),
+    at: (id, word, nth = 1) => LAYOUT.lines[id].from - span.from + wordAt(lineOf(id), FPS, word, { nth }),
   };
 }
 
