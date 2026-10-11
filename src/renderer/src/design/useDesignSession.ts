@@ -38,7 +38,7 @@ const MAX_CROPS = 6
 const INTRO_KEY = 'rayfin.design.introSeen'
 const EMPTY: DesignItem[] = []
 
-/** The preview surface Design can run on (the deployed app, direct or embedded). */
+/** The preview surface Design can run on (deployed or manual-deploy local app). */
 export interface DesignSurface {
   /** The URL the preview shows; switching it ends the session. */
   url: string
@@ -66,7 +66,7 @@ export interface DesignTurn {
 }
 
 export interface DesignSession {
-  /** Design can be switched on (the deployed app is showing). */
+  /** Design can be switched on (a supported app preview is showing). */
   available: boolean
   active: boolean
   /** The active project's queued changes. */
@@ -366,7 +366,8 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
   }, [active, syncOnce])
 
   // A different project or preview surface (project switch, Fabric toggle,
-  // deploy, local preview) ends the session; the queue stays with its project.
+  // deploy, local preview, a turn starting on it) ends the session; the queue
+  // stays with its project.
   const surfaceKey = surface ? `${surface.url}|${surface.embedded ? 1 : 0}` : ''
   useEffect(() => {
     if (activeRef.current) void stop(false)
