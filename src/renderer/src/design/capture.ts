@@ -76,13 +76,14 @@ export async function cropItems(
   dataUrl: string,
   layout: DesignCaptureLayout,
   ids: string[],
-  maxWidth = 900
+  maxWidth = 900,
+  pad = 8
 ): Promise<Record<string, string>> {
   const img = await loadImage(dataUrl)
   const out: Record<string, string> = {}
   for (const id of ids) {
     const rect = layout.rects[id]
-    const box = rect && cropBox(rect, layout, img.naturalWidth, img.naturalHeight)
+    const box = rect && cropBox(rect, layout, img.naturalWidth, img.naturalHeight, pad)
     if (box) out[id] = draw(img, box, maxWidth)
   }
   return out

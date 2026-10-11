@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { DesignItem, DesignSnapshot, DesignStatus } from '@shared/design'
+import type { DesignItem, DesignSnapshot, DesignStatus, DesignSystemSummary } from '@shared/design'
 
 /**
  * Unit tests for the injected Design mode controller (v6,
@@ -25,6 +25,7 @@ interface Api {
     labelOf: (el: Element) => string
     pick: (el: Element) => Element | null
     detectTheme: () => { tailwind: boolean; accent: string | null; neutral: string | null; dark: boolean }
+    designSystem: () => DesignSystemSummary | undefined
     parseColor: (c: string) => { r: number; g: number; b: number; a: number } | null
     contrastRatio: (a: unknown, b: unknown) => number
     openCard: (el: Element, tool?: string) => void
@@ -398,6 +399,66 @@ describe('design controller v6 — charts, options, theme, polish, capture', () 
     expect(items(d)[0].tweaks.map((t) => t.kind)).toEqual(['background'])
   })
 
+  it('shows options as they stream in, and a hovered one keeps its preview when the rest arrive', () => {
+    const box = add('<div class="rounded-md border p-4"><h3>Deals</h3></div>')
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    d.__test.openCard(box)
+    button(card(), /Options/).click()
+    const [req] = d.peek()!.requests
+    const tinted = { name: 'Tinted', styles: { 'background-color': 'rgb(238, 242, 255)' } }
+    const elevated = { name: 'Elevated', styles: { 'box-shadow': '0 8px 24px rgba(0,0,0,.2)' } }
+    d.command({ op: 'addVariation', requestId: req.id, index: 0, option: tinted })
+    expect(card().textContent).toContain('Designing more…')
+    const first = card().querySelector('.option') as HTMLElement
+    first.dispatchEvent(new MouseEvent('mouseenter'))
+    expect(box.style.backgroundColor).toBe('rgb(238, 242, 255)')
+    // A repeated name and another request's option are ignored; a new one is appended in place.
+    d.command({ op: 'addVariation', requestId: req.id, index: 1, option: { ...tinted } })
+    d.command({ op: 'addVariation', requestId: 'other', index: 0, option: elevated })
+    d.command({ op: 'addVariation', requestId: req.id, index: 1, option: elevated })
+    expect(Array.from(card().querySelectorAll('.option b')).map((b) => b.textContent)).toEqual(['Tinted', 'Elevated'])
+    expect(card().querySelector('.option')).toBe(first)
+    expect(box.style.backgroundColor).toBe('rgb(238, 242, 255)')
+    expect(d.peek()!.requests).toHaveLength(1)
+    d.command({ op: 'applyVariations', requestId: req.id, options: [tinted, elevated] })
+    expect(d.peek()!.requests).toEqual([])
+    expect(card().textContent).not.toContain('Designing more…')
+    expect(button(card(), /More options/)).toBeTruthy()
+    expect(button(card(), 'Options').disabled).toBe(false)
+    expect(card().querySelector('.option')).toBe(first)
+    expect(box.style.backgroundColor).toBe('rgb(238, 242, 255)')
+  })
+
+  it('keeps streamed options when the request fails afterwards', () => {
+    const box = add('<div class="p-4">Box</div>')
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    d.__test.openCard(box)
+    button(card(), /Options/).click()
+    const [req] = d.peek()!.requests
+    expect(button(card(), 'Options').disabled).toBe(true)
+    d.command({ op: 'addVariation', requestId: req.id, index: 0, option: { name: 'Soft', styles: { 'border-radius': '12px' } } })
+    d.command({ op: 'failRequest', requestId: req.id, message: 'The reply was cut off.' })
+    expect(Array.from(card().querySelectorAll('.option b')).map((b) => b.textContent)).toEqual(['Soft'])
+    expect(card().textContent).not.toContain('The reply was cut off.')
+    expect(button(card(), 'Options').disabled).toBe(false)
+  })
+
+  it('keeps the options that already arrived when Stop ends the request', () => {
+    const box = add('<div class="p-4">Box</div>')
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    d.__test.openCard(box)
+    button(card(), /Options/).click()
+    const [req] = d.peek()!.requests
+    d.command({ op: 'addVariation', requestId: req.id, index: 0, option: { name: 'Soft', styles: { 'border-radius': '12px' } } })
+    button(card(), 'Stop').click()
+    expect(d.peek()!.requests).toEqual([])
+    expect(card().querySelectorAll('.option')).toHaveLength(1)
+    expect(button(card(), /More options/)).toBeTruthy()
+    // A late final answer for the stopped request changes nothing.
+    d.command({ op: 'applyVariations', requestId: req.id, options: [{ name: 'Late', styles: { color: 'red' } }] })
+    expect(Array.from(card().querySelectorAll('.option b')).map((b) => b.textContent)).toEqual(['Soft'])
+  })
+
   it('reports a failed options request in the card', () => {
     const el = add('<div class="p-4">Box</div>')
     d.enable('direct', null, { sessionId: 's', items: [] })
@@ -545,6 +606,22 @@ describe('design controller v6 — charts, options, theme, polish, capture', () 
     expect(d.peek()!.results.cap).toMatchObject({ frame: { x: 0, y: 0 }, rects: { [id]: { x: 0, y: 30, w: 180, h: 40 } } })
     d.command({ op: 'endCapture' })
     expect(shadow().querySelector('.layer')?.classList.contains('capturing')).toBe(false)
+  })
+
+  it('reports only the selected element for an Options screenshot', () => {
+    const queued = add('<p>Queued paragraph</p>')
+    const picked = add('<button>Save</button>')
+    rect(queued, { x: 10, y: 10, w: 200, h: 40 })
+    rect(picked, { x: 30, y: 80, w: 90, h: 36 })
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    d.__test.openCard(queued)
+    addInstruction('x')
+    d.__test.openCard(picked)
+    d.command({ op: 'prepareCapture', requestId: 'sel', ids: [], selection: true })
+    expect(d.peek()!.results.sel).toMatchObject({ rects: { selection: { x: 30, y: 80, w: 90, h: 36 } } })
+    expect(Object.keys((d.peek()!.results.sel as { rects: object }).rects)).toEqual(['selection'])
+    expect(shadow().querySelector('.layer')?.classList.contains('capturing')).toBe(true)
+    d.command({ op: 'endCapture' })
   })
 
   it('computes WCAG contrast from computed colors, including oklch', () => {
@@ -708,5 +785,97 @@ describe('design controller v6 — overlapping previews', () => {
     ;(card().querySelector('.option') as HTMLElement).click()
     expect(items(d)[0].tweaks[0].css).toEqual([{ property: 'border-radius', to: '12px' }])
     expect(box.style.position).toBe('')
+  })
+})
+
+/** An app themed like the Rayfin templates: semantic colors and its own scales. */
+const TOKEN_THEME = `<style>:root{--spacing:0.25rem;--color-primary:#1d4ed8;--color-primary-foreground:#ffffff;--color-card:#ffffff;
+--color-muted:#e5edf9;--color-muted-foreground:#475467;--color-border:#d8e1ef;--text-200:12px;--text-300:14px;--text-400:16px;--text-500:20px;
+--spacing-200:8px;--spacing-300:12px;--spacing-400:16px;--spacing-500:20px;--spacing-dashboard:1320px;--radius-lg:6px;--radius-2xl:12px;
+--radius-4xl:24px;--radius-5xl:32px;--font-base:Manrope, sans-serif;--font-weight-regular:400}.dark{--color-primary:#60a5fa}</style>`
+
+function tokenApp(): { tile: HTMLElement; label: HTMLElement; go: HTMLElement } {
+  add(TOKEN_THEME)
+  const tile = add('<div class="rounded-4xl bg-card p-500 text-primary"><p class="text-300 text-muted-foreground">Total</p><button class="bg-primary text-primary-foreground">Go</button></div>')
+  return { tile, label: tile.querySelector('p')!, go: tile.querySelector('button')! }
+}
+
+describe('design controller v6 — the app’s own design system', () => {
+  it('summarizes the app’s colors and scales and sends them with an Options request', () => {
+    const { tile } = tokenApp()
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    const sys = d.__test.designSystem()!
+    // Most-used colors first; spacing ignores layout sizes like --spacing-dashboard.
+    expect(sys.colors?.[0]).toEqual(['primary', '#1d4ed8'])
+    expect(sys.colors?.map(([name]) => name)).toEqual(expect.arrayContaining(['card', 'muted-foreground', 'border']))
+    expect(sys.text).toEqual([['200', '12px'], ['300', '14px'], ['400', '16px'], ['500', '20px']])
+    expect(sys.spacing).toEqual([['200', '8px'], ['300', '12px'], ['400', '16px'], ['500', '20px']])
+    expect(sys.radius).toContainEqual(['4xl', '24px'])
+    expect(sys.fonts).toEqual([['base', 'Manrope, sans-serif']])
+    expect(sys.dark).toBe(true)
+    d.__test.openCard(tile)
+    button(card(), /Options/).click()
+    expect(d.peek()!.requests[0].context.system).toEqual(sys)
+  })
+
+  it('offers the app’s own colors first and records them as its utilities', () => {
+    const { go } = tokenApp()
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    d.__test.openCard(go, 'color')
+    expect(card().textContent).toContain('Your colors')
+    // No made-up palette rows for an app that only uses its own colors.
+    expect(card().querySelector('[aria-label="bg-slate-500"]')).toBeNull()
+    button(card(), 'bg-card').click()
+    expect(items(d)[0].tweaks[0]).toMatchObject({
+      kind: 'background',
+      tailwind: { from: 'bg-primary', to: 'bg-card' },
+      css: [{ property: 'background-color', to: 'var(--color-card)' }]
+    })
+    button(card(), 'Text color').click()
+    button(card(), 'text-muted-foreground').click()
+    expect(items(d)[0].tweaks[1]).toMatchObject({ kind: 'color', tailwind: { from: 'text-primary-foreground', to: 'text-muted-foreground' } })
+  })
+
+  it('steps size, padding, corners and weight along the app’s own scales', () => {
+    const { tile, label } = tokenApp()
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    d.__test.openCard(label, 'size')
+    button(card(), 'More size').click()
+    expect(items(d)[0].tweaks[0]).toMatchObject({ tailwind: { from: 'text-300', to: 'text-400' }, css: [{ property: 'font-size', to: 'var(--text-400)' }] })
+    expect(items(d)[0].tweaks[0].css).toHaveLength(1)
+    button(card(), 'Regular').click()
+    expect(items(d)[0].tweaks[1]).toMatchObject({ kind: 'weight', tailwind: { to: 'font-regular' } })
+    d.__test.openCard(tile, 'spacing')
+    button(card(), 'Less padding').click()
+    const spacing = items(d).find((i) => i.tweaks.some((t) => t.kind === 'spacing'))!.tweaks[0]
+    expect(spacing).toMatchObject({ tailwind: { from: 'p-500', to: 'p-400' }, css: [{ property: 'padding', to: 'var(--spacing-400) var(--spacing-400)' }] })
+    button(card(), 'Corners').click()
+    expect(button(card(), 'Extra').getAttribute('aria-pressed')).toBe('true')
+    button(card(), 'Round').click()
+    const corners = items(d).flatMap((i) => i.tweaks).find((t) => t.kind === 'corners')!
+    expect(corners).toMatchObject({ tailwind: { from: 'rounded-4xl', to: 'rounded-2xl' }, css: [{ property: 'border-radius', to: 'var(--radius-2xl)' }] })
+  })
+
+  it('recolors a semantic accent in light and dark, and scales named spacing and font tokens', () => {
+    tokenApp()
+    d.enable('direct', null, { sessionId: 's', items: [] })
+    d.command({ op: 'openPanel', panel: 'theme' })
+    expect(panel().textContent).toContain('Accent color · now primary')
+    button(panel(), 'emerald').click()
+    let theme = items(d).find((i) => i.kind === 'theme')!.theme!
+    expect(theme.accent).toEqual({ from: 'primary', to: 'emerald', token: true })
+    expect(theme.tokens['--color-primary']).toContain('--color-emerald-600')
+    expect(theme.darkTokens?.['--color-primary']).toContain('--color-emerald-400')
+    expect(theme.summary).toEqual(['Accent: primary → emerald'])
+    const css = document.getElementById('__rayfin_design_theme')!.textContent!
+    expect(css.indexOf(':root{')).toBeLessThan(css.indexOf('.dark{'))
+    button(panel(), 'Compact').click()
+    const font = panel().querySelector('select[aria-label="Font"]') as HTMLSelectElement
+    font.value = font.options[5].value
+    font.dispatchEvent(new Event('change'))
+    theme = items(d).find((i) => i.kind === 'theme')!.theme!
+    expect(theme.tokens['--spacing']).toBe('0.22rem')
+    expect(theme.tokens['--spacing-400']).toBe('14.08px')
+    expect(theme.tokens['--font-base']).toBe(font.value)
   })
 })

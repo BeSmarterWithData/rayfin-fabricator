@@ -109,7 +109,8 @@ function installApi() {
           page.results[cmd.requestId] = OUTLINE
           break
         case 'prepareCapture':
-          page.results[cmd.requestId] = LAYOUT
+          // An Options screenshot asks for the selected element alone.
+          page.results[cmd.requestId] = cmd.selection ? { ...LAYOUT, rects: { selection: { x: 5, y: 5, w: 80, h: 30 } } } : LAYOUT
           break
         case 'applyVariations':
         case 'failRequest':
@@ -128,13 +129,15 @@ function installApi() {
     },
     design: {
       variations: vi.fn(async (): Promise<unknown[]> => [{ name: 'Pill', styles: { 'border-radius': '9999px' } }]),
+      onVariation: vi.fn((_cb: (event: unknown) => void) => () => {}),
       polish: vi.fn(async (): Promise<unknown[]> => []),
       locate: vi.fn(async () => ({ targets: [] as unknown[] }) as { entryCss?: string; targets: unknown[] })
     },
     chat: {
       listModels: vi.fn(async () => [
-        { id: 'claude-big', name: 'Big model' },
-        { id: 'gpt-5-mini', name: 'GPT-5 mini' }
+        { id: 'claude-big', name: 'Big model', category: 'powerful', supportedReasoningEfforts: ['low', 'high'] },
+        { id: 'claude-haiku-5.5', name: 'Claude Haiku 5.5', category: 'lightweight', priceCategory: 'low', vision: true, supportedReasoningEfforts: ['low', 'medium', 'high'] },
+        { id: 'gpt-5-mini', name: 'GPT-5 mini', supportedReasoningEfforts: [] }
       ])
     }
   }
@@ -259,15 +262,23 @@ describe('useDesignSession — lifecycle and sync', () => {
 describe('useDesignSession — AI requests', () => {
   const REQUEST: DesignRequest = { id: 'v1', kind: 'variations', itemId: '', context: { tag: 'button', styles: {}, isChart: false }, hint: 'bolder' }
 
-  it('answers an options request once, with the fast model, and says what is happening', async () => {
+  it('answers an options request once, with the Design model at low effort, and says what is happening', async () => {
     const { result } = setup()
     await startWith(result)
     page.requests = [REQUEST]
     bump()
     await waitFor(() => expect(ops()).toContain('applyVariations'))
     expect(api.design.variations).toHaveBeenCalledOnce()
-    expect(api.design.variations).toHaveBeenCalledWith('p1', REQUEST.context, 'bolder', 3, 'gpt-5-mini')
-    expect(page.commands).toContainEqual({ op: 'requestProgress', requestId: 'v1', message: 'Asking GPT-5 mini for a few looks…' })
+    // A vision model gets a crop of the selected element to look at.
+    expect(api.design.variations).toHaveBeenCalledWith('p1', REQUEST.context, 'bolder', 3, 'claude-haiku-5.5', {
+      effort: 'low',
+      requestId: 'v1',
+      screenshotPath: 'C:/tmp/1.png'
+    })
+    expect(page.commands).toContainEqual({ op: 'prepareCapture', requestId: expect.any(String), ids: [], selection: true })
+    expect(api.screenshot.save).toHaveBeenCalledWith('crop:selection')
+    expect(page.commands).toContainEqual({ op: 'requestProgress', requestId: 'v1', message: 'Looking at the element…' })
+    expect(page.commands).toContainEqual({ op: 'requestProgress', requestId: 'v1', message: 'Asking Claude Haiku 5.5 for a few looks…' })
     expect(page.commands).toContainEqual({ op: 'applyVariations', requestId: 'v1', options: [{ name: 'Pill', styles: { 'border-radius': '9999px' } }] })
   })
 
@@ -280,6 +291,39 @@ describe('useDesignSession — AI requests', () => {
     await waitFor(() => expect(page.commands).toContainEqual({ op: 'failRequest', requestId: 'v1', message: 'The model is unavailable right now.' }))
   })
 
+  it('takes no screenshot for a model that can’t see images', async () => {
+    api.chat.listModels.mockResolvedValueOnce([{ id: 'gpt-5-mini', name: 'GPT-5 mini', supportedReasoningEfforts: [] }])
+    const { result } = setup()
+    await startWith(result)
+    page.requests = [REQUEST]
+    bump()
+    await waitFor(() => expect(ops()).toContain('applyVariations'))
+    expect(api.design.variations).toHaveBeenCalledWith('p1', REQUEST.context, 'bolder', 3, 'gpt-5-mini', { effort: undefined, requestId: 'v1', screenshotPath: undefined })
+    expect(ops()).not.toContain('prepareCapture')
+  })
+
+  it('passes options to the page as they stream in, only for its own request', async () => {
+    let deliver: (event: unknown) => void = () => {}
+    const stop = vi.fn()
+    api.design.onVariation.mockImplementation((cb: (event: unknown) => void) => {
+      deliver = cb
+      return stop
+    })
+    const pill = { name: 'Pill', styles: { 'border-radius': '9999px' } }
+    api.design.variations.mockImplementationOnce(async () => {
+      deliver({ requestId: 'v1', index: 0, variation: pill })
+      deliver({ requestId: 'someone-else', index: 0, variation: { name: 'Other', styles: { color: 'red' } } })
+      return [pill]
+    })
+    const { result } = setup()
+    await startWith(result)
+    page.requests = [REQUEST]
+    bump()
+    await waitFor(() => expect(ops()).toContain('applyVariations'))
+    expect(page.commands.filter((c) => c.op === 'addVariation')).toEqual([{ op: 'addVariation', requestId: 'v1', index: 0, option: pill }])
+    expect(stop).toHaveBeenCalled()
+  })
+
   it('runs a Polish review: outline, screenshot, model, then suggestions on the page', async () => {
     const suggestion = { id: 's1', ref: 'r1', title: 'Bigger tap targets', why: 'Hard to hit', instruction: 'Pad the buttons' }
     api.design.polish.mockResolvedValueOnce([suggestion])
@@ -288,7 +332,7 @@ describe('useDesignSession — AI requests', () => {
     act(() => result.current.polish())
     expect(result.current.polishingSince).not.toBeNull()
     await waitFor(() => expect(ops()).toContain('showSuggestions'))
-    expect(api.design.polish).toHaveBeenCalledWith('p1', OUTLINE, 'C:/tmp/1.png', 'gpt-5-mini')
+    expect(api.design.polish).toHaveBeenCalledWith('p1', OUTLINE, 'C:/tmp/1.png', 'claude-haiku-5.5', 'low')
     expect(page.commands).toContainEqual({ op: 'showSuggestions', suggestions: [suggestion] })
     expect(ops()).toEqual(expect.arrayContaining(['setBusy', 'collectPage', 'prepareCapture', 'endCapture']))
     await waitFor(() => expect(result.current.polishingSince).toBeNull())

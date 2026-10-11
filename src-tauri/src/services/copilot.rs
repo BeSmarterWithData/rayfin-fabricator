@@ -290,6 +290,9 @@ pub struct SessionOptions {
   pub permission: Option<Arc<dyn PermissionHandler>>,
   /// Built-in tools the agent must not use.
   pub excluded_tools: Vec<String>,
+  /// Allowlist of built-in tools; `Some(vec![])` makes a tool-less session for
+  /// one-shot generation, where tool schemas only add prompt size and latency.
+  pub available_tools: Option<Vec<String>>,
 }
 
 /// Ask the runtime to resume, or create a session bound to `session_id`,
@@ -327,6 +330,9 @@ async fn open_session(
     }
     if !opts.excluded_tools.is_empty() {
       cfg = cfg.with_excluded_tools(opts.excluded_tools.clone());
+    }
+    if let Some(tools) = &opts.available_tools {
+      cfg = cfg.with_available_tools(tools.clone());
     }
     if let Some(h) = opts.exit_plan.clone() {
       cfg = cfg.with_exit_plan_mode_handler(h);
@@ -372,6 +378,9 @@ async fn open_session(
   if !opts.excluded_tools.is_empty() {
     cfg = cfg.with_excluded_tools(opts.excluded_tools.clone());
   }
+  if let Some(tools) = &opts.available_tools {
+    cfg = cfg.with_available_tools(tools.clone());
+  }
   if let Some(h) = opts.exit_plan.clone() {
     cfg = cfg.with_exit_plan_mode_handler(h);
   }
@@ -408,7 +417,19 @@ fn map_model(m: &Model) -> Option<crate::types::CopilotModel> {
     name: m.name.clone(),
     supported_reasoning_efforts: m.supported_reasoning_efforts.clone().unwrap_or_default(),
     default_reasoning_effort: m.default_reasoning_effort.clone(),
+    category: m.model_picker_category.as_ref().and_then(wire_str),
+    price_category: m.model_picker_price_category.as_ref().and_then(wire_str),
+    vision: m.capabilities.supports.as_ref().and_then(|s| s.vision).unwrap_or(false),
   })
+}
+
+/// The wire string of an SDK enum (`"lightweight"`, `"low"`…), or `None` for the
+/// SDK's forward-compatible `Unknown` variant.
+fn wire_str<T: serde::Serialize>(value: &T) -> Option<String> {
+  match serde_json::to_value(value).ok()? {
+    serde_json::Value::String(s) if !s.eq_ignore_ascii_case("unknown") => Some(s),
+    _ => None,
+  }
 }
 
 fn remaining_auth_error(auth_type: Option<&str>) -> String {
@@ -1318,6 +1339,35 @@ mod tests {
     // re-apply (set_model "auto") — not silently reuse the old model.
     assert_eq!(session_sync(&m("gpt-5.4-mini"), &None, &None, &None), Sync::Apply);
     assert_eq!(session_sync(&m("gpt-5.4-mini"), &None, &m("auto"), &None), Sync::Apply);
+  }
+
+  #[test]
+  fn models_carry_their_picker_tier_price_and_vision() {
+    let flash: Model = serde_json::from_value(json!({
+      "id": "gemini-3.8-flash",
+      "name": "Gemini 3.8 Flash",
+      "capabilities": { "supports": { "vision": true } },
+      "modelPickerCategory": "versatile",
+      "modelPickerPriceCategory": "low",
+      "supportedReasoningEfforts": ["low", "medium", "high"]
+    }))
+    .unwrap();
+    let dto = map_model(&flash).unwrap();
+    assert_eq!(dto.category.as_deref(), Some("versatile"));
+    assert_eq!(dto.price_category.as_deref(), Some("low"));
+    assert!(dto.vision);
+    // A tier this SDK doesn't know yet, and no capabilities, map to "unknown".
+    let bare: Model = serde_json::from_value(json!({
+      "id": "next-model",
+      "name": "Next",
+      "capabilities": {},
+      "modelPickerCategory": "experimental"
+    }))
+    .unwrap();
+    let dto = map_model(&bare).unwrap();
+    assert_eq!(dto.category, None);
+    assert_eq!(dto.price_category, None);
+    assert!(!dto.vision);
   }
 
   #[test]

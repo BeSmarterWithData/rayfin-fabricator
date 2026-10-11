@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { CopilotModel } from '@shared/ipc'
+import type { CopilotModel, ReasoningEffort } from '@shared/ipc'
 
 // Module-level cache so the per-user model list is fetched once and shared across
 // every ChatPanel instance, rather than re-queried on each open.
@@ -70,20 +70,85 @@ export function useCopilotModels(enabled: boolean): { models: CopilotModel[]; lo
   return { models, loading }
 }
 
-/** Substrings that mark a model as small/fast (cheap, low-latency). */
-const FAST_HINTS = ['haiku', 'flash', 'mini', 'lite', 'small', 'fast', 'nano']
+/** Name tokens that mark a small/fast model when Copilot doesn't report a tier. */
+const FAST_TOKENS = new Set(['haiku', 'flash', 'mini', 'nano', 'lite', 'small'])
 
-/** Whether a model looks small/fast by its id/name (see {@link FAST_HINTS}). */
+/** Whole words of a model's id and name (`gemini-2.5-pro` → gemini, 2, 5, pro). */
+function nameTokens(m: CopilotModel): string[] {
+  return `${m.id} ${m.name}`.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
+}
+
+/** Whether a model is small/fast: Copilot's lightweight tier, or a fast family
+ *  name such as Flash, Haiku or mini — never a powerful-tier model. */
 export function isFastModel(m: CopilotModel): boolean {
-  const s = `${m.id} ${m.name}`.toLowerCase()
-  return FAST_HINTS.some((h) => s.includes(h))
+  if (m.category === 'powerful') return false
+  if (m.category === 'lightweight') return true
+  return nameTokens(m).some((t) => FAST_TOKENS.has(t))
+}
+
+/** The model Design uses for its quick, one-shot calls (Options and Polish). */
+export interface DesignModelPick {
+  /** Model id; undefined lets Copilot use its default. */
+  id?: string
+  name?: string
+  /** Reasoning effort to request, when the model supports it. */
+  effort?: ReasoningEffort
+  /** The model accepts images (an element screenshot can ride along). */
+  vision: boolean
 }
 
 /**
- * Pick a fast/cheap model id for one-shot, latency-sensitive generation (e.g. the
- * design-mode "Generate with AI" placeholder). Returns `undefined` when none
- * match (caller falls back to the engine default).
+ * Models Design prefers for Options and Polish, fastest first, from benchmarking
+ * real Options requests with the brand-aware prompt (Oct 2026; KPI card, page
+ * section and chart, 2 runs each; re-run with scripts/design-bench). Median time
+ * to all three options: Claude Haiku 5.5 at low effort 6.2 s (first option
+ * ~2.5 s), GPT-6 Luna 7.5 s, MAI Code 1.1 Flash 10.9 s, Gemini 3.7 Flash 12.7 s,
+ * Gemini 3.8 Flash 18 s; Haiku 4.5 took 15.4 s and stayed less on brand. Default
+ * effort was 2–3× slower than low.
  */
-export function pickFastModel(models: CopilotModel[]): string | undefined {
-  return models.find(isFastModel)?.id
+const DESIGN_PREFERRED = ['claude-haiku-5.5', 'gpt-6-luna', 'mai-code-1.1-flash', 'gemini-3.7-flash', 'gemini-3.8-flash']
+const PRICE_RANK: Record<string, number> = { low: 0, medium: 1 }
+
+/** The numbers in a model id, in order (`gemini-3.8-flash` → [3, 8]). */
+function versionOf(id: string): number[] {
+  return (id.match(/\d+/g) ?? []).map(Number)
+}
+
+function newerFirst(a: CopilotModel, b: CopilotModel): number {
+  const va = versionOf(a.id)
+  const vb = versionOf(b.id)
+  for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+    const d = (vb[i] ?? -1) - (va[i] ?? -1)
+    if (d) return d
+  }
+  return 0
+}
+
+/**
+ * Pick the model for Design's Options and Polish: the fastest benchmarked model
+ * the account has, else a newer lightweight model that can be told to think
+ * less, else another cheap lightweight model, else a low-cost versatile one.
+ * Powerful and high-cost models are never picked automatically; with no
+ * candidate the id is left undefined (Copilot's default).
+ */
+export function pickDesignModel(models: CopilotModel[]): DesignModelPick {
+  const usable = models.filter(
+    (m) => m.category !== 'powerful' && m.priceCategory !== 'high' && m.priceCategory !== 'very_high'
+  )
+  const light = (m: CopilotModel): boolean => m.category === 'lightweight' || (!m.category && isFastModel(m))
+  const lowEffort = (m: CopilotModel): boolean => m.supportedReasoningEfforts.includes('low')
+  const pick =
+    DESIGN_PREFERRED.map((id) => usable.find((m) => m.id === id)).find(Boolean) ??
+    usable.filter((m) => light(m) && lowEffort(m)).sort(newerFirst)[0] ??
+    usable
+      .filter(light)
+      .sort((a, b) => (PRICE_RANK[a.priceCategory ?? ''] ?? 2) - (PRICE_RANK[b.priceCategory ?? ''] ?? 2) || newerFirst(a, b))[0] ??
+    usable.find((m) => m.category === 'versatile' && m.priceCategory === 'low')
+  if (!pick) return { vision: false }
+  return {
+    id: pick.id,
+    name: pick.name,
+    effort: lowEffort(pick) ? 'low' : undefined,
+    vision: pick.vision === true
+  }
 }

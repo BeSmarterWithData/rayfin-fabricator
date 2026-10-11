@@ -32,7 +32,9 @@ import {
   type PreviewAgentEvent,
   type ProcLogEvent,
   type DeleteProgressEvent,
+  type DesignVariationsOptions,
   type RayfinStudioApi,
+  type ReasoningEffort,
   type TeamCreateRequest,
   type TeamDiagnoseRequest,
   type TeamDiagnosisEnvelope,
@@ -48,7 +50,8 @@ import type {
   DesignHostTheme,
   DesignLocateTarget,
   DesignPageOutline,
-  DesignRestyleContext
+  DesignRestyleContext,
+  DesignVariationEvent
 } from '@shared/design'
 
 /** Subscribe to a Tauri event, returning a synchronous unsubscribe function. */
@@ -340,10 +343,28 @@ export const api: RayfinStudioApi = {
       context: DesignRestyleContext,
       hint?: string,
       count?: number,
-      model?: string
-    ) => invoke('design_variations', { projectId, context, hint, count, model }),
-    polish: (projectId: string, page: DesignPageOutline, screenshotPath?: string, model?: string) =>
-      invoke('design_polish', { projectId, page, screenshotPath, model }),
+      model?: string,
+      options?: DesignVariationsOptions
+    ) =>
+      invoke('design_variations', {
+        projectId,
+        context,
+        hint,
+        count,
+        model,
+        effort: options?.effort,
+        requestId: options?.requestId,
+        screenshotPath: options?.screenshotPath
+      }),
+    onVariation: (cb: (event: DesignVariationEvent) => void) =>
+      subscribe<DesignVariationEvent>(IpcChannels.designVariation, cb),
+    polish: (
+      projectId: string,
+      page: DesignPageOutline,
+      screenshotPath?: string,
+      model?: string,
+      effort?: ReasoningEffort
+    ) => invoke('design_polish', { projectId, page, screenshotPath, model, effort }),
     locate: (projectId: string, targets: DesignLocateTarget[]) =>
       invoke('design_locate', { projectId, targets })
   },

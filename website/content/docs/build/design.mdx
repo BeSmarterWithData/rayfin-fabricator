@@ -33,10 +33,10 @@ The card records each selected element as one numbered change. Use **Update** to
 The tool row shows only the tweaks that make sense for the selected element:
 
 - **Text** edits visible text in the preview.
-- **Color** changes **Text color** or **Background** using palettes detected from the app, plus other Tailwind color choices.
-- **Size** steps text size and weight using Tailwind-style values such as `text-lg` and `font-semibold`.
-- **Spacing** changes padding and, for flex or grid containers, gap.
-- **Corners** chooses rounded-corner values such as `rounded-md`, `rounded-xl` or `rounded-full`.
+- **Color** changes **Text color** or **Background**. When your app defines its own colors, such as `primary` or `card`, they come first under **Your colors**, followed by palettes detected from the app and other Tailwind color choices.
+- **Size** steps text size and weight. It uses your app's own size scale when it has one, such as `text-300`, and otherwise Tailwind-style values such as `text-lg` and `font-semibold`.
+- **Spacing** changes padding and, for flex or grid containers, gap. It steps along your app's own spacing tokens when it has them, such as `p-400`.
+- **Corners** chooses rounded-corner values such as `rounded-md`, `rounded-xl` or `rounded-full`, or the nearest of your app's own radius tokens when it defines a custom scale.
 - **Shadow** chooses values such as `shadow-sm`, `shadow-md` or `shadow-xl`.
 - **Align** changes text alignment or distributes items in flex layouts.
 - **Hide** queues **Remove it** for the selected element. **Show it again** removes that hide tweak.
@@ -60,7 +60,11 @@ Chart changes keep the live data in the preview. The request sent to Copilot inc
 
 ## Ask for Options
 
-Select **Options** to ask a fast Copilot model for a few alternate looks for the selected element. While it runs, the card says it is asking Copilot for a few looks. When options return, the card shows **Options — hover to preview, click to apply**.
+Select **Options** to ask a fast Copilot model for a few alternate looks for the selected element. Fabricator picks a quick, low-cost model from your Copilot plan, such as Claude Haiku or GPT Luna, and asks it to think briefly. When the model can read images, Fabricator also sends it a picture of the element.
+
+The options follow your app's own design: its colors, text sizes, spacing and corners when it defines them, without gradients or glows unless you ask for them.
+
+While it runs, the card names the model it's asking. Each option appears as soon as it's ready, under **Options — hover to preview, click to apply**, and **Designing more…** shows while the rest arrive. Select **Stop** to keep the options you already have.
 
 Hover an option to preview it. Click one to keep it. Use **More options** to ask again or **Done** to close the options list.
 
@@ -80,7 +84,7 @@ Select **Theme** in the Design bar to open the theme panel.
 
 Depending on what Fabricator detects in the app, the panel can preview:
 
-- **Accent color**.
+- **Accent color**. In apps that theme through a color token such as `primary`, the accent changes that token, with a lighter shade in dark mode.
 - **Neutrals**.
 - **Corners**.
 - **Density**.
@@ -92,7 +96,7 @@ Theme changes are queued as one **Theme** change. **Reset** removes that queued 
 
 ## Run a polish review
 
-Select **Polish** in the Design bar to run a quick design review of the current page. Fabricator collects a page outline and a screenshot, then asks a fast model for suggestions.
+Select **Polish** in the Design bar to run a quick design review of the current page. Fabricator collects a page outline and a screenshot, then asks the same fast model for suggestions that fit your app's design.
 
 The **Polish suggestions** panel can show **Preview**, **Add** and an `Add all 3`-style button. **Preview** applies a temporary visual preview. **Add** queues the suggestion as a design change.
 

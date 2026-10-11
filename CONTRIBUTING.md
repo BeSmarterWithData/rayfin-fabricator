@@ -77,6 +77,7 @@ rayfin-fabricator/
 ├─ website/                   Documentation site (Next.js + Fumadocs), published to GitHub Pages
 ├─ scripts/docs-screenshots/  Tooling that captures the docs site's screenshots
 ├─ scripts/intro-video/       The landing page's intro video: Remotion scenes with Ray and ElevenLabs audio
+├─ scripts/design-bench/      Times Design mode's AI options per Copilot model, to order the models Design picks
 ├─ docs/                      Maintainer deployment notes and the vendored wry patch write-up
 ├─ analytics/                 Application Insights KQL queries and notes
 ├─ resources/                 Runtime resources, including telemetry configuration placeholders

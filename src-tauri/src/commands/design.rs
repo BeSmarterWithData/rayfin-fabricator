@@ -19,10 +19,11 @@ use std::time::Duration;
 use github_copilot_sdk::subscription::RecvErrorKind;
 use github_copilot_sdk::{Attachment, MessageOptions};
 use serde_json::Value;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 
 use crate::commands::screenshot;
 use crate::services::design_locate::{self, LocateResult, LocateTarget};
+use crate::services::emit::DESIGN_VARIATION;
 use crate::services::store;
 use crate::state::AppState;
 
@@ -32,6 +33,9 @@ const RUN_TIMEOUT_MS: u64 = 60_000;
 /// Variations offered per request (and the most a caller may ask for).
 const DEFAULT_VARIATIONS: usize = 3;
 const MAX_VARIATIONS: usize = 4;
+/// A run that failed with the element's screenshot is retried without it only
+/// when it failed this fast, so both runs fit inside the page's 90 s wait.
+const IMAGE_RETRY_WITHIN: Duration = Duration::from_secs(25);
 /// Polish suggestions returned at most.
 const MAX_SUGGESTIONS: usize = 6;
 /// Outline elements and findings a Polish prompt includes at most.
@@ -79,9 +83,16 @@ const ALLOWED_RESTYLE_PROPS: &[&str] = &[
     "max-height",
     "display",
     "gap",
+    "row-gap",
+    "column-gap",
     "align-items",
     "justify-content",
     "flex-direction",
+    "flex-wrap",
+    "grid-template-columns",
+    "font-family",
+    "border-top",
+    "border-bottom",
 ];
 
 /// Compact element context the renderer sends with a variations request:
@@ -111,6 +122,31 @@ pub struct RestyleContext {
     /// can target children via `rules`.
     #[serde(default)]
     pub children: Option<Value>,
+    /// The app's design system (see `DesignSystemSummary` in `src/shared/design.ts`).
+    #[serde(default)]
+    pub system: Option<DesignSystem>,
+}
+
+/// The app's theme tokens in brief, as the page read them: pairs keep the page's
+/// order (most-used colors first, scales smallest first).
+#[derive(serde::Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase", default)]
+pub struct DesignSystem {
+    pub colors: Vec<(String, String)>,
+    pub palettes: Vec<String>,
+    pub text: Vec<(String, String)>,
+    pub spacing: Vec<(String, String)>,
+    pub spacing_base: Option<String>,
+    pub radius: Vec<(String, String)>,
+    pub fonts: Vec<(String, String)>,
+    pub dark: bool,
+}
+
+impl DesignSystem {
+    /// Whether the app has its own tokens to build options from.
+    fn has_tokens(&self) -> bool {
+        !self.colors.is_empty() || !self.text.is_empty() || !self.spacing.is_empty()
+    }
 }
 
 /// Whitelisted CSS for the element, descendant rules, and an optional Graphein
@@ -136,7 +172,7 @@ pub struct RestyleRule {
 }
 
 /// One proposed alternative look (see `DesignVariation` in `src/shared/design.ts`).
-#[derive(serde::Serialize, PartialEq, Debug)]
+#[derive(serde::Serialize, PartialEq, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Variation {
     pub name: String,
@@ -176,6 +212,7 @@ pub struct PageOutline {
     pub viewport: Value,
     pub elements: Vec<OutlineElement>,
     pub findings: Vec<Finding>,
+    pub system: Option<DesignSystem>,
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -201,6 +238,16 @@ pub struct Finding {
 }
 
 /* ----------------------------- model plumbing ----------------------------- */
+
+/// Design's one-shot calls answer from the prompt (and an optional screenshot)
+/// alone, so their sessions carry no built-in tools: tool schemas would only add
+/// prompt size and latency. The read-only policy stays as a backstop.
+fn design_session_options(cwd: &str) -> crate::services::copilot::SessionOptions {
+    crate::services::copilot::SessionOptions {
+        available_tools: Some(Vec::new()),
+        ..crate::commands::advisor::read_only_options(cwd)
+    }
+}
 
 /// Streaming accumulator for one transient run.
 #[derive(Default)]
@@ -240,16 +287,19 @@ fn map_event(event_type: &str, data: &Value, st: &mut GenState) -> bool {
 
 /// Run `prompt` once on a transient, read-only session rooted at `cwd` and
 /// return the assistant's full reply. Never touches the project's chat.
+/// `on_text` sees the reply so far each time it grows.
 async fn run_transient(
     state: &AppState,
     cwd: &str,
     model: Option<String>,
+    effort: Option<String>,
     prompt: String,
     attachments: &[PathBuf],
+    mut on_text: Option<&mut (dyn FnMut(&str) + Send)>,
 ) -> Result<String, String> {
     let session = state
         .copilot
-        .transient_session_with(cwd, model, None, crate::commands::advisor::read_only_options(cwd))
+        .transient_session_with(cwd, model, effort, design_session_options(cwd))
         .await
         .map_err(|_| "Couldn't reach the model.".to_string())?;
 
@@ -270,7 +320,14 @@ async fn run_transient(
             loop {
                 match sub.recv().await {
                     Ok(ev) => {
-                        if map_event(&ev.event_type, &ev.data, &mut st) {
+                        let before = st.assistant.len();
+                        let done = map_event(&ev.event_type, &ev.data, &mut st);
+                        if st.assistant.len() != before {
+                            if let Some(f) = on_text.as_mut() {
+                                f(&st.assistant);
+                            }
+                        }
+                        if done {
                             break;
                         }
                     }
@@ -459,33 +516,106 @@ fn class_hint(val: Option<&Value>) -> Option<String> {
     (!tokens.is_empty()).then(|| tokens.join(" "))
 }
 
+/// One model entry as a variation, unless it previews nothing or repeats a name.
+fn variation_from(entry: &Value, index: usize, is_chart: bool, seen: &mut HashSet<String>) -> Option<Variation> {
+    let patch = to_patch(entry, is_chart);
+    if patch.is_empty() {
+        return None;
+    }
+    let name = clipped(entry.get("name"), 32).unwrap_or_else(|| format!("Option {}", index + 1));
+    if !seen.insert(name.to_lowercase()) {
+        return None;
+    }
+    Some(Variation {
+        name,
+        description: clipped(entry.get("description"), 140),
+        styles: patch.styles,
+        rules: patch.rules,
+        graphein: patch.graphein,
+        classes: if is_chart { None } else { class_hint(entry.get("classes")) },
+    })
+}
+
 /// Parse up to `count` distinct, non-empty variations from a model answer.
 fn parse_variations(text: &str, is_chart: bool, count: usize) -> Vec<Variation> {
     let Some(val) = extract_json(text) else { return vec![] };
     let mut seen: HashSet<String> = HashSet::new();
-    let mut out = Vec::new();
-    for (i, entry) in entries(val, &["variations", "options"]).iter().enumerate() {
-        let patch = to_patch(entry, is_chart);
-        if patch.is_empty() {
-            continue;
-        }
-        let name = clipped(entry.get("name"), 32).unwrap_or_else(|| format!("Option {}", i + 1));
-        if !seen.insert(name.to_lowercase()) {
-            continue;
-        }
-        out.push(Variation {
-            name,
-            description: clipped(entry.get("description"), 140),
-            styles: patch.styles,
-            rules: patch.rules,
-            graphein: patch.graphein,
-            classes: if is_chart { None } else { class_hint(entry.get("classes")) },
-        });
-        if out.len() >= count {
-            break;
-        }
+    entries(val, &["variations", "options"])
+        .iter()
+        .enumerate()
+        .filter_map(|(i, entry)| variation_from(entry, i, is_chart, &mut seen))
+        .take(count)
+        .collect()
+}
+
+/// What a run produced: the parsed reply, else the options that streamed in
+/// before it ended early (a timeout or an error mid-reply). Those are already
+/// on screen, so they stand rather than turn into an error.
+fn settled(parsed: Vec<Variation>, streamed: Vec<Variation>) -> Vec<Variation> {
+    if parsed.is_empty() {
+        streamed
+    } else {
+        parsed
     }
-    out
+}
+
+/// Pulls each complete top-level object out of a JSON array while the reply
+/// streams in, so an option can show before the model writes the rest. Scans
+/// bytes: every JSON delimiter is ASCII, so slices stay on char boundaries.
+#[derive(Default)]
+struct EntryStream {
+    /// Where scanning resumes in the reply so far.
+    pos: usize,
+    in_array: bool,
+    depth: usize,
+    in_string: bool,
+    escaped: bool,
+    /// Start of the object being read.
+    start: Option<usize>,
+}
+
+impl EntryStream {
+    /// The entries completed since the last call; `text` is the whole reply so far.
+    fn feed(&mut self, text: &str) -> Vec<Value> {
+        let bytes = text.as_bytes();
+        let mut done = Vec::new();
+        while self.pos < bytes.len() {
+            let b = bytes[self.pos];
+            if !self.in_array {
+                self.in_array = b == b'[';
+            } else if self.in_string {
+                if self.escaped {
+                    self.escaped = false;
+                } else if b == b'\\' {
+                    self.escaped = true;
+                } else if b == b'"' {
+                    self.in_string = false;
+                }
+            } else {
+                match b {
+                    b'"' if self.depth > 0 => self.in_string = true,
+                    b'{' => {
+                        if self.depth == 0 {
+                            self.start = Some(self.pos);
+                        }
+                        self.depth += 1;
+                    }
+                    b'}' if self.depth > 0 => {
+                        self.depth -= 1;
+                        if self.depth == 0 {
+                            if let Some(v) = self.start.take().and_then(|s| serde_json::from_str::<Value>(&text[s..=self.pos]).ok()) {
+                                done.push(v);
+                            }
+                        }
+                    }
+                    b']' if self.depth == 0 => self.in_array = false,
+                    _ => {}
+                }
+            }
+            self.pos += 1;
+        }
+        done
+    }
 }
 
 /// Parse up to [`MAX_SUGGESTIONS`] suggestions that target known outline refs.
@@ -557,6 +687,82 @@ fn component_note(ctx: &RestyleContext) -> String {
         .unwrap_or_default()
 }
 
+/// `name value · name value`, for token names the page reported (plain
+/// `[a-z0-9-]` names only; values on one line and clipped).
+fn token_list(pairs: &[(String, String)], max: usize) -> String {
+    pairs
+        .iter()
+        .filter(|(name, _)| {
+            !name.is_empty() && name.len() <= 40 && name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        })
+        .take(max)
+        .map(|(name, value)| {
+            let value = value.split_whitespace().collect::<Vec<_>>().join(" ").replace('`', "");
+            let value: String = value.chars().take(48).collect();
+            if value.is_empty() { name.clone() } else { format!("{name} {value}") }
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
+}
+
+/// The app's design system as prompt lines, or "" when the page reported none.
+fn system_brief(system: Option<&DesignSystem>) -> String {
+    let Some(s) = system else { return String::new() };
+    let mut lines: Vec<String> = Vec::new();
+    let colors = token_list(&s.colors, 20);
+    if !colors.is_empty() {
+        lines.push(format!("- Colors (bg-/text-/border-<name>, or var(--color-<name>) in CSS): {colors}"));
+    }
+    let palettes: Vec<&str> = s
+        .palettes
+        .iter()
+        .map(String::as_str)
+        .filter(|p| !p.is_empty() && p.len() <= 24 && p.chars().all(|c| c.is_ascii_lowercase()))
+        .take(4)
+        .collect();
+    if !palettes.is_empty() {
+        lines.push(format!("- Tailwind palettes in use, accent first: {}", palettes.join(", ")));
+    }
+    let text = token_list(&s.text, 16);
+    if !text.is_empty() {
+        lines.push(format!("- Font sizes (text-<name>, or var(--text-<name>)): {text}"));
+    }
+    let spacing = token_list(&s.spacing, 16);
+    if !spacing.is_empty() {
+        lines.push(format!("- Spacing (p-/m-/gap-<name>, or var(--spacing-<name>)): {spacing}"));
+    } else if let Some(base) = s.spacing_base.as_deref().filter(|b| b.len() <= 16 && !b.contains(['\n', '`'])) {
+        lines.push(format!("- Spacing: Tailwind's numeric scale (p-4 is 4 × {base})"));
+    }
+    let radius = token_list(&s.radius, 12);
+    if !radius.is_empty() {
+        lines.push(format!("- Corner radii (rounded-<name>, or var(--radius-<name>)): {radius}"));
+    }
+    let fonts = token_list(&s.fonts, 6);
+    if !fonts.is_empty() {
+        lines.push(format!("- Fonts (font-<name>): {fonts}"));
+    }
+    if s.dark {
+        lines.push("- It has a dark mode (`.dark`): tokens switch with it, raw colors don't.".to_string());
+    }
+    if lines.is_empty() {
+        return String::new();
+    }
+    format!("The app's design system (its Tailwind v4 theme tokens):\n{}\n\n", lines.join("\n"))
+}
+
+/// How options and suggestions stay on brand.
+fn brand_rules(system: Option<&DesignSystem>) -> &'static str {
+    if system.is_some_and(DesignSystem::has_tokens) {
+        "Stay on brand: build every option from the design system above. In `styles`, use its CSS variables \
+(var(--color-…), var(--spacing-…), var(--radius-…)) rather than raw colors or sizes; in `classes`, use the matching utilities.\n\
+Keep the app's look: no gradients, glows or decorative shadows unless the user asks for them or the element already has them. \
+Keep text readable (WCAG AA contrast)."
+    } else {
+        "Stay consistent with the app: reuse the palettes and sizes it already uses. No gradients, glows or decorative shadows \
+unless the user asks for them or the element already has them. Keep text readable (WCAG AA contrast)."
+    }
+}
+
 /// Describe the element (tag, classes, text, computed styles, notable children).
 fn element_brief(ctx: &RestyleContext) -> String {
     let mut el = format!("<{}", if ctx.tag.is_empty() { "div" } else { ctx.tag.as_str() });
@@ -606,19 +812,27 @@ fn element_brief(ctx: &RestyleContext) -> String {
     out
 }
 
-/// Ask for `count` distinct, named alternatives for one element.
-fn build_variations_prompt(hint: Option<&str>, ctx: &RestyleContext, count: usize) -> String {
+/// Ask for `count` distinct, named alternatives for one element. `image` says a
+/// screenshot of the element rides along.
+fn build_variations_prompt(hint: Option<&str>, ctx: &RestyleContext, count: usize, image: bool) -> String {
     let hint = hint.map(str::trim).filter(|h| !h.is_empty());
     let goal = match hint {
         Some(h) => format!("The user wants: \"{h}\". Propose {count} DISTINCT ways to do that."),
         None => format!("Propose {count} DISTINCT, tasteful alternative looks that would improve it."),
     };
     let comp = component_note(ctx);
+    let system = system_brief(ctx.system.as_ref());
+    let seen = if image { "The attached image shows it as it looks now.\n" } else { "" };
     if ctx.is_chart {
         let spec = ctx.spec.as_ref().and_then(|s| serde_json::to_string_pretty(s).ok()).unwrap_or_else(|| "{}".into());
         let kind = ctx.chart_type.as_deref().filter(|s| !s.is_empty()).map(|s| format!("{s} ")).unwrap_or_default();
+        let colors = if ctx.system.as_ref().is_some_and(|s| !s.colors.is_empty()) {
+            " Prefer the app's colors above, as hex values, for palettes and highlights."
+        } else {
+            ""
+        };
         let mut p = format!(
-            "You are a data-visualization designer improving a Graphein {kind}chart{comp} in a live app. Current spec (data omitted):\n```json\n{spec}\n```\n\n{goal}\n\n{CHART_MENU}"
+            "You are a data-visualization designer improving a Graphein {kind}chart{comp} in a live app. {seen}Current spec (data omitted):\n```json\n{spec}\n```\n\n{system}{goal}{colors}\n\n{CHART_MENU}"
         );
         let type_hint = chart_type_hint(ctx.chart_type.as_deref());
         if !type_hint.is_empty() {
@@ -626,24 +840,27 @@ fn build_variations_prompt(hint: Option<&str>, ctx: &RestyleContext, count: usiz
             p.push_str(type_hint);
         }
         p.push_str(&format!(
-            "\n\nReturn ONLY a single fenced ```json block holding an array of {count} objects: \
-[{{ \"name\": \"2-3 word label\", \"description\": \"one short sentence\", \"graphein\": {{ /* partial spec patch */ }} }}]. Return nothing else."
+            "\n\nReturn ONLY a single fenced ```json block holding a minified array of {count} objects: \
+[{{\"name\":\"2-3 word label\",\"description\":\"one short sentence\",\"graphein\":{{/* partial spec patch */}}}}]. Return nothing else."
         ));
         return p;
     }
     let allowed = ALLOWED_RESTYLE_PROPS.join(", ");
     format!(
-        "You are a senior product designer restyling one element{comp} in a live web app.\n{brief}\n\n{goal} \
-Keep each option coherent with a modern, accessible UI (readable contrast, consistent radii and spacing).\n\n\
-Return ONLY a single fenced ```json block holding an array of {count} objects with this exact shape:\n\
-[{{ \"name\": \"2-3 word label\", \"description\": \"one short sentence\", \"styles\": {{ /* CSS for THIS element */ }}, \
-\"rules\": [ {{ \"selector\": \"h2\", \"styles\": {{ }} }} ], \"classes\": \"the Tailwind utilities that would produce this look\" }}]\n\
+        "You are a senior product designer restyling one element{comp} in a live web app.\n{brief}\n{seen}\n{system}{goal} \
+Make the {count} options genuinely different directions (for example emphasis, density or tone), each a small, coherent change.\n\
+{rules}\n\n\
+Return ONLY a single fenced ```json block holding a minified array of {count} objects with this exact shape:\n\
+[{{\"name\":\"2-3 word label\",\"description\":\"one short sentence\",\"styles\":{{/* CSS for THIS element */}},\
+\"rules\":[{{\"selector\":\"h2\",\"styles\":{{}}}}],\"classes\":\"the Tailwind v4 utilities that produce this look\"}}]\n\
 - `styles` restyle the element itself; `rules` restyle its DESCENDANTS (simple selectors relative to the element, \
-e.g. \"h2\", \".badge\", \"p span\"). Inner elements with their own colors need `rules`.\n\
+e.g. \"h2\", \".badge\", \"p span\"), at most 4 per option. Inner elements with their own colors need `rules`.\n\
 - Allowed properties ONLY: {allowed}.\n\
-- Concrete CSS values only. NO url(), external resources, @import, or JavaScript.\n\
+- Values are concrete CSS or the app's var(--…) tokens. NO url(), external resources, @import, or JavaScript.\n\
+- `classes` uses Tailwind v4 names (bg-linear-to-r, not bg-gradient-to-r).\n\
 Return nothing else.",
-        brief = element_brief(ctx)
+        brief = element_brief(ctx),
+        rules = brand_rules(ctx.system.as_ref()),
     )
 }
 
@@ -677,18 +894,26 @@ fn build_polish_prompt(page: &PageOutline) -> String {
     }
     let title = if page.title.trim().is_empty() { "(untitled)" } else { page.title.trim() };
     let allowed = ALLOWED_RESTYLE_PROPS.join(", ");
+    let system = system_brief(page.system.as_ref());
+    let brand = if page.system.as_ref().is_some_and(DesignSystem::has_tokens) {
+        "Stay inside the design system above: CSS previews use its var(--…) tokens and instructions name its utilities. "
+    } else {
+        ""
+    };
     format!(
         "You are a senior product designer doing a quick polish review of one page of a live web app \
 (title \"{title}\", route {route}, viewport {viewport}). The attached screenshot (when present) shows it as rendered.\n\n\
 Notable elements, each with a ref in brackets:\n{outline}\n\
 Automated checks found:\n{findings}\n\
+{system}\
 Suggest up to {MAX_SUGGESTIONS} concrete, high-impact visual improvements — hierarchy, spacing rhythm, alignment, contrast, \
 consistency, emphasis of the primary action. Prefer fixing the automated findings. Each suggestion targets ONE element by its ref, \
-and includes a small CSS preview of the change for that element (and optional descendant `rules`).\n\n\
-Return ONLY a single fenced ```json block holding an array:\n\
-[{{ \"ref\": \"r3\", \"title\": \"short imperative title\", \"why\": \"one sentence on the benefit\", \
-\"instruction\": \"what to change in the source, specifically\", \"styles\": {{ }}, \"rules\": [ {{ \"selector\": \"h2\", \"styles\": {{ }} }} ] }}]\n\
-- Allowed CSS properties ONLY: {allowed}. Concrete values; NO url(), @import, or JavaScript.\n\
+and includes a small CSS preview of the change for that element (and optional descendant `rules`). \
+{brand}No gradients, glows or decorative shadows unless the page already uses them.\n\n\
+Return ONLY a single fenced ```json block holding a minified array:\n\
+[{{\"ref\":\"r3\",\"title\":\"short imperative title\",\"why\":\"one sentence on the benefit\",\
+\"instruction\":\"what to change in the source, specifically\",\"styles\":{{}},\"rules\":[{{\"selector\":\"h2\",\"styles\":{{}}}}]}}]\n\
+- Allowed CSS properties ONLY: {allowed}. Concrete values or the app's var(--…) tokens; NO url(), @import, or JavaScript.\n\
 - Only refs from the list above. Skip anything you can't preview with CSS unless the instruction is still clearly valuable.\n\
 Return nothing else.",
         route = if page.route.is_empty() { "/" } else { page.route.as_str() },
@@ -702,27 +927,92 @@ fn project_path(project_id: &str) -> Result<String, String> {
     store::find_project(project_id).map(|p| p.path).ok_or_else(|| "Project not found.".to_string())
 }
 
+/// One option the moment the model finishes writing it (see
+/// `DesignVariationEvent` in `src/shared/design.ts`).
+#[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct VariationEvent {
+    request_id: String,
+    index: usize,
+    variation: Variation,
+}
+
 /// Propose `count` (default 3) named alternative looks for one element, as
-/// previewable patches. Runs on a transient, read-only session (defaulting to a
-/// fast `model`). Returns a soft error string the UI shows in place.
+/// previewable patches, on a transient, tool-less session. With a `request_id`,
+/// each option is also emitted as a `design:variation` event as soon as it's
+/// complete. `screenshot_path` (one of Fabricator's own temp captures of the
+/// element) rides along for vision models; a run that yields nothing with it is
+/// retried once without it, and the capture is deleted afterwards. Returns a
+/// soft error string the UI shows in place.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn design_variations(
+    app: AppHandle,
     state: State<'_, AppState>,
     project_id: String,
     context: RestyleContext,
     hint: Option<String>,
     count: Option<usize>,
     model: Option<String>,
+    effort: Option<String>,
+    request_id: Option<String>,
+    screenshot_path: Option<String>,
 ) -> Result<Vec<Variation>, String> {
-    let cwd = project_path(&project_id)?;
-    let count = count.unwrap_or(DEFAULT_VARIATIONS).clamp(1, MAX_VARIATIONS);
-    let prompt = build_variations_prompt(hint.as_deref(), &context, count);
-    let reply = run_transient(&state, &cwd, model, prompt, &[]).await?;
-    let options = parse_variations(&reply, context.is_chart, count);
-    if options.is_empty() {
-        return Err("Couldn't come up with options — try describing what you want.".into());
+    let shot = screenshot_path.as_deref().and_then(screenshot::owned_capture_path);
+    let result: Result<Vec<Variation>, String> = async {
+        let cwd = project_path(&project_id)?;
+        let count = count.unwrap_or(DEFAULT_VARIATIONS).clamp(1, MAX_VARIATIONS);
+        let attachments: Vec<PathBuf> = shot.iter().cloned().collect();
+        let started = std::time::Instant::now();
+        let mut failure: Option<String> = None;
+        for with_image in [true, false] {
+            if with_image && attachments.is_empty() {
+                continue;
+            }
+            if !with_image && !attachments.is_empty() && started.elapsed() > IMAGE_RETRY_WITHIN {
+                break;
+            }
+            let prompt = build_variations_prompt(hint.as_deref(), &context, count, with_image);
+            let mut stream = EntryStream::default();
+            let mut seen: HashSet<String> = HashSet::new();
+            let mut streamed: Vec<Variation> = Vec::new();
+            let mut entries_seen = 0usize;
+            let mut emit_options = |text: &str| {
+                for entry in stream.feed(text) {
+                    let index = entries_seen;
+                    entries_seen += 1;
+                    if streamed.len() >= count {
+                        continue;
+                    }
+                    if let Some(variation) = variation_from(&entry, index, context.is_chart, &mut seen) {
+                        if let Some(id) = request_id.as_deref() {
+                            let event = VariationEvent { request_id: id.to_string(), index: streamed.len(), variation: variation.clone() };
+                            let _ = app.emit(DESIGN_VARIATION, event);
+                        }
+                        streamed.push(variation);
+                    }
+                }
+            };
+            let files: &[PathBuf] = if with_image { &attachments } else { &[] };
+            let parsed = match run_transient(&state, &cwd, model.clone(), effort.clone(), prompt, files, Some(&mut emit_options)).await {
+                Ok(reply) => parse_variations(&reply, context.is_chart, count),
+                Err(error) => {
+                    failure = Some(error);
+                    Vec::new()
+                }
+            };
+            let options = settled(parsed, streamed);
+            if !options.is_empty() {
+                return Ok(options);
+            }
+        }
+        Err(failure.unwrap_or_else(|| "Couldn't come up with options — try describing what you want.".into()))
     }
-    Ok(options)
+    .await;
+    if let Some(path) = screenshot_path {
+        screenshot::cleanup(&[path]);
+    }
+    result
 }
 
 /// Review a page outline (and an optional screenshot, one of Fabricator's own
@@ -736,6 +1026,7 @@ pub async fn design_polish(
     page: PageOutline,
     screenshot_path: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
 ) -> Result<Vec<Suggestion>, String> {
     let shot = screenshot_path.as_deref().and_then(screenshot::owned_capture_path);
     let result: Result<Vec<Suggestion>, String> = async {
@@ -746,10 +1037,10 @@ pub async fn design_polish(
         let refs: HashSet<String> = page.elements.iter().map(|e| e.reference.clone()).collect();
         let prompt = build_polish_prompt(&page);
         let attachments: Vec<PathBuf> = shot.iter().cloned().collect();
-        let first = run_transient(&state, &cwd, model.clone(), prompt.clone(), &attachments).await;
+        let first = run_transient(&state, &cwd, model.clone(), effort.clone(), prompt.clone(), &attachments, None).await;
         let mut suggestions = first.as_deref().map(|reply| parse_suggestions(reply, &refs)).unwrap_or_default();
         if suggestions.is_empty() && !attachments.is_empty() {
-            let reply = run_transient(&state, &cwd, model, prompt, &[]).await?;
+            let reply = run_transient(&state, &cwd, model, effort, prompt, &[], None).await?;
             suggestions = parse_suggestions(&reply, &refs);
         } else if let Err(error) = first {
             return Err(error);
@@ -807,13 +1098,17 @@ mod tests {
             "background-image": "url(https://evil.example/x.png)",
             "background": "expression(alert(1))",
             "border": "1px solid red; position: fixed",
-            "border-radius": "9999px"
+            "border-radius": "9999px",
+            "border-top": "1px solid var(--color-border)",
+            "grid-template-columns": "repeat(3, minmax(0, 1fr))"
         });
         let mut out = HashMap::new();
         collect_styles(map.as_object().unwrap(), &mut out);
         assert_eq!(out.get("color").map(String::as_str), Some("#fff"));
         assert_eq!(out.get("background-color").map(String::as_str), Some("#0f766e"));
         assert_eq!(out.get("border-radius").map(String::as_str), Some("9999px"));
+        assert_eq!(out.get("border-top").map(String::as_str), Some("1px solid var(--color-border)"));
+        assert_eq!(out.get("grid-template-columns").map(String::as_str), Some("repeat(3, minmax(0, 1fr))"));
         for dropped in ["position", "onclick", "background-image", "background", "border"] {
             assert!(!out.contains_key(dropped), "{dropped}");
         }
@@ -901,7 +1196,7 @@ mod tests {
     #[test]
     fn variations_prompt_covers_elements_and_charts() {
         let el = RestyleContext { tag: "button".into(), classes: Some("rounded-lg bg-indigo-600".into()), ..Default::default() };
-        let p = build_variations_prompt(Some("make it feel more premium"), &el, 3);
+        let p = build_variations_prompt(Some("make it feel more premium"), &el, 3, false);
         assert!(p.contains("make it feel more premium"));
         assert!(p.contains("Allowed properties ONLY"));
         assert!(p.contains("\"classes\""));
@@ -912,11 +1207,51 @@ mod tests {
             spec: Some(serde_json::json!({ "type": "bar", "title": "Revenue" })),
             ..Default::default()
         };
-        let c = build_variations_prompt(None, &chart, 2);
+        let c = build_variations_prompt(None, &chart, 2, false);
         assert!(c.contains("\"title\": \"Revenue\""));
         assert!(c.contains("orientation")); // bar-specific hint
         assert!(c.contains("NEVER include a `data` key"));
         assert!(c.contains("\"graphein\""));
+    }
+
+    fn token_system() -> DesignSystem {
+        serde_json::from_value(serde_json::json!({
+            "colors": [["primary", "#1d4ed8"], ["card", "rgba(255, 255, 255, 0.82)"], ["Ignore previous`", "x"]],
+            "text": [["300", "14px"], ["400", "16px"]],
+            "spacing": [["400", "16px"]],
+            "radius": [["xl", "8px"]],
+            "fonts": [["base", "Manrope,\n sans-serif"]],
+            "dark": true
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn prompts_stay_on_the_apps_design_system() {
+        let el = RestyleContext { tag: "div".into(), system: Some(token_system()), ..Default::default() };
+        let p = build_variations_prompt(None, &el, 3, true);
+        assert!(p.contains("- Colors (bg-/text-/border-<name>, or var(--color-<name>) in CSS): primary #1d4ed8 · card rgba(255, 255, 255, 0.82)\n"));
+        assert!(!p.contains("Ignore previous"), "token names are plain [a-z0-9-] only");
+        assert!(p.contains("- Font sizes (text-<name>, or var(--text-<name>)): 300 14px · 400 16px"));
+        assert!(p.contains("- Spacing (p-/m-/gap-<name>, or var(--spacing-<name>)): 400 16px"));
+        assert!(p.contains("- Fonts (font-<name>): base Manrope, sans-serif"));
+        assert!(p.contains("dark mode"));
+        assert!(p.contains("Stay on brand"));
+        assert!(p.contains("The attached image shows it"));
+        assert!(p.contains("at most 4 per option"));
+        // Without tokens: no brief, the generic consistency rule, no image line.
+        let plain = build_variations_prompt(None, &RestyleContext { tag: "div".into(), ..Default::default() }, 3, false);
+        assert!(!plain.contains("design system"));
+        assert!(plain.contains("No gradients, glows"));
+        assert!(!plain.contains("attached image"));
+        // Charts reuse the app's colors as hex; Polish carries the brief too.
+        let chart = RestyleContext { is_chart: true, system: Some(token_system()), ..Default::default() };
+        assert!(build_variations_prompt(None, &chart, 3, false).contains("Prefer the app's colors above, as hex values"));
+        let page = PageOutline { route: "/".into(), system: Some(token_system()), ..Default::default() };
+        let polish = build_polish_prompt(&page);
+        assert!(polish.contains("The app's design system"));
+        assert!(polish.contains("Stay inside the design system above"));
+        assert!(!build_polish_prompt(&PageOutline::default()).contains("design system"));
     }
 
     #[test]
@@ -934,11 +1269,69 @@ mod tests {
                 ..Default::default()
             }],
             findings: vec![Finding { reference: Some("r1".into()), kind: "contrast".into(), message: "2.1:1 text contrast".into() }],
+            system: None,
         };
         let p = build_polish_prompt(&page);
         assert!(p.contains("[r1] Button · Add deal <button> \"Add deal\""));
         assert!(p.contains("contrast [r1]: 2.1:1 text contrast"));
         assert!(p.contains("route /deals"));
+    }
+
+    #[test]
+    fn entry_stream_yields_each_option_as_soon_as_it_closes() {
+        let reply = "Here you go:\n```json\n[{\"name\":\"Pill\",\"styles\":{\"border-radius\":\"9999px\"},\"rules\":[{\"selector\":\"h2\",\"styles\":{\"color\":\"#111\"}}]},\
+{\"name\":\"Brace } \\\" in text\",\"description\":\"a [tricky] {one}\",\"styles\":{\"color\":\"#222\"}},{\"name\":\"Third\",\"styles\":{\"gap\":\"8px\"}}]\n```";
+        let mut stream = EntryStream::default();
+        let mut so_far = String::new();
+        let mut got: Vec<Value> = Vec::new();
+        let mut first_at = None;
+        // Deltas arrive a few characters at a time.
+        for ch in reply.chars() {
+            so_far.push(ch);
+            got.extend(stream.feed(&so_far));
+            if first_at.is_none() && !got.is_empty() {
+                first_at = Some(so_far.len());
+            }
+        }
+        assert_eq!(got.len(), 3);
+        assert!(first_at.unwrap() < reply.find("Third").unwrap(), "the first option is out before the last is written");
+        assert_eq!(got[1]["name"], "Brace } \" in text");
+        // Streamed entries become exactly the options the final parse returns.
+        let mut seen = HashSet::new();
+        let streamed: Vec<Variation> = got.iter().enumerate().filter_map(|(i, e)| variation_from(e, i, false, &mut seen)).collect();
+        assert_eq!(streamed, parse_variations(reply, false, 3));
+    }
+
+    #[test]
+    fn entry_stream_waits_for_whole_objects_inside_a_wrapper() {
+        let mut stream = EntryStream::default();
+        assert!(stream.feed("{\"variations\":[{\"name\":\"A\",\"styles\":{\"col").is_empty());
+        let done = stream.feed("{\"variations\":[{\"name\":\"A\",\"styles\":{\"color\":\"#fff\"}},{\"name\":");
+        assert_eq!(done.len(), 1);
+        assert_eq!(done[0]["name"], "A");
+    }
+
+    #[test]
+    fn a_reply_cut_off_mid_answer_keeps_the_options_that_streamed() {
+        // A timeout or an error mid-reply leaves an unfinished array.
+        let reply = "```json\n[{\"name\":\"Soft\",\"styles\":{\"border-radius\":\"12px\"}},{\"name\":\"Bo";
+        let mut seen = HashSet::new();
+        let streamed: Vec<Variation> =
+            EntryStream::default().feed(reply).iter().enumerate().filter_map(|(i, e)| variation_from(e, i, false, &mut seen)).collect();
+        let parsed = parse_variations(reply, false, 3);
+        assert!(parsed.is_empty());
+        let options = settled(parsed, streamed);
+        assert_eq!(options.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["Soft"]);
+        // A complete reply wins over what streamed.
+        let full = parse_variations("[{\"name\":\"Full\",\"styles\":{\"color\":\"#111\"}}]", false, 3);
+        assert_eq!(settled(full, options)[0].name, "Full");
+    }
+
+    #[test]
+    fn design_sessions_carry_no_built_in_tools() {
+        let opts = design_session_options("C:/project");
+        assert_eq!(opts.available_tools, Some(Vec::new()));
+        assert!(opts.permission.is_some(), "the read-only policy stays as a backstop");
     }
 
     #[test]
