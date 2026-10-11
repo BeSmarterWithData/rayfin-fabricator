@@ -3068,6 +3068,10 @@ code {
   font-weight: 600;
   color: var(--text-dim);
 }
+/* Recent / Other workspaces headings inside the eligible list. */
+.ws-list > .ws-group-label:first-child {
+  margin-top: 0;
+}
 /* Collapsible "Not eligible" group: collapsed by default so a long ineligible
    list can't bury the eligible rows or push the deploy button off-screen. */
 .ws-ineligible {

@@ -1,3 +1,5 @@
+import type { StudioProject } from '@shared/ipc'
+
 /** Matches a Fabric workspace GUID (the `groups/{id}` segment of a portal URL). */
 const WORKSPACE_GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -15,4 +17,23 @@ export function fabricWorkspaceUrl(workspaceId?: string): string | undefined {
   const id = workspaceId?.trim()
   if (!id || !WORKSPACE_GUID.test(id)) return undefined
   return `https://app.fabric.microsoft.com/groups/${id}/`
+}
+
+/**
+ * The workspaces your apps use, most recently used first: each app's recorded
+ * {@link StudioProject.workspace} (an id, or briefly a display name), ordered by
+ * `lastDeploy.at`, which a deploy or opening the app updates. Team apps are left
+ * out, since their pipeline deploys them. The deploy picker lists these first.
+ */
+export function recentWorkspaces(projects: readonly StudioProject[]): string[] {
+  const latest = new Map<string, { workspace: string; at: number }>()
+  for (const p of projects) {
+    const workspace = p.workspace?.trim()
+    if (!workspace || p.team) continue
+    const at = Date.parse(p.lastDeploy?.at ?? '') || 0
+    const key = workspace.toLowerCase()
+    const seen = latest.get(key)
+    if (!seen || at > seen.at) latest.set(key, { workspace, at })
+  }
+  return [...latest.values()].sort((a, b) => b.at - a.at).map((r) => r.workspace)
 }

@@ -708,6 +708,24 @@ describe('Workbench app bar', () => {
     expect(deploymentsProps.mock.lastCall?.[0].shareRequest).toBeNull()
   })
 
+  it('lists the workspaces your apps use first in New deployment, most recent first', async () => {
+    const api = installApi(true)
+    const state = {
+      workspaceRoot: 'C:\\projects',
+      activeProjectId: project.id,
+      projects: [
+        { ...project, workspace: 'ws-a', lastDeploy: { ...project.lastDeploy, at: '2026-10-01T09:00:00Z' } },
+        { ...project, id: 'p2', name: 'Project Two', path: 'C:\\projects\\p2', workspace: 'ws-b',
+          lastDeploy: { status: 'success', at: '2026-10-09T09:00:00Z' } }
+      ]
+    }
+    api.projects.state.mockResolvedValue(state)
+    api.deploy.reconcile.mockResolvedValue(state)
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    expect(deploymentsProps.mock.lastCall?.[0].recentWorkspaces).toEqual(['ws-b', 'ws-a'])
+  })
+
   it('switches to a recent project from the project menu without showing Home', async () => {
     const api = installApi(true)
     const other: StudioProject = { ...project, id: 'p2', name: 'Project Two', path: 'C:\\projects\\p2' }
