@@ -116,7 +116,8 @@ export interface DesignChartChange {
 
 /** A previewed, app-wide theme change. */
 export interface DesignThemeChange {
-  accent?: { from?: string; to: string; hex?: string }
+  /** `token` marks an app themed through a semantic color (e.g. `primary`) rather than a palette. */
+  accent?: { from?: string; to: string; hex?: string; token?: boolean }
   neutral?: { from?: string; to: string }
   /** Multiplier applied to every `--radius-*` token. */
   radius?: { scale: number }
@@ -125,6 +126,8 @@ export interface DesignThemeChange {
   font?: { from?: string; to: string; stack: string }
   /** Exact CSS custom properties the preview overrode. */
   tokens: Record<string, string>
+  /** Overrides the preview applied in the app's dark mode (`.dark`). */
+  darkTokens?: Record<string, string>
   /** A look described in words (apps without Tailwind tokens). */
   intent?: string
   summary: string[]
@@ -148,6 +151,30 @@ export interface DesignItem {
   createdAt: number
 }
 
+/**
+ * The app's design system in brief, read from its theme tokens so AI options
+ * stay on brand. Pairs keep the page's order (most-used colors first, scales
+ * smallest first).
+ */
+export interface DesignSystemSummary {
+  /** Semantic color tokens (`bg-primary`, `text-muted-foreground`…) → current value. */
+  colors?: [string, string][]
+  /** Tailwind palettes the page uses, most-used first (accent first, neutral last). */
+  palettes?: string[]
+  /** The app's own font sizes (`text-300`) → px. */
+  text?: [string, string][]
+  /** The app's named spacing (`p-400`) → px. */
+  spacing?: [string, string][]
+  /** `--spacing` base for numeric utilities (`p-4`), when there's no named spacing. */
+  spacingBase?: string
+  /** Radius tokens (`rounded-xl`) → px. */
+  radius?: [string, string][]
+  /** Font family tokens (`font-base`) → stack. */
+  fonts?: [string, string][]
+  /** The app has a class-based dark mode. */
+  dark?: boolean
+}
+
 /** Compact element context sent with a variations request. */
 export interface DesignRestyleContext {
   tag: string
@@ -162,6 +189,8 @@ export interface DesignRestyleContext {
   spec?: unknown
   /** Notable descendants a variation may restyle through `rules`. */
   children?: { tag: string; classes?: string; text?: string }[]
+  /** The app's design system, when it uses Tailwind tokens. */
+  system?: DesignSystemSummary
 }
 
 /** A descendant rule inside a variation or suggestion patch. */
@@ -181,6 +210,14 @@ export interface DesignVariation {
   graphein?: Record<string, unknown>
   /** Tailwind classes that would produce this look. */
   classes?: string
+}
+
+/** One option streamed while an Options request is still running. */
+export interface DesignVariationEvent {
+  requestId: string
+  /** Position in the final list. */
+  index: number
+  variation: DesignVariation
 }
 
 /** Something the page asks the host to do on its behalf. */
@@ -259,6 +296,8 @@ export interface DesignPageOutline {
   viewport: DesignViewport
   elements: DesignOutlineElement[]
   findings: { ref?: string; kind: DesignFindingKind; message: string }[]
+  /** The app's design system, when it uses Tailwind tokens. */
+  system?: DesignSystemSummary
 }
 
 /** One AI-proposed improvement from a Polish pass. */
@@ -281,13 +320,16 @@ export type DesignCommand =
   | { op: 'clear' }
   | { op: 'openPanel'; panel: 'theme' | 'polish' | null }
   | { op: 'applyVariations'; requestId: string; options: DesignVariation[] }
+  /** One option that streamed in while its request is still running. */
+  | { op: 'addVariation'; requestId: string; index: number; option: DesignVariation }
   | { op: 'failRequest'; requestId: string; message: string }
   /** Tell the page what's happening with a pending request (e.g. which model is working). */
   | { op: 'requestProgress'; requestId: string; message: string }
   | { op: 'collectPage'; requestId: string }
   | { op: 'showSuggestions'; suggestions: DesignSuggestion[]; message?: string }
   | { op: 'setBusy'; message: string | null; panel?: boolean }
-  | { op: 'prepareCapture'; requestId: string; ids: string[] }
+  /** Hide the chrome and report where items sit; `selection` adds the selected element as `rects.selection`. */
+  | { op: 'prepareCapture'; requestId: string; ids: string[]; selection?: boolean }
   | { op: 'endCapture' }
 
 /** Options passed when Design is switched on. */

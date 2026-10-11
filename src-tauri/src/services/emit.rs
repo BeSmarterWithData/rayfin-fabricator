@@ -20,6 +20,9 @@ pub const CHAT_EVENT: &str = "chat:event";
 pub const ADVISOR_EVENT: &str = "advisor:event";
 /// Event name for streamed Help assistant events (matches `IpcChannels.helpEvent`).
 pub const HELP_EVENT: &str = "help:event";
+/// Event name for an Options request's options as they stream in (matches
+/// `IpcChannels.designVariation`).
+pub const DESIGN_VARIATION: &str = "design:variation";
 /// Event name for update download progress (matches `IpcChannels.updateProgress`).
 pub const UPDATE_PROGRESS: &str = "update:progress";
 /// Event name for project-delete file-count progress (matches `IpcChannels.deleteProgress`).

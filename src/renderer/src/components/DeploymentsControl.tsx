@@ -44,6 +44,8 @@ interface Props {
   shareRequest?: { projectId: string; nonce: number } | null
   /** The `shareRequest` with this nonce has been acted on. */
   onShareRequestHandled?: (nonce: number) => void
+  /** The workspaces your apps use, most recent first; New deployment lists them first. */
+  recentWorkspaces?: readonly string[]
 }
 
 /** "F-SKU · F2" style label for a workspace's capacity. */
@@ -73,7 +75,8 @@ export default function DeploymentsControl({
   account,
   onManageAccounts,
   shareRequest,
-  onShareRequestHandled
+  onShareRequestHandled,
+  recentWorkspaces
 }: Props): JSX.Element {
   const [open, setOpen] = useState(false)
   const toast = useToast()
@@ -429,6 +432,7 @@ export default function DeploymentsControl({
                 setCreating(false)
               }}
               checkTarget={checkActiveDeployTarget}
+              recentWorkspaces={recentWorkspaces}
             />
           ) : (
             <>

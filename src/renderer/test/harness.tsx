@@ -98,6 +98,7 @@ function makeApi(calls: PreviewCall[], getCaptureResult: () => string) {
     },
     design: {
       variations: vi.fn(() => Promise.resolve([])),
+      onVariation: vi.fn(() => () => {}),
       polish: vi.fn(() => Promise.resolve([])),
       locate: vi.fn(() => Promise.resolve({ targets: [] }))
     },

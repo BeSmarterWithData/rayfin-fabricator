@@ -27,6 +27,9 @@ export function checkActiveDeployTarget(workspaceId: string): Promise<DeployTarg
  */
 const SEARCH_THRESHOLD = 10
 
+/** How many of the workspaces your apps use most recently are listed first. */
+const RECENT_LIMIT = 5
+
 /** "F-SKU · F2" style label for a workspace's capacity. */
 function skuText(w: FabricWorkspace): string {
   if (w.capacityKind === 'unknown') return 'Capacity'
@@ -80,6 +83,9 @@ interface Props {
    * runs, Deploy waits; a conflict needs an explicit "Replace it anyway".
    */
   checkTarget?: (workspaceId: string) => Promise<DeployTargetCheck>
+  /** The workspaces your apps use, most recent first (ids, or names in older
+   *  records). Eligible ones are listed first, under Recent. */
+  recentWorkspaces?: readonly string[]
 }
 
 /**
@@ -103,7 +109,8 @@ export default function DeploymentCreateForm({
   onCancel,
   onSubmit,
   defaultName = '',
-  checkTarget
+  checkTarget,
+  recentWorkspaces
 }: Props): JSX.Element {
   const [name, setName] = useState(defaultName)
   const [wsQuery, setWsQuery] = useState('')
@@ -249,7 +256,17 @@ export default function DeploymentCreateForm({
   const q = wsQuery.trim().toLowerCase()
   const matchesQuery = (w: FabricWorkspace): boolean =>
     [w.displayName, w.region, w.capacityName, w.sku].some((field) => field?.toLowerCase().includes(q))
-  const shownEligible = showWsSearch && q ? eligible.filter(matchesQuery) : eligible
+  const recent: FabricWorkspace[] = []
+  for (const key of recentWorkspaces ?? []) {
+    if (recent.length === RECENT_LIMIT) break
+    const k = key.toLowerCase()
+    const w = eligible.find((x) => x.id.toLowerCase() === k || x.displayName.toLowerCase() === k)
+    if (w && !recent.includes(w)) recent.push(w)
+  }
+  const others = eligible.filter((w) => !recent.includes(w))
+  const shownRecent = showWsSearch && q ? recent.filter(matchesQuery) : recent
+  const shownOthers = showWsSearch && q ? others.filter(matchesQuery) : others
+  const shownEligible = [...shownRecent, ...shownOthers]
   const shownIneligible = showWsSearch && q ? ineligible.filter(matchesQuery) : ineligible
   // Collapse the (often long) ineligible list by default so it can't bury the
   // eligible rows or push the deploy button off-screen. Force it open when there
@@ -275,6 +292,22 @@ export default function DeploymentCreateForm({
     const friendly = name.trim() || selectedWorkspace.displayName || ''
     onSubmit(friendly, selectedWorkspace.id)
   }
+
+  const eligibleRow = (w: FabricWorkspace): JSX.Element => (
+    <button
+      key={w.id}
+      className={`ws-item${selectedWs === w.id ? ' ws-item--sel' : ''}`}
+      onClick={() => setSelectedWs(w.id)}
+    >
+      <span className="ws-item-main">
+        <span className="ws-item-name">{w.displayName}</span>
+        {w.region && <span className="ws-item-sub">{w.region}</span>}
+      </span>
+      <span className={`ws-sku ws-sku--${w.capacityKind}`} title={skuTitle(w)}>
+        {skuText(w)}
+      </span>
+    </button>
+  )
 
   return (
     <div className="dep-create">
@@ -435,21 +468,12 @@ export default function DeploymentCreateForm({
             )}
             {shownEligible.length > 0 && (
               <div className="ws-list" role="listbox">
-                {shownEligible.map((w) => (
-                  <button
-                    key={w.id}
-                    className={`ws-item${selectedWs === w.id ? ' ws-item--sel' : ''}`}
-                    onClick={() => setSelectedWs(w.id)}
-                  >
-                    <span className="ws-item-main">
-                      <span className="ws-item-name">{w.displayName}</span>
-                      {w.region && <span className="ws-item-sub">{w.region}</span>}
-                    </span>
-                    <span className={`ws-sku ws-sku--${w.capacityKind}`} title={skuTitle(w)}>
-                      {skuText(w)}
-                    </span>
-                  </button>
-                ))}
+                {shownRecent.length > 0 && <div className="ws-group-label">Recent</div>}
+                {shownRecent.map(eligibleRow)}
+                {shownRecent.length > 0 && shownOthers.length > 0 && (
+                  <div className="ws-group-label">Other workspaces</div>
+                )}
+                {shownOthers.map(eligibleRow)}
               </div>
             )}
             {selectedWorkspace && checkingTarget && (

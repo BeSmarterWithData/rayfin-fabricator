@@ -2369,6 +2369,14 @@ pub struct CopilotModel {
   /// The model's default reasoning effort, when it supports configuring one.
   #[serde(skip_serializing_if = "Option::is_none")]
   pub default_reasoning_effort: Option<String>,
+  /// Copilot's model-picker tier: `"lightweight"`, `"versatile"` or `"powerful"`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub category: Option<String>,
+  /// Relative cost tier: `"low"`, `"medium"`, `"high"` or `"very_high"`.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub price_category: Option<String>,
+  /// The model accepts image input (screenshots).
+  pub vision: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

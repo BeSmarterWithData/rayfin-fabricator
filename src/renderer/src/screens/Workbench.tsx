@@ -85,6 +85,7 @@ import {
   type ProjectView
 } from '../components/AppBar'
 import { DeploymentQueue } from '../deploymentQueue'
+import { recentWorkspaces } from '../fabric'
 import { useDesignSession, type DesignSurface } from '../design/useDesignSession'
 
 // Monaco is heavy (~7 MB); only load the code viewer when the Code tab is opened.
@@ -378,6 +379,8 @@ export default function Workbench({
   projectsRef.current = projects
   /** The currently active project (or null). Declared early — effects depend on it. */
   const active = projects?.projects.find((p) => p.id === projects.activeProjectId) ?? null
+  /** The workspaces your apps use, most recent first; the deploy pickers list them first. */
+  const recentDeployWorkspaces = useMemo(() => recentWorkspaces(projects?.projects ?? []), [projects])
   // A share request that hasn't opened yet (the project was still preparing)
   // belongs to the project Help was answering about. Moving to another project
   // drops it, so it can't pop up when you come back later.
@@ -1733,6 +1736,7 @@ export default function Workbench({
                     : undefined
                 }
                 onManageAccounts={() => setShowAccounts(true)}
+                recentWorkspaces={recentDeployWorkspaces}
               />
             )}
             <div className="app-bar-global">
@@ -1822,6 +1826,7 @@ export default function Workbench({
             })()
           }}
           onContinueWithoutDeploy={() => setCreateMode(null)}
+          recentWorkspaces={recentDeployWorkspaces}
         />
       ) : (
         <div className="workbench">

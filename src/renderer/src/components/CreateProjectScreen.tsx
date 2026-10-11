@@ -47,6 +47,8 @@ interface Props {
   initialTeamWorkspaceId?: string
   /** A team app was created; there's no Deploy step (its pipeline deploys it). */
   onTeamCreated?: (result: TeamActionResult) => void
+  /** The workspaces your apps use, most recent first; the Deploy step lists them first. */
+  recentWorkspaces?: readonly string[]
 }
 
 const keyOf = (t: { path?: string; name: string }): string => t.path || t.name
@@ -139,7 +141,8 @@ export default function CreateProjectScreen({
   deploying = false,
   teamWorkspaces,
   initialTeamWorkspaceId,
-  onTeamCreated
+  onTeamCreated,
+  recentWorkspaces
 }: Props): JSX.Element {
   // The native preview webview floats above HTML; suppress it while this covers the body.
   useSuppressPreview()
@@ -724,6 +727,7 @@ export default function CreateProjectScreen({
                 defaultName="Development"
                 onSubmit={onDeploy}
                 checkTarget={checkActiveDeployTarget}
+                recentWorkspaces={recentWorkspaces}
               />
               <div className="create-skip">
                 <button type="button" className="link-btn" onClick={onContinueWithoutDeploy}>

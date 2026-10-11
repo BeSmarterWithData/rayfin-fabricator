@@ -19,7 +19,8 @@ import type {
   DesignSnapshot,
   DesignStatus,
   DesignSuggestion,
-  DesignVariation
+  DesignVariation,
+  DesignVariationEvent
 } from './design'
 import type {
   AdvisorFinding,
@@ -1418,6 +1419,12 @@ export interface CopilotModel {
   supportedReasoningEfforts: ReasoningEffort[]
   /** The model's default reasoning effort, when it supports configuring one. */
   defaultReasoningEffort?: ReasoningEffort
+  /** Copilot's model-picker tier, when it reports one. */
+  category?: 'lightweight' | 'versatile' | 'powerful'
+  /** Relative cost tier, when Copilot reports one. */
+  priceCategory?: 'low' | 'medium' | 'high' | 'very_high'
+  /** The model accepts image input (screenshots). */
+  vision?: boolean
 }
 
 /** Preview pane view selection: the direct app URL, or the app embedded in the
@@ -2171,6 +2178,16 @@ export interface ChatOptions {
   effort?: ReasoningEffort
 }
 
+/** Extras for one Design Options request. */
+export interface DesignVariationsOptions {
+  /** Reasoning effort for the model, when it supports one. */
+  effort?: ReasoningEffort
+  /** Streams each option as a `design:variation` event tagged with this id. */
+  requestId?: string
+  /** One of Fabricator's temp captures of the element (vision models); deleted afterwards. */
+  screenshotPath?: string
+}
+
 /**
  * A clickable starter prompt shown on the empty Build chat: a single emoji glyph
  * plus one plain-language idea the user can click to prefill the composer. These
@@ -2577,6 +2594,7 @@ export const IpcChannels = {
   chatEvent: 'chat:event',
   advisorEvent: 'advisor:event',
   helpEvent: 'help:event',
+  designVariation: 'design:variation',
   previewNav: 'preview:nav',
   previewAgent: 'preview:agent',
   updateProgress: 'update:progress',
@@ -3211,14 +3229,18 @@ export interface RayfinStudioApi {
       context: DesignRestyleContext,
       hint?: string,
       count?: number,
-      model?: string
+      model?: string,
+      options?: DesignVariationsOptions
     ) => Promise<DesignVariation[]>
+    /** Each option as it streams in, before `variations` resolves (routed by `requestId`). */
+    onVariation: (callback: (event: DesignVariationEvent) => void) => () => void
     /** Review a page outline (+ optional screenshot) and suggest improvements. */
     polish: (
       projectId: string,
       page: DesignPageOutline,
       screenshotPath?: string,
-      model?: string
+      model?: string,
+      effort?: ReasoningEffort
     ) => Promise<DesignSuggestion[]>
     /** Find the likely source lines behind picked elements (heuristic hints). */
     locate: (projectId: string, targets: DesignLocateTarget[]) => Promise<DesignLocateResult>

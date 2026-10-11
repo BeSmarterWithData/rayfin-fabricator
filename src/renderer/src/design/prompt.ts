@@ -136,6 +136,9 @@ export function composeDesignPrompt(input: DesignPromptInput): string {
     if (item.kind === 'theme' && item.theme) {
       if (item.theme.summary.length) lines.push(`- Theme: ${item.theme.summary.join('; ')}`)
       if (Object.keys(item.theme.tokens).length) lines.push(`- Exact token overrides previewed: ${json(item.theme.tokens, 2400)}`)
+      if (item.theme.darkTokens && Object.keys(item.theme.darkTokens).length) {
+        lines.push(`- Dark mode (\`.dark\`) overrides previewed: ${json(item.theme.darkTokens, 1200)}`)
+      }
       if (locate?.entryCss) lines.push(`- Tailwind entry stylesheet: ${locate.entryCss}`)
     }
     const element = elementLine(item)
@@ -153,6 +156,9 @@ export function composeDesignPrompt(input: DesignPromptInput): string {
   lines.push('- “Remove this element” means deleting it from the UI (and code that becomes unused); a move means reordering it in the source.')
   if (items.some((it) => it.kind === 'theme')) {
     lines.push('- Theme: set scale tokens (`--spacing`, `--radius-*`, `--font-sans`) in the `@theme` block of the Tailwind entry stylesheet; for an accent or neutral swap, replace that palette’s utility classes consistently (or add a brand token mapped to the new colors).')
+    if (items.some((it) => it.theme?.accent?.token || it.theme?.darkTokens)) {
+      lines.push('- Semantic color tokens (such as `--color-primary`): change the token itself in the `@theme` block and in the `.dark` block, keeping the utilities (`bg-primary`) as they are.')
+    }
   }
   if (items.some((it) => it.chart)) lines.push('- Chart changes: update the Graphein spec where it is built, keeping its data wiring.')
   lines.push('- Make only these changes and keep the project building. Finish with a short summary per change number.')

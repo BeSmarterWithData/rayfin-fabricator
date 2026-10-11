@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import type { FabricWorkspacesResult, ProcResult } from '@shared/ipc'
+import type { FabricWorkspace, FabricWorkspacesResult, ProcResult } from '@shared/ipc'
 import { deferred } from '../../test/deferred'
 import DeploymentCreateForm from './DeploymentCreateForm'
 
@@ -292,5 +292,61 @@ describe('DeploymentCreateForm replace check', () => {
       expect((screen.getByRole('button', { name: 'Deploy app' }) as HTMLButtonElement).disabled).toBe(false)
     )
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+describe('DeploymentCreateForm recent workspaces', () => {
+  const ws = (id: string, displayName: string, eligible = true): FabricWorkspace => ({
+    id,
+    displayName,
+    capacityKind: eligible ? 'fabric' : 'none',
+    sku: eligible ? 'F2' : undefined,
+    eligible
+  })
+
+  /** The eligible list top to bottom: headings as `# Heading`, then workspace names. */
+  const listed = (): string[] =>
+    [...screen.getByRole('listbox').children].map((el) =>
+      el.classList.contains('ws-group-label')
+        ? `# ${el.textContent}`
+        : (el.querySelector('.ws-item-name')?.textContent ?? '')
+    )
+
+  it('lists the eligible workspaces your apps use first, under Recent', () => {
+    render(
+      <DeploymentCreateForm
+        wsResult={{
+          ok: true,
+          workspaces: [ws('a', 'Analytics'), ws('d', 'Development'), ws('f', 'Finance'), ws('s', 'Sales'), ws('o', 'Old', false)]
+        }}
+        loadingWs={false}
+        onReload={vi.fn()}
+        onSubmit={vi.fn()}
+        recentWorkspaces={['s', 'o', 'gone', 'development']}
+      />
+    )
+    expect(listed()).toEqual(['# Recent', 'Sales', 'Development', '# Other workspaces', 'Analytics', 'Finance'])
+  })
+
+  it('lists at most five, and search narrows both groups', () => {
+    const workspaces = 'ABCDEFGHIJKL'.split('').map((c, i) => ws(`w${i}`, `Workspace ${c}`))
+    render(
+      <DeploymentCreateForm
+        wsResult={{ ok: true, workspaces }}
+        loadingWs={false}
+        onReload={vi.fn()}
+        onSubmit={vi.fn()}
+        recentWorkspaces={['w11', 'w10', 'w9', 'w8', 'w7', 'w6']}
+      />
+    )
+    expect(listed().slice(0, 7)).toEqual([
+      '# Recent', 'Workspace L', 'Workspace K', 'Workspace J', 'Workspace I', 'Workspace H', '# Other workspaces'
+    ])
+
+    const search = screen.getByPlaceholderText('Search 12 workspaces…')
+    fireEvent.change(search, { target: { value: 'workspace l' } })
+    expect(listed()).toEqual(['# Recent', 'Workspace L'])
+    fireEvent.change(search, { target: { value: 'workspace g' } })
+    expect(listed()).toEqual(['Workspace G'])
   })
 })

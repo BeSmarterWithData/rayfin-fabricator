@@ -10,7 +10,7 @@ import type {
   DesignRequest,
   DesignViewport
 } from '@shared/design'
-import { loadCopilotModels, pickFastModel } from '../copilotModels'
+import { loadCopilotModels, pickDesignModel, type DesignModelPick } from '../copilotModels'
 import { cropItems, thumbnail, type StagedShot } from './capture'
 import type { DeviceId } from './devices'
 import { readFabricatorTheme } from './hostTheme'
@@ -35,6 +35,11 @@ const REARM_RETRY_MS = 2000
 const CAPTURE_SETTLE_MS = 150
 /** Element crops attached to one turn (plus the full view). */
 const MAX_CROPS = 6
+/** The Options screenshot: wait this many polls (80 ms each) for the page to get ready… */
+const SELECTION_CAPTURE_ATTEMPTS = 15
+/** …and keep it small, with a little of the surroundings for context. */
+const SELECTION_CROP_WIDTH = 640
+const SELECTION_CROP_PAD = 24
 const INTRO_KEY = 'rayfin.design.introSeen'
 const EMPTY: DesignItem[] = []
 
@@ -176,7 +181,6 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
   const answeredRef = useRef(new Set<string>())
   const pendingFocusRef = useRef<string | null>(null)
   const polishRef = useRef<string | null>(null)
-  const modelRef = useRef<Promise<{ id?: string; name?: string }> | null>(null)
   /** Changes already sent to chat; a page snapshot taken before the page dropped
    *  them must not bring them back. */
   const sentRef = useRef(new Set<string>())
@@ -190,15 +194,11 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
     [writeQueue]
   )
 
-  const fastModel = useCallback((): Promise<{ id?: string; name?: string }> => {
-    modelRef.current ??= loadCopilotModels()
-      .then((models) => {
-        const id = pickFastModel(models)
-        return { id, name: models.find((m) => m.id === id)?.name }
-      })
-      .catch(() => ({}))
-    return modelRef.current
-  }, [])
+  /** The model for Options and Polish, from the (cached, sign-in aware) model list. */
+  const designModel = useCallback(
+    (): Promise<DesignModelPick> => loadCopilotModels().then(pickDesignModel).catch(() => ({ vision: false })),
+    []
+  )
 
   /** Switch the page's controller on with a fresh session seeded from our queue. */
   const arm = useCallback(async (intro: boolean): Promise<boolean> => {
@@ -264,20 +264,59 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
     void arm(true)
   }, [arm])
 
+  /** A crop of the selected element for models that see images; null when it
+   *  can't be captured quickly (Options then go out without it). */
+  const captureSelection = useCallback(async (): Promise<string | null> => {
+    const requestId = newId()
+    try {
+      await command({ op: 'prepareCapture', requestId, ids: [], selection: true })
+      const layout = await awaitResult<DesignCaptureLayout>(requestId, SELECTION_CAPTURE_ATTEMPTS)
+      if (!layout?.rects.selection || !activeRef.current) return null
+      await sleep(CAPTURE_SETTLE_MS)
+      const dataUrl = await window.api.preview.capture()
+      await command({ op: 'endCapture' })
+      const crops = await cropItems(dataUrl, layout, ['selection'], SELECTION_CROP_WIDTH, SELECTION_CROP_PAD)
+      return crops.selection ? await window.api.screenshot.save(crops.selection) : null
+    } catch {
+      return null
+    } finally {
+      await command({ op: 'endCapture' })
+    }
+  }, [])
+
   /** Answer one of the page's requests (AI options for an element). */
   const answer = useCallback(
     async (req: DesignRequest): Promise<void> => {
       const pid = projectRef.current
       if (req.kind !== 'variations' || !pid) return
       answeredRef.current.add(req.id)
+      let stopStreaming: (() => void) | null = null
       try {
-        const model = await fastModel()
+        const model = await designModel()
+        let screenshotPath: string | undefined
+        if (model.vision) {
+          void command({ op: 'requestProgress', requestId: req.id, message: 'Looking at the element…' })
+          screenshotPath = (await captureSelection()) ?? undefined
+        }
+        if (!activeRef.current) {
+          if (screenshotPath) void window.api.screenshot.cleanup([screenshotPath]).catch(() => {})
+          return
+        }
         void command({
           op: 'requestProgress',
           requestId: req.id,
           message: `Asking ${model.name ?? 'Copilot'} for a few looks…`
         })
-        const options = await window.api.design.variations(pid, req.context, req.hint, 3, model.id)
+        // Each option shows as soon as it's written; the final list is authoritative.
+        stopStreaming = window.api.design.onVariation((event) => {
+          if (event.requestId !== req.id || !activeRef.current) return
+          void command({ op: 'addVariation', requestId: req.id, index: event.index, option: event.variation })
+        })
+        const options = await window.api.design.variations(pid, req.context, req.hint, 3, model.id, {
+          effort: model.effort,
+          requestId: req.id,
+          screenshotPath
+        })
         if (!activeRef.current) return
         await command(
           options.length
@@ -288,9 +327,11 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
         if (activeRef.current) {
           await command({ op: 'failRequest', requestId: req.id, message: errorText(err, 'Couldn’t design options right now.') })
         }
+      } finally {
+        stopStreaming?.()
       }
     },
-    [fastModel]
+    [captureSelection, designModel]
   )
 
   /** Mirror the page's latest queue (only from our own, seeded session). */
@@ -417,11 +458,11 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
           await command({ op: 'endCapture' })
         }
         if (!(await stillOpen())) return
-        const model = await fastModel()
+        const model = await designModel()
         await command({ op: 'setBusy', message: `Asking ${model.name ?? 'Copilot'} to review this page…` })
         const path = shotPath
         shotPath = undefined // design.polish deletes it
-        const suggestions = await window.api.design.polish(pid, page, path, model.id)
+        const suggestions = await window.api.design.polish(pid, page, path, model.id, model.effort)
         if (!(await stillOpen())) return
         await command({ op: 'showSuggestions', suggestions })
       } catch (err) {
@@ -436,7 +477,7 @@ export function useDesignSession(projectId: string | null, surface: DesignSurfac
         }
       }
     })()
-  }, [fastModel])
+  }, [designModel])
 
   /** Screenshot the previewed changes: one full view plus a crop per element. */
   const captureItems = useCallback(

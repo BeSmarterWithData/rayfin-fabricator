@@ -454,27 +454,51 @@
     return 'var(--color-' + name + '-' + shade + ', ' + paletteFallback(name, shade) + ')';
   }
   function colorToken(el, prefix) {
-    return baseToken(el, new RegExp('^' + prefix + '-((?:[a-z]+)-(?:50|100|200|300|400|500|600|700|800|900|950)(?:\\/\\d+)?|white|black|transparent)$'));
+    var d = state.detected, names = '';
+    if (d && d.colors && d.colors.length) names = '|' + d.colors.map(function (c) { return c.name; }).join('|');
+    return baseToken(el, new RegExp('^' + prefix + '-(?:[a-z]+-(?:50|100|200|300|400|500|600|700|800|900|950)|white|black|transparent' + names + ')(?:\\/\\d+)?$'));
   }
-  function textSizeIndex(el) {
-    var tok = baseToken(el, /^text-(xs|sm|base|lg|xl|[2-9]xl)$/);
-    if (tok) { var name = tok.slice(5); for (var i = 0; i < TEXT_SCALE.length; i++) if (TEXT_SCALE[i][0] === name) return { index: i, token: tok }; }
-    var px = parseFloat(getComputedStyle(el).fontSize) || 16, best = 0;
-    for (var j = 0; j < TEXT_SCALE.length; j++) if (Math.abs(TEXT_SCALE[j][1] * 16 - px) < Math.abs(TEXT_SCALE[best][1] * 16 - px)) best = j;
-    return { index: best, token: null, px: px };
-  }
-  function nearestSpace(px) {
-    var steps = px / 4, best = 0;
-    for (var i = 0; i < SPACE_SCALE.length; i++) if (Math.abs(SPACE_SCALE[i] - steps) < Math.abs(SPACE_SCALE[best] - steps)) best = i;
+  function reEscape(s) { return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function detectedTheme() { return state.detected || (state.detected = detectTheme()); }
+  /** The step named `name`, else the step nearest `px`. */
+  function stepIndex(steps, name, px) {
+    for (var i = 0; i < steps.length; i++) if (steps[i].name === name) return i;
+    var best = 0;
+    for (var j = 0; j < steps.length; j++) if (Math.abs(steps[j].px - px) < Math.abs(steps[best].px - px)) best = j;
     return best;
   }
-  function spaceIndex(value) {
-    var n = value === 'px' ? 0.25 : parseFloat(value), best = 0;
-    for (var i = 0; i < SPACE_SCALE.length; i++) if (Math.abs(SPACE_SCALE[i] - n) < Math.abs(SPACE_SCALE[best] - n)) best = i;
-    return best;
+  function stepNames(steps) { return steps.map(function (s) { return reEscape(s.name); }).join('|'); }
+
+  /** Text sizes to step through: the app's own scale (`text-300`) when it has one, else Tailwind's. */
+  function textSteps() {
+    var d = detectedTheme();
+    if (d.textScale) return d.textScale.map(function (t) {
+      var lh = d.vars['--text-' + t.name + '--line-height'] !== undefined ? 'var(--text-' + t.name + '--line-height)' : null;
+      return { name: t.name, px: t.px, size: 'var(--text-' + t.name + ')', lh: lh };
+    });
+    return TEXT_SCALE.map(function (s) {
+      return { name: s[0], px: s[1] * 16, size: 'var(--text-' + s[0] + ', ' + s[1] + 'rem)', lh: s[2] ? 'var(--text-' + s[0] + '--line-height, ' + s[2] + 'rem)' : '1' };
+    });
   }
-  function spaceCss(steps) { return steps === 0 ? '0px' : 'calc(var(--spacing, 0.25rem) * ' + steps + ')'; }
-  function spaceToken(prefix, steps) { return prefix + '-' + String(steps); }
+  function textSizeIndex(el, steps) {
+    var tok = baseToken(el, new RegExp('^text-(' + stepNames(steps) + ')$'));
+    return stepIndex(steps, tok ? tok.slice(5) : null, parseFloat(getComputedStyle(el).fontSize) || 16);
+  }
+
+  /** Padding and gap steps: the app's named spacing (`p-400`) when it has one, else Tailwind's numeric scale. */
+  function spaceSteps() {
+    var d = detectedTheme();
+    if (d.spaceScale) return d.spaceScale.map(function (s) { return { name: s.name, px: s.px, css: 'var(--spacing-' + s.name + ')' }; });
+    return SPACE_SCALE.map(function (n) { return { name: String(n), px: n * 4, css: n === 0 ? '0px' : 'calc(var(--spacing, 0.25rem) * ' + n + ')' }; });
+  }
+  /** A spacing utility (`p-4`, `px-400`, `gap-px`); group 2 (or 1 for `gap`) is its value. */
+  function spaceTokenRe(prefix, steps) {
+    var named = state.detected && state.detected.spaceScale ? stepNames(steps) + '|' : '';
+    return new RegExp('^' + prefix + '-(' + named + '\\d+(?:\\.\\d+)?|px)$');
+  }
+  function spaceIndex(steps, value) {
+    return stepIndex(steps, value, value === 'px' ? 1 : (parseFloat(value) || 0) * 4);
+  }
 
   // ---- Graphein charts + smart type conversion -------------------------------
   function readSpec(chartEl) { try { return JSON.parse(chartEl.getAttribute('data-graphein-spec') || 'null'); } catch (e) { return null; } }
@@ -809,11 +833,60 @@
   }
 
   var PALETTE_USE_RE = /(?:^|:)(?:bg|text|border|ring|outline|fill|stroke|from|via|to|decoration|accent|caret|divide|placeholder|shadow)-([a-z]+)-(50|100|200|300|400|500|600|700|800|900|950)(?:\/\d+)?$/;
+  var COLOR_USE_RE = /^(bg|text|border|ring|outline|fill|stroke|from|via|to|decoration|accent|caret|divide|placeholder|shadow)-([a-z][a-z0-9-]*?)(?:\/\d+)?$/;
+  var SHADE_NAME_RE = /^([a-z]+)-(50|100|200|300|400|500|600|700|800|900|950)$/;
+  var DEFAULT_TEXT = ['xs', 'sm', 'base', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl', '8xl', '9xl'];
+  var DEFAULT_RADII = ['none', 'xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl', 'full'];
+  /** Semantic color names in the order people expect them, after usage. */
+  var COLOR_ORDER = ['primary', 'secondary', 'accent', 'muted', 'card', 'popover', 'background', 'foreground', 'destructive', 'brand', 'border', 'input', 'ring'];
+  /** Font tokens that set the app's running text (not code). */
+  var TEXT_FONTS = ['sans', 'base', 'body', 'heading', 'display', 'numeric'];
 
-  /** What the page's theme is made of: Tailwind tokens, palettes in use (by class usage), radii, spacing, font. */
+  /** A CSS length in px (`0.875rem` → 14); null for anything that isn't one. */
+  function toPx(value) {
+    var m = String(value == null ? '' : value).trim().match(/^(-?\d*\.?\d+)(px|rem|em)?$/);
+    if (!m) return null;
+    var n = parseFloat(m[1]);
+    if (m[2] === 'rem' || m[2] === 'em') {
+      var rootPx = 16;
+      try { rootPx = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16; } catch (e) {}
+      return n * rootPx;
+    }
+    return m[2] || n === 0 ? n : null;
+  }
+  /** The page's own length tokens under `prefix` (`--text-300: 14px`), smallest first. */
+  function lengthScale(vars, prefix, maxPx) {
+    var out = [];
+    Object.keys(vars).forEach(function (k) {
+      if (k.indexOf(prefix) !== 0) return;
+      var name = k.slice(prefix.length);
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(name) || name.indexOf('--') >= 0) return;
+      var px = toPx(vars[k]);
+      if (px === null || px < 0 || (maxPx && px > maxPx)) return;
+      out.push({ name: name, px: Math.round(px * 100) / 100 });
+    });
+    return out.sort(function (a, b) { return a.px - b.px || (a.name < b.name ? -1 : 1); });
+  }
+
+  /**
+   * What the page's theme is made of: Tailwind tokens, palettes in use (by class
+   * usage), the app's own semantic colors (`--color-primary`) and scales
+   * (`--text-300`, `--spacing-400`, custom `--radius-*`), radii, spacing, fonts.
+   */
   function detectTheme() {
     var found = readThemeVars(), vars = found.vars;
-    var usage = {}, seen = 0;
+    var semantic = Object.create(null), shades = Object.create(null);
+    Object.keys(vars).forEach(function (k) {
+      var m = k.match(/^--color-([a-z][a-z0-9-]*)$/);
+      if (!m || /^(white|black|transparent|current|inherit)$/.test(m[1])) return;
+      var s = m[1].match(SHADE_NAME_RE);
+      if (s) { if (!HUES[s[1]]) shades[s[1]] = (shades[s[1]] || 0) + 1; return; }
+      semantic[m[1]] = { name: m[1], bg: 0, text: 0, other: 0 };
+    });
+    // A custom ramp (`--color-brand-500`…) counts as a palette once it has a few shades.
+    var custom = Object.create(null);
+    Object.keys(shades).forEach(function (p) { if (shades[p] >= 3) custom[p] = true; });
+    var usage = Object.create(null), seen = 0;
     var all = document.body ? document.body.getElementsByTagName('*') : [];
     for (var i = 0; i < all.length && seen < 5000; i++, seen++) {
       var cls = all[i].getAttribute && all[i].getAttribute('class');
@@ -821,15 +894,41 @@
       var tokens = cls.split(/\s+/);
       for (var j = 0; j < tokens.length; j++) {
         var m = tokens[j].match(PALETTE_USE_RE);
-        if (m && HUES[m[1]]) usage[m[1]] = (usage[m[1]] || 0) + 1;
+        if (m && (HUES[m[1]] || custom[m[1]])) { usage[m[1]] = (usage[m[1]] || 0) + 1; continue; }
+        var u = tokens[j].slice(tokens[j].lastIndexOf(':') + 1).match(COLOR_USE_RE);
+        var c = u && semantic[u[2]];
+        if (c) { if (u[1] === 'bg') c.bg++; else if (u[1] === 'text') c.text++; else c.other++; }
       }
     }
     var ranked = Object.keys(usage).sort(function (a, b) { return usage[b] - usage[a]; });
     var neutral = ranked.filter(function (p) { return NEUTRALS.indexOf(p) >= 0; })[0] || null;
     var accents = ranked.filter(function (p) { return NEUTRALS.indexOf(p) < 0; });
+    var rootCs = null;
+    try { rootCs = getComputedStyle(document.documentElement); } catch (e) {}
+    var colors = Object.keys(semantic).map(function (n) {
+      var c = semantic[n], live = '';
+      try { live = rootCs ? rootCs.getPropertyValue('--color-' + n).trim() : ''; } catch (e) {}
+      c.value = live || vars['--color-' + n];
+      c.used = c.bg + c.text + c.other;
+      return c;
+    }).sort(function (a, b) {
+      var oa = COLOR_ORDER.indexOf(a.name), ob = COLOR_ORDER.indexOf(b.name);
+      return b.used - a.used || (oa < 0 ? 99 : oa) - (ob < 0 ? 99 : ob) || (a.name < b.name ? -1 : 1);
+    });
     var radii = {};
     Object.keys(vars).forEach(function (k) { if (/^--radius-/.test(k)) radii[k] = vars[k]; });
-    var tailwind = vars['--spacing'] !== undefined || Object.keys(vars).some(function (k) { return /^--color-[a-z]+-\d{2,3}$/.test(k); }) || ranked.length > 0;
+    var customText = lengthScale(vars, '--text-').filter(function (t) { return DEFAULT_TEXT.indexOf(t.name) < 0; });
+    var space = lengthScale(vars, '--spacing-', 128);
+    var radius = lengthScale(vars, '--radius-');
+    var fonts = {}, weights = {};
+    Object.keys(vars).forEach(function (k) {
+      var f = k.match(/^--font-([a-z][a-z0-9-]*)$/);
+      if (!f || f[1].indexOf('--') >= 0) return;
+      if (f[1].indexOf('weight-') === 0) weights[f[1].slice(7)] = vars[k];
+      else fonts[f[1]] = vars[k];
+    });
+    var tailwind = vars['--spacing'] !== undefined || Object.keys(vars).some(function (k) { return /^--color-[a-z]+-\d{2,3}$/.test(k); }) || ranked.length > 0 ||
+      colors.some(function (c) { return c.used > 0; }) || customText.length >= 2 || space.length >= 3;
     return {
       tailwind: tailwind,
       vars: vars,
@@ -839,9 +938,36 @@
       neutral: neutral,
       radii: radii,
       spacing: vars['--spacing'] || (tailwind ? '0.25rem' : null),
-      font: vars['--font-sans'] || null,
-      dark: found.dark
+      font: vars['--font-sans'] || vars['--font-base'] || vars['--font-body'] || null,
+      dark: found.dark,
+      colors: colors,
+      textScale: customText.length >= 2 ? customText : null,
+      spaceScale: space.length >= 3 ? space : null,
+      radiusScale: radius.some(function (r) { return DEFAULT_RADII.indexOf(r.name) < 0; }) ? radius : null,
+      fonts: fonts,
+      weights: weights
     };
+  }
+
+  /** The app's design system in brief, for Options and Polish prompts (`DesignSystemSummary`). */
+  function designSystem() {
+    var d = state.detected || (state.detected = detectTheme());
+    if (!d.tailwind) return undefined;
+    var pairs = function (list, value) { return list.map(function (x) { return [x.name, clip(String(value(x)), 48)]; }); };
+    var px = function (x) { return x.px + 'px'; };
+    var out = {};
+    if (d.colors.length) out.colors = pairs(d.colors.slice(0, 20), function (c) { return c.value; });
+    var palettes = d.accents.concat(d.neutral ? [d.neutral] : []);
+    if (palettes.length) out.palettes = palettes;
+    if (d.textScale) out.text = pairs(d.textScale.slice(0, 16), px);
+    if (d.spaceScale) out.spacing = pairs(d.spaceScale.slice(0, 16), px);
+    else if (d.spacing) out.spacingBase = d.spacing;
+    var radii = lengthScale(d.vars, '--radius-').filter(function (r) { return r.name !== 'full'; });
+    if (radii.length) out.radius = pairs(radii.slice(0, 12), px);
+    var fonts = Object.keys(d.fonts).slice(0, 6);
+    if (fonts.length) out.fonts = fonts.map(function (f) { return [f, clip(d.fonts[f], 60)]; });
+    if (d.dark) out.dark = true;
+    return out;
   }
 
   function scaleLength(value, factor) {
@@ -857,21 +983,58 @@
       tokens[name] = hexHue ? rampValue(hexHue.h, Math.max(hexHue.c, 0.02), shade) : (own || paletteFallback(to, shade));
     });
   }
+  /** The app's own accent token (primary, else brand) when it themes through semantic colors. */
+  function tokenAccentOf(d) {
+    var names = d.colors.map(function (c) { return c.name; });
+    return names.indexOf('primary') >= 0 ? 'primary' : names.indexOf('brand') >= 0 ? 'brand' : null;
+  }
+  /** Semantic tokens that carry a semantic accent: the accent plus ring and brand when the app defines them. */
+  function accentTokenNames(accent, detected) {
+    var names = [accent.from];
+    ['ring', 'brand'].forEach(function (n) { if (n !== accent.from && detected.vars['--color-' + n] !== undefined) names.push(n); });
+    return names;
+  }
+  /** A semantic accent's color at a palette shade (600 for light, 400 for dark). */
+  function accentShade(accent, shade) {
+    if (!accent.hex) return paletteVar(accent.to, shade);
+    if (shade === '600') return accent.hex;
+    var hh = rgbToOklch(parseColor(accent.hex) || { r: 0, g: 0, b: 0 });
+    return rampValue(hh.h, Math.max(hh.c, 0.02), shade);
+  }
   /** The exact custom-property overrides for a theme change (`DesignThemeChange.tokens`). */
   function themeTokens(change, detected) {
     var tokens = {};
     if (change.accent && change.accent.from) {
       var hexHue = change.accent.hex ? rgbToOklch(parseColor(change.accent.hex) || { r: 0, g: 0, b: 0 }) : null;
-      if (hexHue || change.accent.to !== change.accent.from) remapPalette(tokens, change.accent.from, change.accent.to, detected, hexHue);
+      if (change.accent.token) accentTokenNames(change.accent, detected).forEach(function (n) { tokens['--color-' + n] = accentShade(change.accent, '600'); });
+      else if (hexHue || change.accent.to !== change.accent.from) remapPalette(tokens, change.accent.from, change.accent.to, detected, hexHue);
     }
     if (change.neutral && change.neutral.from && change.neutral.to !== change.neutral.from) remapPalette(tokens, change.neutral.from, change.neutral.to, detected, null);
     if (change.radius && change.radius.scale !== 1) {
       var radii = Object.keys(detected.radii).length ? detected.radii : { '--radius-sm': '0.25rem', '--radius-md': '0.375rem', '--radius-lg': '0.5rem', '--radius-xl': '0.75rem', '--radius-2xl': '1rem', '--radius-3xl': '1.5rem' };
       Object.keys(radii).forEach(function (k) { var v = scaleLength(radii[k], change.radius.scale); if (v) tokens[k] = v; });
     }
-    if (change.density && change.density.to) tokens['--spacing'] = change.density.to;
-    if (change.font && change.font.stack) tokens['--font-sans'] = change.font.stack;
+    if (change.density && change.density.to) {
+      tokens['--spacing'] = change.density.to;
+      // Named spacing (`--spacing-400: 16px`) doesn't follow `--spacing`, so it scales too.
+      var base = toPx(change.density.from || '0.25rem'), next = toPx(change.density.to);
+      if (detected.spaceScale && base && next) {
+        detected.spaceScale.forEach(function (s) { if (s.px > 0) tokens['--spacing-' + s.name] = (Math.round(s.px * next / base * 100) / 100) + 'px'; });
+      }
+    }
+    if (change.font && change.font.stack) {
+      tokens['--font-sans'] = change.font.stack;
+      TEXT_FONTS.forEach(function (f) { if (f !== 'sans' && detected.fonts && detected.fonts[f] !== undefined) tokens['--font-' + f] = change.font.stack; });
+    }
     return tokens;
+  }
+  /** Dark-mode overrides (`DesignThemeChange.darkTokens`): a semantic accent needs a lighter shade there. */
+  function themeDarkTokens(change, detected) {
+    var dark = {};
+    if (change.accent && change.accent.from && change.accent.token && detected.dark) {
+      accentTokenNames(change.accent, detected).forEach(function (n) { dark['--color-' + n] = accentShade(change.accent, '400'); });
+    }
+    return dark;
   }
   function themeSummary(change) {
     var s = [];
@@ -883,12 +1046,17 @@
     if (change.intent) s.push('Look: ' + change.intent);
     return s;
   }
-  function themeCss(tokens) {
-    var decls = Object.keys(tokens).filter(function (k) {
+  function cssDecls(tokens) {
+    return Object.keys(tokens || {}).filter(function (k) {
       return /^--[a-z0-9-]+$/i.test(k) && typeof tokens[k] === 'string' && !UNSAFE_VALUE.test(tokens[k]);
     }).map(function (k) { return k + ':' + tokens[k]; }).join(';');
+  }
+  function themeCss(tokens, dark) {
+    var decls = cssDecls(tokens), darkDecls = cssDecls(dark);
     var css = decls ? ':root{' + decls + '}' : '';
-    if (tokens['--font-sans']) css += 'html,body{font-family:var(--font-sans)}';
+    // After :root, so the app's dark mode (`.dark` on <html> or a wrapper) keeps its own shade.
+    if (darkDecls) css += '.dark{' + darkDecls + '}';
+    if (tokens && tokens['--font-sans']) css += 'html,body{font-family:var(--font-sans)}';
     return css;
   }
 
@@ -1195,7 +1363,7 @@
   function themeItem() { for (var i = 0; i < state.items.length; i++) if (state.items[i].kind === 'theme') return state.items[i]; return null; }
   function removeThemeStyle() { var s = document.getElementById(THEME_STYLE_ID); if (s) s.remove(); }
   function applyTheme(item) {
-    var css = themeCss((item.theme && item.theme.tokens) || {});
+    var css = themeCss((item.theme && item.theme.tokens) || {}, item.theme && item.theme.darkTokens);
     var style = document.getElementById(THEME_STYLE_ID);
     if (!css) { if (style) style.remove(); return; }
     if (!style) {
@@ -1669,10 +1837,10 @@
     dom.chart.className = role === 'chart' ? 'sec' : '';
     if (role === 'chart') renderChartControls(dom.chart, el, item);
 
-    // AI options.
+    // AI options (streamed ones show while the rest are still coming).
     dom.options.textContent = '';
     dom.options.className = sel.pending || sel.options || sel.optionsError ? 'sec' : '';
-    if (sel.pending) renderPending(dom.options, sel);
+    if (sel.pending && !(sel.options && sel.options.length)) renderPending(dom.options, sel);
     else if (sel.optionsError) {
       dom.options.appendChild(h('div', { class: 'muted', text: sel.optionsError }));
       dom.options.appendChild(h('div', { class: 'row end', style: 'margin-top:8px' }, [
@@ -1766,9 +1934,25 @@
     commit(item);
   }
 
+  /** Square, Soft, Round, Extra and Pill, named with the app's nearest radius tokens when it has its own scale. */
+  function cornerChoices() {
+    var d = detectedTheme(), seen = {};
+    var scale = (d.radiusScale || []).filter(function (r) { return r.name !== 'none' && r.name !== 'full' && r.px > 0; });
+    return RADII.map(function (x) {
+      var name = x[0];
+      if (scale.length && name !== 'none' && name !== 'full') {
+        var target = toPx(x[1]), best = scale[0];
+        scale.forEach(function (r) { if (Math.abs(r.px - target) < Math.abs(best.px - target)) best = r; });
+        name = best.name;
+      }
+      if (seen[name]) return null;
+      seen[name] = true;
+      return [name, x[2], 'rounded-' + name];
+    }).filter(Boolean);
+  }
   function cornersTweak(el, tok, v) {
     var spec = RADII.filter(function (x) { return x[0] === v; })[0];
-    var css = v === 'none' ? '0px' : v === 'full' ? '9999px' : 'var(--radius-' + v + ', ' + spec[1] + ')';
+    var css = v === 'none' ? '0px' : v === 'full' ? '9999px' : 'var(--radius-' + v + (spec ? ', ' + spec[1] : '') + ')';
     return { kind: 'corners', tailwind: { from: tok || undefined, to: 'rounded-' + v }, css: [{ property: 'border-radius', from: getComputedStyle(el).borderTopLeftRadius, to: css }] };
   }
   function shadowTweak(el, tok, v) {
@@ -1782,9 +1966,10 @@
     if (name === 'size') return renderSizeTool(box, el, item);
     if (name === 'spacing') return renderSpacingTool(box, el, item);
     if (name === 'corners') {
-      var r = tweakOf(item, 'corners'), tok = baseToken(el, /^rounded(-(none|xs|sm|md|lg|xl|2xl|3xl|4xl|full))?$/);
+      var radiusNames = DEFAULT_RADII.concat((detectedTheme().radiusScale || []).map(function (x) { return x.name; }));
+      var r = tweakOf(item, 'corners'), tok = baseToken(el, new RegExp('^rounded(-(' + radiusNames.map(reEscape).join('|') + '))?$'));
       var cur = r ? r.tailwind.to.replace(/^rounded-?/, '') : tok ? (tok.replace(/^rounded-?/, '') || 'sm') : '';
-      box.appendChild(seg(RADII.map(function (x) { return [x[0], x[2], 'rounded-' + x[0]]; }), cur, function (v) {
+      box.appendChild(seg(cornerChoices(), cur, function (v) {
         record(cornersTweak(el, tok, v), 'Corners');
       }, function (v) { previewTweak(cornersTweak(el, tok, v)); }));
       return;
@@ -1884,39 +2069,61 @@
     if (state.selected.focusTool) setTimeout(function () { try { input.focus({ preventScroll: true }); input.select(); } catch (e) {} }, 0);
   }
 
+  /** The app's own semantic colors that suit a target: surfaces for Background, text tokens for Text color. */
+  function ownColors(detected, which) {
+    var isText = which !== 'fill';
+    return detected.colors.filter(function (c) {
+      if (/^(border|input|ring)$/.test(c.name)) return false;
+      var fg = c.name === 'foreground' || /-foreground$/.test(c.name);
+      return isText ? fg || c.text > 0 || /^(primary|destructive|brand)$/.test(c.name) : !fg;
+    }).sort(function (a, b) { return isText ? b.text - a.text : b.bg - a.bg; }).slice(0, 12);
+  }
   function renderColorTool(box, el, role, item) {
     var sel = state.selected;
     var which = sel.colorTarget || (/^(button|card|section|container|header|footer|nav)$/.test(role) ? 'fill' : 'text');
     box.appendChild(seg([['text', 'Text color'], ['fill', 'Background']], which, function (v) { sel.colorTarget = v; renderCard(); }));
     var prefix = which === 'fill' ? 'bg' : 'text';
     var kind = which === 'fill' ? 'background' : 'color';
+    var detected = state.detected || (state.detected = detectTheme());
     var current = tweakOf(item, kind);
     var currentTok = current && current.tailwind ? current.tailwind.to : colorToken(el, prefix);
-    var detected = state.detected || (state.detected = detectTheme());
-    var palettes = detected.accents.slice(0, 2).concat(detected.neutral ? [detected.neutral] : ['slate']);
-    if (!palettes.length) palettes = ['indigo', 'slate'];
-    var colorTweak = function (palette, shade, hex) {
+    var own = ownColors(detected, which);
+    var palettes = detected.accents.slice(0, 2).concat(detected.neutral ? [detected.neutral] : own.length ? [] : ['slate']);
+    // `token` is one of the app's semantic colors (`bg-primary`), previewed through its CSS variable.
+    var colorTweak = function (palette, shade, hex, token) {
       var fromTok = colorToken(el, prefix);
       var plain = palette === 'white' || palette === 'black' || palette === 'transparent';
-      var to = hex ? prefix + '-[' + hex + ']' : plain ? prefix + '-' + palette : prefix + '-' + palette + '-' + shade;
-      var value = hex || (palette === 'transparent' ? 'transparent' : paletteVar(palette, shade));
+      var to = token ? prefix + '-' + token : hex ? prefix + '-[' + hex + ']' : plain ? prefix + '-' + palette : prefix + '-' + palette + '-' + shade;
+      var value = token ? 'var(--color-' + token + ')' : hex || (palette === 'transparent' ? 'transparent' : paletteVar(palette, shade));
       var cs = getComputedStyle(el);
       return { kind: kind, tailwind: { from: fromTok || undefined, to: to }, css: [{ property: which === 'fill' ? 'background-color' : 'color', from: which === 'fill' ? cs.backgroundColor : cs.color, to: value }] };
     };
-    var pick = function (palette, shade, hex) {
+    var pick = function (palette, shade, hex, token) {
       // The tweak records the element's current color, so the hovered preview ends first.
       endPreview();
-      record(colorTweak(palette, shade, hex), which === 'fill' ? 'Background' : 'Text color');
+      record(colorTweak(palette, shade, hex, token), which === 'fill' ? 'Background' : 'Text color');
     };
     // Every color choice previews on hover and applies on click.
-    var choice = function (node, palette, shade) {
-      previewable(node, function () { return colorTweak(palette, shade); });
+    var choice = function (node, palette, shade, token) {
+      previewable(node, function () { return colorTweak(palette, shade, null, token); });
       return node;
     };
+    if (own.length) {
+      box.appendChild(h('div', { class: 'pal-name', text: 'Your colors' }));
+      var mine = h('div', { class: 'swatches' });
+      own.forEach(function (c) {
+        var tok = prefix + '-' + c.name, fallback = c.value && !UNSAFE_VALUE.test(c.value) ? ', ' + c.value : '';
+        mine.appendChild(choice(h('button', { type: 'button', class: 'swatch' + (currentTok === tok ? ' on' : ''), title: tok + (c.value ? ' · ' + c.value : ''), 'aria-label': tok, style: 'background:var(--color-' + c.name + fallback + ')', onclick: function () { pick(null, null, null, c.name); } }), null, null, c.name));
+      });
+      box.appendChild(mine);
+    }
     palettes.forEach(function (p) {
+      // A custom ramp (`brand-500`) only offers the shades the app defines.
+      var shades = HUES[p] ? SWATCH_SHADES : SWATCH_SHADES.filter(function (s) { return detected.vars['--color-' + p + '-' + s] !== undefined; });
+      if (!shades.length) return;
       box.appendChild(h('div', { class: 'pal-name', text: p.charAt(0).toUpperCase() + p.slice(1) }));
       var row = h('div', { class: 'swatches' });
-      SWATCH_SHADES.forEach(function (shade) {
+      shades.forEach(function (shade) {
         var tok = prefix + '-' + p + '-' + shade;
         row.appendChild(choice(h('button', { type: 'button', class: 'swatch' + (currentTok === tok ? ' on' : ''), title: tok, 'aria-label': tok, style: 'background:' + paletteVar(p, shade), onclick: function () { pick(p, shade); } }), p, shade));
       });
@@ -1944,76 +2151,79 @@
     box.appendChild(hues);
   }
 
-  function sizeIndexNow(el, item) {
+  function sizeIndexNow(el, item, steps) {
     var t = tweakOf(item, 'size');
-    if (t && t.tailwind) { var name = t.tailwind.to.slice(5); for (var i = 0; i < TEXT_SCALE.length; i++) if (TEXT_SCALE[i][0] === name) return i; }
-    return textSizeIndex(el).index;
+    if (t && t.tailwind) { var name = t.tailwind.to.slice(5); for (var i = 0; i < steps.length; i++) if (steps[i].name === name) return i; }
+    return textSizeIndex(el, steps);
   }
   function renderSizeTool(box, el, item) {
-    var index = sizeIndexNow(el, item), step = TEXT_SCALE[index];
-    box.appendChild(stepper('Size', step[0] + ' · ' + Math.round(step[1] * 16) + 'px', function (d) {
-      var next = clamp(sizeIndexNow(el, currentItem()) + d, 0, TEXT_SCALE.length - 1);
-      var s = TEXT_SCALE[next], cs = getComputedStyle(el);
-      var fromTok = baseToken(el, /^text-(xs|sm|base|lg|xl|[2-9]xl)$/);
-      record({ kind: 'size', tailwind: { from: fromTok || undefined, to: 'text-' + s[0] }, css: [
-        { property: 'font-size', from: cs.fontSize, to: 'var(--text-' + s[0] + ', ' + s[1] + 'rem)' },
-        { property: 'line-height', from: cs.lineHeight, to: s[2] ? 'var(--text-' + s[0] + '--line-height, ' + s[2] + 'rem)' : '1' }
-      ] }, 'Size');
+    var steps = textSteps(), sizeRe = new RegExp('^text-(' + stepNames(steps) + ')$');
+    var step = steps[sizeIndexNow(el, item, steps)];
+    box.appendChild(stepper('Size', step.name + ' · ' + Math.round(step.px) + 'px', function (dir) {
+      var s = steps[clamp(sizeIndexNow(el, currentItem(), steps) + dir, 0, steps.length - 1)], cs = getComputedStyle(el);
+      var fromTok = baseToken(el, sizeRe);
+      var css = [{ property: 'font-size', from: cs.fontSize, to: s.size }];
+      if (s.lh) css.push({ property: 'line-height', from: cs.lineHeight, to: s.lh });
+      record({ kind: 'size', tailwind: { from: fromTok || undefined, to: 'text-' + s.name }, css: css }, 'Size');
     }, 'size'));
-    if (hasVariantOf(el, /^text-(xs|sm|base|lg|xl|[2-9]xl)$/)) box.appendChild(h('div', { class: 'note', text: 'This element also changes size at other screen widths; Copilot will keep those consistent.' }));
-    var w = tweakOf(item, 'weight'), wtok = baseToken(el, /^font-(thin|extralight|light|normal|medium|semibold|bold|extrabold|black)$/);
+    if (hasVariantOf(el, sizeRe)) box.appendChild(h('div', { class: 'note', text: 'This element also changes size at other screen widths; Copilot will keep those consistent.' }));
+    // Apps that name 400 `regular` (not Tailwind's `normal`) get their own utility.
+    var weights = detectedTheme().weights || {};
+    var wname = function (v) { return v === 'normal' && weights.regular !== undefined && weights.normal === undefined ? 'regular' : v; };
+    var w = tweakOf(item, 'weight'), wtok = baseToken(el, /^font-(thin|extralight|light|normal|regular|medium|semibold|bold|extrabold|black)$/);
     var wcur = w ? w.tailwind.to.slice(5) : wtok ? wtok.slice(5) : (function () {
       var fw = parseInt(getComputedStyle(el).fontWeight, 10) || 400, best = WEIGHTS[1];
       WEIGHTS.forEach(function (x) { if (Math.abs(x[1] - fw) < Math.abs(best[1] - fw)) best = x; });
       return best[0];
     })();
+    if (wcur === 'regular') wcur = 'normal';
     var weightTweak = function (v) {
       var spec = WEIGHTS.filter(function (x) { return x[0] === v; })[0];
-      return { kind: 'weight', tailwind: { from: wtok || undefined, to: 'font-' + v }, css: [{ property: 'font-weight', from: getComputedStyle(el).fontWeight, to: 'var(--font-weight-' + v + ', ' + spec[1] + ')' }] };
+      return { kind: 'weight', tailwind: { from: wtok || undefined, to: 'font-' + wname(v) }, css: [{ property: 'font-weight', from: getComputedStyle(el).fontWeight, to: 'var(--font-weight-' + wname(v) + ', ' + spec[1] + ')' }] };
     };
-    box.appendChild(h('div', { style: 'margin-top:8px' }, seg(WEIGHTS.slice(1, 5).map(function (x) { return [x[0], x[2], 'font-' + x[0]]; }), wcur, function (v) {
+    box.appendChild(h('div', { style: 'margin-top:8px' }, seg(WEIGHTS.slice(1, 5).map(function (x) { return [x[0], x[2], 'font-' + wname(x[0])]; }), wcur, function (v) {
       record(weightTweak(v), 'Weight');
     }, function (v) { previewTweak(weightTweak(v)); })));
   }
 
-  /** Padding (and flex/grid gap) as positions on the Tailwind spacing scale. */
-  function paddingModel(el, item) {
-    var t = tweakOf(item, 'spacing');
+  /** Padding (and flex/grid gap) as positions on the spacing scale (the app's own, or Tailwind's). */
+  function paddingModel(el, item, steps) {
+    var t = tweakOf(item, 'spacing'), re = spaceTokenRe('p([xytrbl])?', steps);
     var src = t && t.tailwind ? t.tailwind.to : null;
-    var tokens = src ? src.split(/\s+/) : tokensOf(el).filter(function (x) { return /^p[xytrbl]?-(\d+(\.\d+)?|px)$/.test(x); });
+    var tokens = src ? src.split(/\s+/) : tokensOf(el).filter(function (x) { return re.test(x); });
     var x = null, y = null;
     tokens.forEach(function (tok) {
-      var m = tok.match(/^p([xytrbl])?-(\d+(\.\d+)?|px)$/);
+      var m = tok.match(re);
       if (!m) return;
-      var i = spaceIndex(m[2]);
+      var i = spaceIndex(steps, m[2]);
       if (!m[1]) { x = y = i; }
       else if (m[1] === 'x' || m[1] === 'l' || m[1] === 'r') x = i;
       else y = i;
     });
     var cs = getComputedStyle(el);
-    if (x === null) x = nearestSpace((parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) / 2 || 0);
-    if (y === null) y = nearestSpace((parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)) / 2 || 0);
+    if (x === null) x = stepIndex(steps, null, (parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)) / 2 || 0);
+    if (y === null) y = stepIndex(steps, null, (parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)) / 2 || 0);
     return { x: x, y: y, from: t && t.tailwind ? t.tailwind.from : (tokens.length && !src ? tokens.join(' ') : undefined) };
   }
-  function paddingTokens(x, y) {
-    return x === y ? spaceToken('p', SPACE_SCALE[x]) : spaceToken('px', SPACE_SCALE[x]) + ' ' + spaceToken('py', SPACE_SCALE[y]);
+  function paddingTokens(steps, x, y) {
+    return x === y ? 'p-' + steps[x].name : 'px-' + steps[x].name + ' py-' + steps[y].name;
   }
   function renderSpacingTool(box, el, item) {
-    var pm = paddingModel(el, item);
-    box.appendChild(stepper('Padding', paddingTokens(pm.x, pm.y), function (d) {
-      var m = paddingModel(el, currentItem());
-      var x = clamp(m.x + d, 0, SPACE_SCALE.length - 1), y = clamp(m.y + d, 0, SPACE_SCALE.length - 1);
+    var steps = spaceSteps(), pm = paddingModel(el, item, steps);
+    box.appendChild(stepper('Padding', paddingTokens(steps, pm.x, pm.y), function (dir) {
+      var m = paddingModel(el, currentItem(), steps);
+      var x = clamp(m.x + dir, 0, steps.length - 1), y = clamp(m.y + dir, 0, steps.length - 1);
       if (x === m.x && y === m.y) return;
       var cs = getComputedStyle(el);
-      record({ kind: 'spacing', tailwind: { from: m.from, to: paddingTokens(x, y) }, css: [{ property: 'padding', from: cs.padding || cs.paddingTop, to: spaceCss(SPACE_SCALE[y]) + ' ' + spaceCss(SPACE_SCALE[x]) }] }, 'Padding');
+      record({ kind: 'spacing', tailwind: { from: m.from, to: paddingTokens(steps, x, y) }, css: [{ property: 'padding', from: cs.padding || cs.paddingTop, to: steps[y].css + ' ' + steps[x].css }] }, 'Padding');
     }, 'padding'));
     if (flowSelf(el)) {
-      var g = tweakOf(item, 'gap'), gtok = baseToken(el, /^gap-(\d+(\.\d+)?|px)$/);
-      var gi = g && g.tailwind ? spaceIndex(g.tailwind.to.slice(4)) : gtok ? spaceIndex(gtok.slice(4)) : nearestSpace(parseFloat(getComputedStyle(el).columnGap) || parseFloat(getComputedStyle(el).gap) || 0);
-      box.appendChild(h('div', { style: 'margin-top:6px' }, stepper('Gap', 'gap-' + SPACE_SCALE[gi], function (d) {
-        var next = clamp(gi + d, 0, SPACE_SCALE.length - 1);
+      var g = tweakOf(item, 'gap'), gtok = baseToken(el, spaceTokenRe('gap', steps));
+      var gi = g && g.tailwind ? spaceIndex(steps, g.tailwind.to.slice(4)) : gtok ? spaceIndex(steps, gtok.slice(4)) : stepIndex(steps, null, parseFloat(getComputedStyle(el).columnGap) || parseFloat(getComputedStyle(el).gap) || 0);
+      box.appendChild(h('div', { style: 'margin-top:6px' }, stepper('Gap', 'gap-' + steps[gi].name, function (dir) {
+        var next = clamp(gi + dir, 0, steps.length - 1);
         if (next === gi) return;
-        record({ kind: 'gap', tailwind: { from: gtok || undefined, to: spaceToken('gap', SPACE_SCALE[next]) }, css: [{ property: 'gap', from: getComputedStyle(el).gap, to: spaceCss(SPACE_SCALE[next]) }] }, 'Gap');
+        record({ kind: 'gap', tailwind: { from: gtok || undefined, to: 'gap-' + steps[next].name }, css: [{ property: 'gap', from: getComputedStyle(el).gap, to: steps[next].css }] }, 'Gap');
       }, 'gap')));
     }
   }
@@ -2117,7 +2327,8 @@
       isChart: isChart,
       chartType: spec ? spec.type : undefined,
       spec: spec,
-      children: children.length ? children : undefined
+      children: children.length ? children : undefined,
+      system: designSystem()
     };
   }
   function requestVariations() {
@@ -2202,7 +2413,8 @@
   var SAFE_PROPS = ['color', 'background', 'background-color', 'background-image', 'border', 'border-color', 'border-width', 'border-style', 'border-radius',
     'padding', 'padding-top', 'padding-right', 'padding-bottom', 'padding-left', 'margin', 'margin-top', 'margin-right', 'margin-bottom', 'margin-left',
     'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align', 'text-transform', 'text-decoration', 'opacity', 'box-shadow',
-    'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'display', 'gap', 'align-items', 'justify-content', 'flex-direction'];
+    'width', 'height', 'min-width', 'min-height', 'max-width', 'max-height', 'display', 'gap', 'row-gap', 'column-gap', 'align-items', 'justify-content', 'flex-direction',
+    'flex-wrap', 'grid-template-columns', 'font-family', 'border-top', 'border-bottom'];
   var UNSAFE_VALUE = /url\(|expression\(|javascript:|@import|[<>{};]/i;
   function safeStyles(obj) {
     var out = {};
@@ -2240,17 +2452,56 @@
     var sel = state.selected;
     if (sel && sel.pending === requestId) {
       sel.pending = null;
-      sel.options = (Array.isArray(options) ? options : []).map(safeVariation).filter(Boolean).slice(0, 4);
-      if (!sel.options.length) { sel.options = null; sel.optionsError = 'No options came back — try describing what you want.'; }
-      renderCard();
+      var shown = sel.options || [];
+      var chosen = sel.choice >= 0 && shown[sel.choice] ? shown[sel.choice].name : null;
+      var list = (Array.isArray(options) ? options : []).map(safeVariation).filter(Boolean).slice(0, 4);
+      if (!list.length && shown.length) list = shown;
+      sel.options = list.length ? list : null;
+      sel.choice = chosen ? indexOfOption(list, chosen) : -1;
+      if (!sel.options) sel.optionsError = 'No options came back — try describing what you want.';
+      // The streamed options are already on screen: when the final list matches,
+      // only the footer changes, so a hovered option keeps its preview.
+      var list0 = sel.dom.optionList;
+      if (sel.options && list0 && list0.isConnected && sameOptions(shown, list)) renderOptionsTail(sel);
+      else renderCard();
       positionCard();
     }
     bump();
   }
+  function indexOfOption(list, name) {
+    for (var i = 0; i < list.length; i++) if (list[i].name.toLowerCase() === String(name).toLowerCase()) return i;
+    return -1;
+  }
+  function sameOptions(a, b) {
+    return a.length === b.length && a.every(function (o, i) { return o.name === b[i].name; });
+  }
+  /** One option that streamed in while the request is still running. */
+  function onVariationStreamed(requestId, index, option) {
+    var sel = state.selected;
+    if (!sel || sel.pending !== requestId) return;
+    var opt = safeVariation(option, index);
+    var shown = sel.options || [];
+    if (!opt || shown.length >= 4 || indexOfOption(shown, opt.name) >= 0) return;
+    sel.options = shown.concat([opt]);
+    var list = sel.dom.optionList;
+    if (shown.length && list && list.isConnected) list.appendChild(optionButton(sel, opt, sel.options.length - 1));
+    else {
+      // The first one replaces the spinner; later ones are appended, so hover stays put.
+      sel.dom.options.textContent = '';
+      sel.dom.options.className = 'sec';
+      renderOptions(sel.dom.options);
+    }
+    positionCard();
+  }
   function onRequestFailed(requestId, message) {
     dropRequest(requestId);
     var sel = state.selected;
-    if (sel && sel.pending === requestId) { sel.pending = null; sel.optionsError = message || 'Couldn’t design options right now.'; renderCard(); }
+    if (sel && sel.pending === requestId) {
+      sel.pending = null;
+      // Options that already streamed in stay; the error only stands in for an empty list.
+      if (sel.options && sel.options.length) renderOptionsTail(sel);
+      else { sel.optionsError = message || 'Couldn’t design options right now.'; renderCard(); }
+    }
     bump();
   }
   // ---- live previews while choosing ------------------------------------------------
@@ -2318,7 +2569,7 @@
     var item = themeItem();
     var th = cloneVal((item && item.theme) || { tokens: {}, summary: [] });
     mutate(th, d);
-    applyTheme({ theme: { tokens: themeTokens(th, d) } });
+    applyTheme({ theme: { tokens: themeTokens(th, d), darkTokens: themeDarkTokens(th, d) } });
     themePreviewing = true;
   }
   function endThemePreview() {
@@ -2364,18 +2615,38 @@
     renderCard();
     toast('Applied “' + opt.name + '” — it’s in your changes');
   }
+  function optionButton(sel, opt, i) {
+    var b = h('button', { type: 'button', class: 'option' + (sel.choice === i ? ' on' : ''), 'aria-pressed': sel.choice === i ? 'true' : 'false' }, [h('b', { text: (sel.choice === i ? '✓ ' : '') + opt.name }), opt.description ? h('span', { text: opt.description }) : null]);
+    hoverPreview(b, function () { previewOption(i); });
+    b.addEventListener('click', function () { useOption(i); });
+    return b;
+  }
   function renderOptions(box) {
     var sel = state.selected;
     box.appendChild(h('span', { class: 'label', text: 'Options — hover to preview, click to apply' }));
-    var list = h('div', { class: 'options' });
-    sel.options.forEach(function (opt, i) {
-      var b = h('button', { type: 'button', class: 'option' + (sel.choice === i ? ' on' : ''), 'aria-pressed': sel.choice === i ? 'true' : 'false' }, [h('b', { text: (sel.choice === i ? '✓ ' : '') + opt.name }), opt.description ? h('span', { text: opt.description }) : null]);
-      hoverPreview(b, function () { previewOption(i); });
-      b.addEventListener('click', function () { useOption(i); });
-      list.appendChild(b);
-    });
+    var list = sel.dom.optionList = h('div', { class: 'options' });
+    sel.options.forEach(function (opt, i) { list.appendChild(optionButton(sel, opt, i)); });
     box.appendChild(list);
-    box.appendChild(h('div', { class: 'row end', style: 'margin-top:8px' }, [
+    sel.dom.optionsTail = h('div');
+    box.appendChild(sel.dom.optionsTail);
+    renderOptionsTail(sel);
+  }
+  /** Under the options: a "designing more" row while they stream in, then More options / Done. */
+  function renderOptionsTail(sel) {
+    if (sel.optionsButton) sel.optionsButton.disabled = !!sel.pending;
+    var tail = sel.dom.optionsTail;
+    if (!tail) return;
+    tail.textContent = '';
+    if (sel.pending) {
+      sel.dom.elapsed = h('span', { class: 'elapsed', text: elapsedLabel(sel.pendingSince || Date.now()) });
+      sel.dom.progress = null;
+      tail.appendChild(h('div', { class: 'busy', role: 'status', style: 'margin-top:8px' }, [
+        h('span', { class: 'spin' }), h('span', { class: 'spacer', text: 'Designing more…' }), sel.dom.elapsed,
+        h('button', { type: 'button', class: 'btn ghost', text: 'Stop', onclick: cancelVariations })
+      ]));
+      return;
+    }
+    tail.appendChild(h('div', { class: 'row end', style: 'margin-top:8px' }, [
       h('button', { type: 'button', class: 'btn ghost', html: svgIcon('sparkle') + '<span>More options</span>', onclick: requestVariations }),
       h('button', { type: 'button', class: 'btn', text: 'Done', onclick: function () { endPreview(); sel.options = null; sel.choice = -1; renderCard(); } })
     ]));
@@ -2451,6 +2722,8 @@
     pushUndo(item);
     mutate(item.theme, detected);
     item.theme.tokens = themeTokens(item.theme, detected);
+    var dark = themeDarkTokens(item.theme, detected);
+    item.theme.darkTokens = Object.keys(dark).length ? dark : undefined;
     item.theme.summary = themeSummary(item.theme);
     commit(item);
   }
@@ -2461,14 +2734,15 @@
     if (!d.tailwind) {
       body.push(h('div', { class: 'sec muted', text: 'This app doesn’t use Tailwind theme tokens, so a live preview isn’t available. Describe the look you want and Copilot will restyle it.' }));
     } else {
-      var accentFrom = d.accent;
-      var accentSec = h('div', { class: 'sec' }, [h('span', { class: 'label', text: 'Accent color' + (accentFrom ? ' · now ' + accentFrom : '') })]);
-      if (!accentFrom) accentSec.appendChild(h('div', { class: 'muted', text: 'No accent color detected on this page.' }));
+      // Apps themed through semantic tokens (`bg-primary`) recolor that token instead of a palette.
+      var accentFrom = d.accent, tokenAccent = accentFrom ? null : tokenAccentOf(d), accentName = accentFrom || tokenAccent;
+      var accentSec = h('div', { class: 'sec' }, [h('span', { class: 'label', text: 'Accent color' + (accentName ? ' · now ' + accentName : '') })]);
+      if (!accentName) accentSec.appendChild(h('div', { class: 'muted', text: 'No accent color detected on this page.' }));
       else {
         var hues = h('div', { class: 'hues' });
         Object.keys(HUES).filter(function (n) { return NEUTRALS.indexOf(n) < 0; }).forEach(function (hue) {
           var on = t.accent ? (!t.accent.hex && t.accent.to === hue) : hue === accentFrom;
-          var pickAccent = function (th) { th.accent = hue === accentFrom ? undefined : { from: accentFrom, to: hue }; };
+          var pickAccent = function (th) { th.accent = hue === accentFrom ? undefined : { from: accentName, to: hue, token: tokenAccent ? true : undefined }; };
           var sw = h('button', { type: 'button', class: 'swatch' + (on ? ' on' : ''), title: hue, 'aria-label': hue, style: 'background:' + paletteVar(hue, '600'), onclick: function () {
             updateTheme(pickAccent);
           } });
@@ -2478,7 +2752,7 @@
         accentSec.appendChild(hues);
         var custom = h('input', { type: 'color', title: 'Custom accent', 'aria-label': 'Custom accent', style: 'width:32px;height:24px;border:0;padding:0;background:none' });
         custom.value = t.accent && t.accent.hex ? t.accent.hex : '#4f46e5';
-        var customAccent = function (th) { th.accent = { from: accentFrom, to: 'brand', hex: custom.value }; };
+        var customAccent = function (th) { th.accent = { from: accentName, to: 'brand', hex: custom.value, token: tokenAccent ? true : undefined }; };
         custom.addEventListener('input', function () { previewTheme(customAccent); });
         custom.addEventListener('change', function () { updateTheme(customAccent); });
         custom.addEventListener('blur', endThemePreview);
@@ -2866,7 +3140,7 @@
         if (role) add(el);
       }
     }
-    return { route: route(), title: clip(document.title || '', 120), viewport: viewport(), elements: elements, findings: findings(elements) };
+    return { route: route(), title: clip(document.title || '', 120), viewport: viewport(), elements: elements, findings: findings(elements), system: designSystem() };
   }
   function findings(elements) {
     var out = [], radii = {};
@@ -2900,7 +3174,7 @@
   // ---- capture prep (the host screenshots the page, then crops each item) --------
   var captureTimer = 0, captureDark = null;
   function viewport() { return { w: window.innerWidth, h: window.innerHeight, dpr: window.devicePixelRatio || 1 }; }
-  function prepareCapture(requestId, ids) {
+  function prepareCapture(requestId, ids, selection) {
     endPreviews();
     hovered = null;
     // Only queued changes belong in the screenshot: compose() leaves out Polish
@@ -2914,14 +3188,24 @@
     }
     if (ui.layer) ui.layer.classList.add('capturing');
     var rects = {};
-    (Array.isArray(ids) && ids.length ? ids : state.items.map(function (i) { return i.id; })).forEach(function (id) {
-      var item = itemById(id), p = proj[id];
-      if (!item || item.kind === 'theme' || !p || !p.el || !p.el.isConnected) return;
-      var r = p.el.getBoundingClientRect();
+    var visible = function (el) {
+      var r = el.getBoundingClientRect();
       var x = Math.max(0, r.left), y = Math.max(0, r.top);
       var x2 = Math.min(window.innerWidth, r.right), y2 = Math.min(window.innerHeight, r.bottom);
-      if (x2 - x >= 2 && y2 - y >= 2) rects[id] = { x: Math.round(x), y: Math.round(y), w: Math.round(x2 - x), h: Math.round(y2 - y) };
+      return x2 - x >= 2 && y2 - y >= 2 ? { x: Math.round(x), y: Math.round(y), w: Math.round(x2 - x), h: Math.round(y2 - y) } : null;
+    };
+    // `selection` alone (no ids) asks only for the selected element (an Options screenshot).
+    var wanted = Array.isArray(ids) && ids.length ? ids : selection ? [] : state.items.map(function (i) { return i.id; });
+    wanted.forEach(function (id) {
+      var item = itemById(id), p = proj[id];
+      if (!item || item.kind === 'theme' || !p || !p.el || !p.el.isConnected) return;
+      var r = visible(p.el);
+      if (r) rects[id] = r;
     });
+    if (selection && state.selected && state.selected.el && state.selected.el.isConnected) {
+      var sr = visible(state.selected.el);
+      if (sr) rects.selection = sr;
+    }
     putResult(requestId, { viewport: viewport(), frame: isTop ? { x: 0, y: 0 } : null, rects: rects });
     clearTimeout(captureTimer);
     captureTimer = setTimeout(endCapture, 5000);
@@ -2965,6 +3249,8 @@
   function enableLocal(options) {
     if (!state.enabled) {
       state.enabled = true;
+      // Copilot may have changed the app's theme since Design was last on.
+      state.detected = null;
       buildChrome();
       window.addEventListener('pointermove', onPointerMove, true);
       window.addEventListener('pointerdown', onPointerDown, true);
@@ -3049,6 +3335,7 @@
       case 'clear': clearItems(); break;
       case 'openPanel': if (cmd.panel) openPanel(cmd.panel); else closePanel(); break;
       case 'applyVariations': onVariations(cmd.requestId, cmd.options); break;
+      case 'addVariation': onVariationStreamed(cmd.requestId, cmd.index, cmd.option); break;
       case 'failRequest': onRequestFailed(cmd.requestId, cmd.message); break;
       case 'collectPage': putResult(cmd.requestId, collectPage()); break;
       case 'showSuggestions': showSuggestions(cmd.suggestions, cmd.message); break;
@@ -3061,7 +3348,7 @@
         bump();
         break;
       case 'requestProgress': onRequestProgress(cmd.requestId, cmd.message); break;
-      case 'prepareCapture': prepareCapture(cmd.requestId, cmd.ids); break;
+      case 'prepareCapture': prepareCapture(cmd.requestId, cmd.ids, cmd.selection); break;
       case 'endCapture': endCapture(); bump(); break;
       default: return { accepted: false };
     }
@@ -3259,6 +3546,7 @@
       pick: pick,
       describe: describe,
       detectTheme: detectTheme,
+      designSystem: designSystem,
       themeTokens: themeTokens,
       parseColor: parseColor,
       contrastRatio: contrastRatio,

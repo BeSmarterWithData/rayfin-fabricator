@@ -78,6 +78,22 @@ describe('design prompt', () => {
     expect(prompt).toContain('isn\'t on the page currently shown (it was on /deals)')
     expect(prompt).not.toContain('Attached images')
   })
+
+  it('asks for a semantic accent to change the token in @theme and .dark', () => {
+    const tokenTheme: DesignItem = {
+      ...theme,
+      theme: {
+        accent: { from: 'primary', to: 'emerald', token: true },
+        tokens: { '--color-primary': 'var(--color-emerald-600)' },
+        darkTokens: { '--color-primary': 'var(--color-emerald-400)' },
+        summary: ['Accent: primary → emerald']
+      }
+    }
+    const prompt = composeDesignPrompt({ note: '', items: [tokenTheme] })
+    expect(prompt).toContain('- Dark mode (`.dark`) overrides previewed: {"--color-primary":"var(--color-emerald-400)"}')
+    expect(prompt).toContain('change the token itself in the `@theme` block and in the `.dark` block')
+    expect(composeDesignPrompt({ note: '', items: [theme] })).not.toContain('Semantic color tokens')
+  })
 })
 
 describe('design capture geometry', () => {
