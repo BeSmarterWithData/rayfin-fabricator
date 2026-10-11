@@ -1,7 +1,13 @@
+import intro from '@/lib/intro-video.json';
 import { siteConfig } from '@/lib/site.config';
 
 export const dynamic = 'force-static';
 export const revalidate = false;
+
+function minutes(seconds: number): string {
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
 
 export function GET() {
   return new Response(
@@ -15,7 +21,17 @@ export function GET() {
       `- Docs index for agents: ${siteConfig.baseUrl}/llms.txt`,
       `- Releases: ${siteConfig.releasesUrl}`,
       `- Source: ${siteConfig.repo}`,
+      `- YouTube: ${siteConfig.youtube.channel}`,
       '',
+      '## Intro video',
+      '',
+      `Ray, the stingray who lives in Fabricator, introduces the app (${minutes(intro.durationSeconds)}): ${siteConfig.baseUrl}${intro.src}`,
+      `On YouTube: ${siteConfig.youtube.intro}`,
+      `English captions: ${siteConfig.baseUrl}${intro.captions}`,
+      '',
+      '### Transcript',
+      '',
+      ...intro.transcript.flatMap((line) => [line, '']),
     ].join('\n'),
     { headers: { 'Content-Type': 'text/markdown; charset=utf-8' } },
   );

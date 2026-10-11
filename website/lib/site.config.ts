@@ -25,6 +25,11 @@ export const siteConfig = {
     contentDir: 'website/content/docs',
   },
   releasesUrl: 'https://github.com/spatney/rayfin-fabricator/releases/latest',
+  /** Fabricator's YouTube channel, and the intro video's dark cut on it. */
+  youtube: {
+    channel: 'https://www.youtube.com/@RayfinFabricator',
+    intro: 'https://www.youtube.com/watch?v=4T1oQmT8Bks',
+  },
   appVersion: readAppVersion(),
 } as const;
 

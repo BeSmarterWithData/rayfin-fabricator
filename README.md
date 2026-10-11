@@ -8,6 +8,7 @@
   <p>
     <a href="https://github.com/spatney/rayfin-fabricator/releases/latest"><img alt="Download Fabricator" src="https://img.shields.io/badge/Download-Fabricator-0078D4?style=for-the-badge" /></a>
     <a href="https://spatney.github.io/rayfin-fabricator/docs"><img alt="Read the docs" src="https://img.shields.io/badge/Read-the%20docs-35A3EA?style=for-the-badge" /></a>
+    <a href="https://www.youtube.com/watch?v=4T1oQmT8Bks"><img alt="Watch the intro video on YouTube" src="https://img.shields.io/badge/Watch-the%20intro-FF0000?style=for-the-badge&amp;logo=youtube&amp;logoColor=white" /></a>
   </p>
 
   <p>
@@ -19,7 +20,11 @@
 
 <div align="center">
   <a href="https://spatney.github.io/rayfin-fabricator/">
-    <img src="./website/public/screenshots/workbench.webp" alt="The Fabricator workbench: the chat on the left shows a finished Copilot turn that built an expense tracker, and the live preview on the right shows the deployed app." width="100%" />
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="./website/public/screenshots/workbench.webp" />
+      <source media="(prefers-color-scheme: light)" srcset="./website/public/screenshots/workbench.light.webp" />
+      <img src="./website/public/screenshots/workbench.webp" alt="The Fabricator workbench: the chat on the left shows a finished Copilot turn that built an expense tracker, and the live preview on the right shows the deployed app." width="100%" />
+    </picture>
   </a>
   <p><sub>Build, preview, and ship — all in one window.</sub></p>
 </div>
