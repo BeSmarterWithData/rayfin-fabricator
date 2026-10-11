@@ -20,9 +20,10 @@ function minutes(seconds: number): string {
  * The intro video, hosted by Ray, in a light and a dark cut that follow the site's theme. It
  * downloads nothing until someone presses play, then plays with sound, native controls and
  * English captions. Switching the theme mid-play carries on in the other cut from the same
- * moment. If it can't load, the workbench screenshot takes its place.
+ * moment. If it can't load, the workbench screenshot takes its place. `youtube` is the same
+ * video on YouTube, linked under the player.
  */
-export function ProductVideo() {
+export function ProductVideo({ youtube }: { youtube: string }) {
   const video = useRef<HTMLVideoElement>(null);
   const resume = useRef<{ time: number; play: boolean } | null>(null);
   const [started, setStarted] = useState(false);
@@ -118,15 +119,19 @@ export function ProductVideo() {
           </button>
         )}
       </div>
-      <figcaption className="px-2 pt-3 text-left text-sm text-fd-muted-foreground sm:px-3">
+      <figcaption className="relative px-2 pt-3 text-left text-sm text-fd-muted-foreground sm:px-3">
         <details>
-          <summary className="cursor-pointer select-none font-medium text-fd-foreground">Read the transcript</summary>
+          <summary className="cursor-pointer select-none pr-36 font-medium text-fd-foreground">Read the transcript</summary>
           <div className="mt-2 space-y-2 leading-6">
             {intro.transcript.map((line) => (
               <p key={line}>{line}</p>
             ))}
           </div>
         </details>
+        {/* Pinned beside the summary, so an open transcript keeps the full width. */}
+        <a href={youtube} className="absolute right-2 top-3 font-medium text-fd-foreground hover:underline sm:right-3">
+          Watch on YouTube
+        </a>
       </figcaption>
     </figure>
   );

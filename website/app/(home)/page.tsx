@@ -261,7 +261,7 @@ export default function HomePage() {
 
 
 
-      <ProductVideo />
+      <ProductVideo youtube={siteConfig.youtube.intro} />
 
 
 

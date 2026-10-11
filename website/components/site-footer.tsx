@@ -11,6 +11,7 @@ export function SiteFooter({ showVersion = false }: { showVersion?: boolean }) {
         <a className="hover:text-fd-foreground hover:underline" href={siteConfig.repo}>GitHub</a>
         <a className="hover:text-fd-foreground hover:underline" href={`${siteConfig.repo}/blob/master/LICENSE`}>MIT License</a>
         <a className="hover:text-fd-foreground hover:underline" href={siteConfig.releasesUrl}>Releases</a>
+        <a className="hover:text-fd-foreground hover:underline" href={siteConfig.youtube.channel}>YouTube</a>
         {showVersion ? <span>Documented for Fabricator {siteConfig.appVersion}</span> : null}
       </div>
     </footer>

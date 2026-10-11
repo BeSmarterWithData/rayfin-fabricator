@@ -84,6 +84,11 @@ their posters `fabricator-intro-poster.webp` and `fabricator-intro-poster.light.
 `website/lib/intro-video.json`, which holds the files, duration and transcript for the landing
 page and its `.md` mirror. Only publish cuts you've watched all the way through.
 
+The dark cut is also on [Fabricator's YouTube channel](https://www.youtube.com/@RayfinFabricator),
+with the English captions, and the landing page and README link to it. When you publish a new
+cut, upload it there too and update `youtube.intro` in `website/lib/site.config.ts` and the
+badge in the repo's `README.md`.
+
 Before it writes anything, `publish` checks that both cuts are rendered and the same length,
 that every screenshot the video shows is on the site in both themes (so neither cut was made
 with a stand-in), and that none changed after the cuts were rendered. If a check fails, it

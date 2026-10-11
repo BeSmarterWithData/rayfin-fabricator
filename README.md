@@ -8,6 +8,7 @@
   <p>
     <a href="https://github.com/spatney/rayfin-fabricator/releases/latest"><img alt="Download Fabricator" src="https://img.shields.io/badge/Download-Fabricator-0078D4?style=for-the-badge" /></a>
     <a href="https://spatney.github.io/rayfin-fabricator/docs"><img alt="Read the docs" src="https://img.shields.io/badge/Read-the%20docs-35A3EA?style=for-the-badge" /></a>
+    <a href="https://www.youtube.com/watch?v=4T1oQmT8Bks"><img alt="Watch the intro video on YouTube" src="https://img.shields.io/badge/Watch-the%20intro-FF0000?style=for-the-badge&amp;logo=youtube&amp;logoColor=white" /></a>
   </p>
 
   <p>
