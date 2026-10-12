@@ -27,5 +27,12 @@ export default tseslint.config(
       sourceType: 'module',
       globals: { ...globals.node }
     }
+  },
+  // The YouTube tools also run code inside the browser's pages.
+  {
+    files: ['scripts/videos/tools/youtube/**/*.mjs'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser }
+    }
   }
 )

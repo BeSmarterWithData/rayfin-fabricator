@@ -1,8 +1,10 @@
 # Publishing a lesson on YouTube
 
 `npm run lesson:package -- <n>` makes everything YouTube needs in
-`scripts/videos/out/lessons/<slug>/youtube/`, and writes `youtube.md`, with what to paste and an
-upload checklist. These are the rules it follows, and what's left to do by hand.
+`scripts/videos/out/lessons/<slug>/youtube/`: the video, captions, thumbnail, `youtube.md` (what
+to paste, and an upload checklist) and `upload.json` (the same, for the YouTube tools). These
+are the rules it follows. [youtube-studio.md](youtube-studio.md) is how to upload a lesson with
+the tools, and how to change it once it's up.
 
 ## The title
 
@@ -39,19 +41,26 @@ The `Lesson<NN>Thumbnail` still is drawn at 1920×1080 and delivered as a 1280×
 ## Captions and the end screen
 
 - Upload `<slug>.en.vtt` as English captions. They're timed from Ray's voice, without audio tags.
-- The end screen runs for the last 5–20 seconds. Put a **video** element over the NEXT UP slot on
-  the left (the next lesson, or the playlist until the next lesson is up) and a **subscribe**
-  element over the round slot on the right. `youtube.md` gives the time it starts.
+- The end screen's elements show from the first whole second of the `next` scene, which draws
+  their slots, to the end: at most 20 seconds, and at least 5. A **video** element goes over the
+  NEXT UP slot on the left (the next lesson, or the playlist until the next lesson is up) and a
+  **subscribe** element over the round slot on the right. The slots are `END_SLOTS` in
+  `src/show/youtube.ts`, and `youtube.md` gives the start time as Studio's editor takes it
+  (`m:ss:ff`). The `endscreen` step places both.
 
 ## Settings
 
 - **Audience: not made for kids.** Videos made for kids lose comments and end screens, and every
   lesson asks for both.
-- **Category:** Education. **Language:** English.
-- **Playlist:** Learn Rayfin with Ray, in lesson order, after the Fabricator intro if you include it.
+- **Category:** Education. **Language:** English. **Paid promotion:** none.
+- **AI use:** the channel's answer, `aiUse` in `lessons/channel.ts` (see
+  [youtube-studio.md](youtube-studio.md#rules)).
+- **Playlist:** Learn Rayfin with Ray, in lesson order, after the Fabricator intro.
 - **Pinned comment:** the challenge, from `youtube.md`.
 
 ## After it's up
 
-Set the lesson to Published in `SYLLABUS.md`, with its link. Set the previous lesson's end-screen
-video element to this one, and this lesson's `youtube.ts` `next` should name the following lesson.
+Record its video id in `lessons/channel.ts`, point the previous lesson's end screen at it, check
+both, and set the lesson to Published in `SYLLABUS.md` with its link: steps 8 to 12 in
+[youtube-studio.md](youtube-studio.md#publish-a-new-lesson). This lesson's `youtube.ts` `next`
+already names the one after it.

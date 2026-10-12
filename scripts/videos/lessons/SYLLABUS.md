@@ -14,14 +14,15 @@ reads it before making a lesson and updates the status table when a lesson ships
 - **Length:** 3–5 minutes. One idea per lesson, with a demo and a quiz.
 - **Rayfin version:** every lesson is checked against one Rayfin release, named in its
   `script.ts` and in its YouTube description. Season 1 is checked against **1.36.2**.
-- **Playlist order:** the Fabricator intro (optional "meet your guide"), then the lessons in
-  the order below.
+- **Playlist:** [Learn Rayfin with Ray](https://www.youtube.com/playlist?list=PLXW2FECmSE6Q) on
+  [Fabricator's channel](https://www.youtube.com/@RayfinFabricator): the Fabricator intro ("meet
+  your guide"), then the lessons in the order below.
 
 ## Status
 
 | # | Lesson | Folder | Status |
 | --- | --- | --- | --- |
-| 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Rendered: ready to upload (`npm run lesson:package -- 1`) |
+| 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Published: [youtu.be/n-VtBCmtn78](https://youtu.be/n-VtBCmtn78) |
 | 2 | Your first Rayfin app | | Planned |
 | 3 | Inside a Rayfin project | | Planned |
 | 4 | Entities and field types | | Planned |

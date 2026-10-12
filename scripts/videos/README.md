@@ -238,11 +238,32 @@ video shows or says (the lesson's `script.ts`, `scenes.tsx`, `snippets.ts`, `you
 `timeline.json`, and `lessons/series.ts`), and a render whose frame count no longer matches the
 lesson's timing, since the captions and chapters come from that timing. It writes
 `out/lessons/<slug>/youtube/`: the video, English captions (`.en.vtt`), a
-1280×720 thumbnail under 2 MB, and `youtube.md`, with the title, the description (chapters that
+1280×720 thumbnail under 2 MB, `youtube.md`, with the title, the description (chapters that
 follow YouTube's rules, the sources, the challenge and the disclaimer), tags, a pinned comment,
-where the end screen's elements go, and an upload checklist. A copy of `youtube.md` stays in the
-lesson's folder as a record. Upload it by hand, set it as not made for kids (videos made for
-kids lose comments and end screens), and add it to the playlist.
+where the end screen's elements go, and an upload checklist, and `upload.json`, the same for the
+YouTube tools. A copy of `youtube.md` stays in the lesson's folder as a record.
+
+The YouTube tools in `tools/youtube/` upload a lesson to
+[Fabricator's channel](https://www.youtube.com/@RayfinFabricator) by driving YouTube Studio in a
+browser you sign in to:
+
+```powershell
+npm run yt:browser                  # Edge, with its own profile (outside the repo) and DevTools on 127.0.0.1
+npm run yt:driver                   # left running: stays attached, since Studio closes dialogs when it lets go
+npm run yt -- status                # signed in, and on the channel?
+npm run yt -- upload --lesson 2     # then details, subtitles, endscreen and visibility --as public
+npm run yt -- publish --confirm     # after you've looked at what visibility reports
+npm run yt -- comment --lesson 2    # the challenge, as the channel, pinned
+npm run yt -- check --lesson 2      # public, captions, links, chapters, end screen, comment, playlist
+```
+
+Each step checks its work and saves screenshots to `out/youtube/shots/`; `npm run yt -- --list`
+says what each does. `lessons/channel.ts` holds the channel, the playlist and each published
+lesson's video id. The `endscreen` step puts YouTube's elements on the slots the lesson draws
+(`END_SLOTS` in `src/show/youtube.ts`), in an upload or, with `--video-id <id> --replace`, on a
+published video, such as pointing a lesson at the next one once it's up. The whole procedure,
+the rules for it and what Studio does are in the skill's
+[`references/youtube-studio.md`](../../.github/skills/learn-rayfin-with-ray/references/youtube-studio.md).
 
 ## Costs and licenses
 

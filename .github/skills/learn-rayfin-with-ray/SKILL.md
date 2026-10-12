@@ -1,6 +1,6 @@
 ---
 name: learn-rayfin-with-ray
-description: Make, change or plan lessons of "Learn Rayfin with Ray", the YouTube series where Ray, Fabricator's stingray, teaches Rayfin. The lessons are built as code with Remotion and ElevenLabs in scripts/videos. Use when asked to make the next Rayfin lesson or tutorial video, to write, voice, animate, render or package a lesson for YouTube, to fix a lesson, or to update the series' lesson plan (SYLLABUS.md).
+description: Make, change or plan lessons of "Learn Rayfin with Ray", the YouTube series where Ray, Fabricator's stingray, teaches Rayfin. The lessons are built as code with Remotion and ElevenLabs in scripts/videos. Use when asked to make the next Rayfin lesson or tutorial video, to write, voice, animate, render or package a lesson for YouTube, to upload or publish a lesson to the YouTube channel or update one that's up (end screen, pinned comment, details), to fix a lesson, or to update the series' lesson plan (SYLLABUS.md).
 ---
 
 # Learn Rayfin with Ray
@@ -16,11 +16,13 @@ Where things live, all under `scripts/videos/` (read its `README.md` before you 
 | --- | --- |
 | `lessons/SYLLABUS.md` | The lesson plan: every lesson's topic, hook, Deep Dive, demo, quiz and sources, and the status table |
 | `lessons/series.ts` | The series' name, Ray's voice and tempo, the music bed, links and disclaimer |
+| `lessons/channel.ts` | The YouTube channel, the playlist, each published lesson's video id, and the channel's AI-use answer |
 | `lessons/<NN>-<slug>/` | One lesson: `script.ts`, `snippets.ts`, `youtube.ts`, `scenes.tsx`, and the generated `timeline.json` and `youtube.md` |
 | `lessons/01-what-is-rayfin/` | The finished first lesson: the model to follow |
 | `src/lesson-kit/` | Scene building blocks (see [references/scene-kit.md](references/scene-kit.md)) |
-| `src/show/` | The engine: `plan.ts` (timing), `Show.tsx` (playback and mix), `youtube.ts` (description) |
+| `src/show/` | The engine: `plan.ts` (timing), `Show.tsx` (playback and mix), `youtube.ts` (description, upload data, end-screen slots) |
 | `tools/lesson-*.mjs`, `tools/sfx.mjs` | The lesson tools, run through the `npm run lesson:*` scripts |
+| `tools/youtube/` | The YouTube tools, run through `npm run yt:browser`, `yt:driver` and `yt` (see [references/youtube-studio.md](references/youtube-studio.md)) |
 
 ## Rules you never break
 
@@ -53,6 +55,9 @@ Where things live, all under `scripts/videos/` (read its `README.md` before you 
 7. **Keys and credits.** Never print the ElevenLabs key. The tools check credits and keep a
    2,000-credit reserve; if they stop, tell the user rather than working around it.
 8. **Ray sounds like Ray.** Follow [references/ray-voice.md](references/ray-voice.md).
+9. **On YouTube, the user signs in and says yes.** Never type a password or a code for them, and
+   ask before publishing or changing anything viewers see. Follow
+   [references/youtube-studio.md](references/youtube-studio.md).
 
 ## Make a lesson
 
@@ -152,14 +157,31 @@ npm run lesson:package -- <n>    # refuses a stale render; video, captions, thum
 ```
 
 Read the problems `lesson:package` prints, and the "Check before uploading" list in
-`youtube.md`. Set the lesson's status in `SYLLABUS.md` to Rendered. Once the user uploads it,
-set it to Published with the link, and point the next lesson's `youtube.ts` `next` at it.
+`youtube.md`. Set the lesson's status in `SYLLABUS.md` to Rendered, and have the user watch the
+whole video before it goes up.
 
-### 9. Commit
+### 9. Publish on YouTube
+
+With the user's go-ahead, upload it with the YouTube tools, following
+[references/youtube-studio.md](references/youtube-studio.md):
+
+```powershell
+npm run yt:browser                         # Edge with its own profile; the user signs in there
+npm run yt:driver                          # in an async shell, left running
+npm run yt -- upload --lesson <n>          # then details, subtitles, endscreen, visibility
+npm run yt -- publish --confirm            # only after the user says yes to the summary
+npm run yt -- comment --lesson <n>         # the challenge, pinned
+npm run yt -- check --lesson <n>           # as viewers see it
+```
+
+Then record the video id in `lessons/channel.ts`, point the previous lesson's end screen at it,
+and set the lesson to Published in `SYLLABUS.md` with its link.
+
+### 10. Commit
 
 Commit the lesson's folder (including `timeline.json` and `youtube.md`),
-`public/audio/lessons/<slug>/`, any new effects and kit changes, and `SYLLABUS.md`. Renders stay
-in `out/`, which is gitignored.
+`public/audio/lessons/<slug>/`, any new effects and kit changes, `lessons/channel.ts` and
+`SYLLABUS.md`. Renders stay in `out/`, which is gitignored.
 
 ## Review checklist
 
@@ -188,3 +210,9 @@ in `out/`, which is gitignored.
 | `Not enough ElevenLabs credits` | Tell the user. Don't lower `ELEVENLABS_RESERVE` without asking. |
 | `lesson:snippets` fails | Read the error for the named snippet, and check the package docs in the scratch app. Fix the snippet, not the check. |
 | A screenshot is missing or stale | Refresh it with `scripts/docs-screenshots`, then `npm run assets`. |
+| A word comes out wrong in Ray's voice | Respell it for the voice: `say: { APIs: "API's" }` on the line, then `npm run lesson:voice -- <n> <id>`. |
+| `The driver isn't running` | `npm run yt:browser`, then `npm run yt:driver` in an async shell. |
+| `A driver is already running` | Use it. To restart it, stop its shell first, when no Studio dialog is open. |
+| The `status` step says Studio wants a sign-in | Ask the user to sign in to the channel in the browser window `yt:browser` opened, then run `status` again. |
+| A YouTube step fails after Studio changed | Read its error and `out/youtube/shots/error.png`, explore with `npm run yt -- -e "…"`, fix the step, and note what changed in references/youtube-studio.md. |
+| `Pinning needs the channel's advanced features` | Ask the user to verify in Studio → Settings → Channel → Feature eligibility. |

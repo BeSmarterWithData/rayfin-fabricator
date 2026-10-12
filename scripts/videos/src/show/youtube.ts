@@ -30,6 +30,40 @@ export interface SeriesInfo {
 export const MIN_CHAPTERS = 3;
 export const MIN_CHAPTER_SECONDS = 10;
 
+/**
+ * Where a lesson's end screen leaves room for YouTube's elements, in frame pixels (1920×1080).
+ * `EndScreen` draws the slots; the YouTube tools put the elements on them.
+ */
+export const END_SLOTS = {
+  /** A 16:9 video element: the next lesson. */
+  video: { x: 170, y: 330, w: 760, h: 428 },
+  /** A round subscribe element. */
+  subscribe: { x: 1500, y: 545, r: 120 },
+} as const;
+
+/** YouTube's end screens run for 5–20 seconds at the end of a video. */
+export const END_SCREEN_MIN = 5;
+export const END_SCREEN_MAX = 20;
+
+/**
+ * When the end screen's elements show, in seconds: from the first whole second of the `next`
+ * scene, which draws the slots (or 20 s before the end, if that's later), to the end.
+ */
+export function endScreenWindow(plan: Pick<Plan, 'fps' | 'total' | 'scenes'>): { from: number; to: number; problems: string[] } {
+  const to = plan.total / plan.fps;
+  const slots = (plan.scenes.next?.from ?? plan.total) / plan.fps;
+  const from = Math.ceil(Math.max(to - END_SCREEN_MAX, slots));
+  const problems = to - from < END_SCREEN_MIN ? [`The end screen lasts ${(to - from).toFixed(1)} s; YouTube needs at least ${END_SCREEN_MIN}.`] : [];
+  return { from, to, problems };
+}
+
+/** A time as YouTube Studio's editors take it: `m:ss:ff`, where `ff` is frames. */
+export function studioTime(seconds: number, fps: number): string {
+  const frames = Math.round(seconds * fps);
+  const s = Math.floor(frames / fps);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}:${String(frames % fps).padStart(2, '0')}`;
+}
+
 /** `m:ss`, or `h:mm:ss` past an hour. */
 export function timestamp(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
@@ -101,4 +135,58 @@ export function describe(spec: YouTubeSpec, script: LessonScript, plan: Plan, se
   out.push('');
   out.push(series.hashtags.join(' '));
   return { text: out.join('\n'), problems };
+}
+
+/** The comment to pin under a lesson: Ray's challenge, with the prompt to paste into Fabricator. */
+export function pinnedComment(spec: YouTubeSpec): string {
+  return `Ray’s challenge: ${spec.challenge.task}\nTry this in Fabricator’s chat:\n“${spec.challenge.prompt}”\n${spec.challenge.question}`;
+}
+
+/**
+ * All YouTube needs to know about a lesson but its files: what `lesson:package` writes to
+ * upload.json, and what the YouTube tools (tools/youtube/) read.
+ */
+export interface UploadSpec {
+  lesson: number;
+  slug: string;
+  title: string;
+  description: string;
+  tags: string[];
+  pinnedComment: string;
+  playlist: string;
+  category: 'Education';
+  language: 'English';
+  madeForKids: false;
+  next: YouTubeSpec['next'];
+  fps: number;
+  /** In seconds; `start` as Studio's editor takes it. */
+  endScreen: { from: number; to: number; start: string; slots: typeof END_SLOTS };
+  /** What breaks YouTube's limits or rules, to fix before uploading. */
+  problems: string[];
+}
+
+export function uploadSpec(spec: YouTubeSpec, script: LessonScript, plan: Plan, series: SeriesInfo & { tags: readonly string[] }): UploadSpec {
+  const { text: description, problems } = describe(spec, script, plan, series);
+  if (spec.title.length > 100) problems.push(`The title is ${spec.title.length} characters; YouTube allows 100.`);
+  if (description.length > 5000) problems.push(`The description is ${description.length} characters; YouTube allows 5,000.`);
+  const tags = [...new Set([...series.tags, ...(spec.tags ?? [])])];
+  if (tags.join(',').length > 500) problems.push('The tags run over YouTube’s 500 characters.');
+  const end = endScreenWindow(plan);
+  problems.push(...end.problems);
+  return {
+    lesson: script.number,
+    slug: script.slug,
+    title: spec.title,
+    description,
+    tags,
+    pinnedComment: pinnedComment(spec),
+    playlist: series.name,
+    category: 'Education',
+    language: 'English',
+    madeForKids: false,
+    next: spec.next,
+    fps: plan.fps,
+    endScreen: { from: end.from, to: end.to, start: studioTime(end.from, plan.fps), slots: END_SLOTS },
+    problems,
+  };
 }

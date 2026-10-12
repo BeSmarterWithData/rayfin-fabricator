@@ -26,11 +26,16 @@ export function lessonArg(argv = process.argv.slice(2)) {
   return n;
 }
 
-export async function loadLesson(n) {
+/**
+ * The lesson's files and where its outputs go. `fresh` imports its files again rather than from
+ * Node's module cache, for long-running tools (the YouTube driver) that must see edits.
+ */
+export async function loadLesson(n, { fresh = false } = {}) {
   const slug = lessonFolders().find((d) => Number(d.slice(0, 2)) === n);
   if (!slug) throw new Error(`lessons/ has no folder for lesson ${n}. Start one with npm run lesson:new -- ${n} <slug> "<title>".`);
   const dir = path.join(LESSONS_DIR, slug);
-  const load = (file) => import(pathToFileURL(path.join(dir, file)).href);
+  const version = fresh ? `?v=${Date.now()}` : '';
+  const load = (file) => import(pathToFileURL(path.join(dir, file)).href + version);
   const { SCRIPT } = await load('script.ts');
   const { YOUTUBE } = await load('youtube.ts');
   const snippets = existsSync(path.join(dir, 'snippets.ts')) ? ((await load('snippets.ts')).SNIPPETS ?? {}) : {};

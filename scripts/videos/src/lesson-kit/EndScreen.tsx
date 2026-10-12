@@ -1,15 +1,10 @@
 import type { ReactNode } from 'react';
 import { Img, staticFile, useCurrentFrame, useVideoConfig } from 'remotion';
 import { ease, pop, ramp } from '../anim';
+import { END_SLOTS } from '../show/youtube';
 import { FONT, alpha, useTheme } from '../theme';
 
-/** Where the end screen leaves room for YouTube's elements, in frame pixels. */
-export const END_SLOTS = {
-  /** A 16:9 video element: the next lesson. */
-  video: { x: 170, y: 330, w: 760, h: 428 },
-  /** A round subscribe element. */
-  subscribe: { x: 1500, y: 545, r: 120 },
-} as const;
+export { END_SLOTS };
 
 /**
  * The last 15–20 seconds: the next lesson in a 16:9 slot and a round subscribe slot, for
