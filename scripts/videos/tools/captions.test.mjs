@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildCues, holdCues, toVtt, videoCues, wordsFromAlignment } from './captions.mjs';
+import { buildCues, holdCues, mergeOrphans, toVtt, videoCues, wordsFromAlignment } from './captions.mjs';
 
 /** An alignment where every character takes 50 ms, as ElevenLabs returns it. */
 function align(text) {
@@ -73,4 +73,20 @@ test('video cues are offset by where each line starts', () => {
 test('WebVTT output', () => {
   const vtt = toVtt([{ text: 'Hi!', startMs: 1500, endMs: 62_250 }]);
   assert.equal(vtt, 'WEBVTT\n\n1\n00:00:01.500 --> 00:01:02.250\nHi!\n');
+});
+
+test('a sentence’s last word joins the cue before it, but a one-word sentence stands alone', () => {
+  const cues = [
+    { text: 'And rayfin up ships it all to Microsoft', startMs: 0, endMs: 2000 },
+    { text: 'Fabric.', startMs: 2060, endMs: 2600 },
+    { text: 'Our skeletons are cartilage, not bone.', startMs: 3000, endMs: 5000 },
+    { text: 'Bendy!', startMs: 5800, endMs: 6400 },
+  ];
+  assert.deepEqual(mergeOrphans(cues), [
+    { text: 'And rayfin up ships it all to Microsoft Fabric.', startMs: 0, endMs: 2600 },
+    { text: 'Our skeletons are cartilage, not bone.', startMs: 3000, endMs: 5000 },
+    { text: 'Bendy!', startMs: 5800, endMs: 6400 },
+  ]);
+  const long = [{ text: 'x'.repeat(50), startMs: 0, endMs: 1000 }, { text: 'end.', startMs: 1050, endMs: 1400 }];
+  assert.equal(mergeOrphans(long).length, 2);
 });

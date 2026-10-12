@@ -13,6 +13,9 @@
     "forceConsistentCasingInFileNames": true,
     "allowJs": true,
     "checkJs": false,
+    // Pure modules (timing, lesson plans and scripts) are shared with the Node tools, which
+    // need explicit .ts extensions to import them through Node's type stripping.
+    "allowImportingTsExtensions": true,
     // Ray comes from the app (../../src/renderer). Point every `react` import, his included,
     // at this project's types so the program never sees two copies of @types/react.
     "baseUrl": ".",
@@ -25,5 +28,5 @@
     "typeRoots": ["./node_modules/@types"],
     "types": ["node"]
   },
-  "include": ["src/**/*", "script/**/*", "remotion.config.ts"]
+  "include": ["src/**/*", "script/**/*", "lessons/**/*", "remotion.config.ts"]
 }

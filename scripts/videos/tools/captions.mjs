@@ -132,3 +132,20 @@ export function videoCues(lines, starts, options) {
   cues.sort((a, b) => a.startMs - b.startMs);
   return holdCues(cues);
 }
+
+/**
+ * Folds a cue that's one word ending a sentence the cue before started ("…to Microsoft" then
+ * "Fabric.") back into that cue, when the two fit in `maxChars` and follow each other closely.
+ * A one-word sentence of its own, such as "Bendy!", stays.
+ */
+export function mergeOrphans(cues, { maxChars = 54, maxGapMs = 400 } = {}) {
+  const out = [];
+  for (const cue of cues) {
+    const prev = out[out.length - 1];
+    const orphan = !/\s/.test(cue.text.trim());
+    if (prev && orphan && !SENTENCE_END.test(prev.text) && cue.startMs - prev.endMs <= maxGapMs && prev.text.length + 1 + cue.text.length <= maxChars) {
+      out[out.length - 1] = { text: `${prev.text} ${cue.text}`, startMs: prev.startMs, endMs: Math.max(prev.endMs, cue.endMs) };
+    } else out.push(cue);
+  }
+  return out;
+}

@@ -7,6 +7,7 @@
 //   node tools/contact-sheet.mjs --frames 30,95,400    exact frames
 //   node tools/contact-sheet.mjs --scenes              the middle of every scene, plus its first word
 //   node tools/contact-sheet.mjs --composition RayCheck --frames 10,30,60
+//   node tools/contact-sheet.mjs --lesson 1 --scenes   a lesson (npm run lesson:sheet -- 1 --scenes)
 //
 // Writes out/contact-sheet.jpg (out/contact-sheet.light.jpg for the light cut, and
 // out/contact-sheet-<id>.jpg for any other composition) and keeps the full-size stills in
@@ -17,8 +18,10 @@ import path from 'node:path';
 import { bundle } from '@remotion/bundler';
 import { ensureBrowser, renderStill, selectComposition } from '@remotion/renderer';
 import { webpackOverride } from '../webpack-override.mjs';
+import { loadLesson } from './lesson.mjs';
 import { CUTS, OUT, REPO, ROOT, TIMELINE } from './paths.mjs';
 import { layout } from '../src/timing.ts';
+import { draftTimeline, planLesson } from '../src/show/plan.ts';
 
 const sharp = createRequire(path.join(REPO, 'website', 'package.json'))('sharp');
 
@@ -29,10 +32,17 @@ function option(name, fallback) {
   return value === undefined || value.startsWith('--') ? true : value;
 }
 
+/** The lesson named by --lesson, if any. */
+const LESSON = typeof option('lesson') === 'string' ? await loadLesson(Number(option('lesson'))) : null;
+
 async function framesToShow(composition) {
   const explicit = option('frames');
   if (typeof explicit === 'string') return explicit.split(',').map((f) => Number(f.trim()));
   if (option('scenes') === true) {
+    if (LESSON) {
+      const plan = planLesson(LESSON.script, draftTimeline(LESSON.script, LESSON.timeline));
+      return Object.values(plan.scenes).flatMap((s) => [s.from + 8, s.from + Math.floor(s.duration / 2)]);
+    }
     const timeline = JSON.parse(await readFile(TIMELINE, 'utf8'));
     const l = layout(timeline);
     return Object.values(l.scenes).flatMap((s) => [s.from + 8, s.from + Math.floor(s.duration / 2)]);
@@ -46,10 +56,11 @@ async function main() {
   const theme = option('theme', 'dark');
   const cut = CUTS[theme];
   if (!cut) throw new Error(`--theme must be one of ${Object.keys(CUTS).join(', ')}.`);
-  const id = option('composition', cut.composition);
+  const id = LESSON ? LESSON.composition : option('composition', cut.composition);
+  const inputProps = LESSON ? { lesson: LESSON.number, theme } : undefined;
   await ensureBrowser();
   const serveUrl = await bundle({ entryPoint: path.join(ROOT, 'src', 'index.ts'), webpackOverride: webpackOverride(ROOT) });
-  const composition = await selectComposition({ serveUrl, id });
+  const composition = await selectComposition({ serveUrl, id, inputProps });
   const frames = await framesToShow(composition);
   const dir = path.join(OUT, 'stills');
   await mkdir(dir, { recursive: true });
@@ -57,7 +68,7 @@ async function main() {
   const tiles = [];
   for (const frame of frames) {
     const output = path.join(dir, `${id}-${String(frame).padStart(5, '0')}.png`);
-    await renderStill({ serveUrl, composition, frame, output, imageFormat: 'png' });
+    await renderStill({ serveUrl, composition, frame, output, imageFormat: 'png', inputProps });
     tiles.push({ frame, output });
     process.stdout.write(`${frame} `);
   }

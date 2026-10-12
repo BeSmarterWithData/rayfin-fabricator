@@ -3,7 +3,8 @@ import globals from 'globals'
 import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
-  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'out-tsc/**', 'src-tauri/src/**', 'src-tauri/target/**', 'src-tauri/vendor/**', 'website/**'] },
+  // scripts/videos generates renders (out/) and a scratch Rayfin app for checking lesson code (.cache/).
+  { ignores: ['out/**', 'dist/**', 'node_modules/**', 'out-tsc/**', 'src-tauri/src/**', 'src-tauri/target/**', 'src-tauri/vendor/**', 'website/**', 'scripts/videos/out/**', 'scripts/videos/.cache/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

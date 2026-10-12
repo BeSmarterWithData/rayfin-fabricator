@@ -1,9 +1,9 @@
 {
-  "name": "fabricator-intro-video",
+  "name": "fabricator-videos",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "The intro video on the docs site's landing page, hosted by Ray. Rendered with Remotion; voice, music and sound effects from ElevenLabs.",
+  "description": "Videos hosted by Ray: the docs site's intro and the Learn Rayfin with Ray lessons. Rendered with Remotion; voice, music and sound effects from ElevenLabs.",
   "scripts": {
     "assets": "node tools/sync-assets.mjs",
     "studio": "npm run assets && remotion studio src/index.ts",
@@ -17,6 +17,13 @@
     "contact-sheet": "node tools/contact-sheet.mjs",
     "loudness": "node tools/loudness.mjs",
     "publish": "node tools/publish.mjs",
+    "lesson:new": "node tools/lesson-new.mjs",
+    "lesson:snippets": "node tools/lesson-snippets.mjs",
+    "lesson:voice": "node tools/lesson-voice.mjs",
+    "lesson:music": "node tools/lesson-music.mjs",
+    "lesson:render": "npm run assets && node tools/lesson-render.mjs",
+    "lesson:sheet": "npm run assets && node tools/contact-sheet.mjs --lesson",
+    "lesson:package": "node tools/lesson-package.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"tools/**/*.test.mjs\""
   },
