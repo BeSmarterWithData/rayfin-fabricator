@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** scripts/intro-video */
+/** scripts/videos */
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /** The repository root. */
 export const REPO = path.resolve(ROOT, '..', '..');

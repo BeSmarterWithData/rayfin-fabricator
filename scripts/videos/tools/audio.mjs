@@ -9,7 +9,7 @@ import { ROOT } from './paths.mjs';
 function binary(name) {
   const dir = path.join(ROOT, 'node_modules', '@remotion');
   const compositor = existsSync(dir) ? readdirSync(dir).find((d) => d.startsWith('compositor-')) : undefined;
-  if (!compositor) throw new Error('Remotion is not installed. Run npm install in scripts/intro-video.');
+  if (!compositor) throw new Error('Remotion is not installed. Run npm install in scripts/videos.');
   const exe = path.join(dir, compositor, process.platform === 'win32' ? `${name}.exe` : name);
   if (!existsSync(exe)) throw new Error(`${name} is missing from ${compositor}.`);
   return { exe, dir: path.dirname(exe) };
