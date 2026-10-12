@@ -191,8 +191,10 @@ npm run lesson:package -- 2          # the YouTube package: video, captions, thu
    Its `.agents/skills/rayfin/SKILL.md` and its packages' own docs are the version-locked
    reference for the script, too.
 3. Have the script approved, then voice it with `lesson:voice`. A line keeps its clip while its
-   words and seed don't change; to retake one, give it a new `seed`. The tool refuses lines that
-   still say TODO.
+   words and seed don't change; to retake one, give it a new `seed`. If Ray says a word wrong,
+   give the line a respelling for the voice alone, such as `say: { APIs: "API's" }`: the
+   captions and word cues keep the word as written. A respelling is one word, with no spaces.
+   The tool refuses lines that still say TODO.
 4. Build `scenes.tsx` from the kit, timing beats to words (`ctx.w('table')`,
    `ctx.at('quiz-options', 'C')`). A line that isn't voiced yet plays at a stand-in pace, so
    scenes can be built before any credits are spent; the real timings replace it line by line.

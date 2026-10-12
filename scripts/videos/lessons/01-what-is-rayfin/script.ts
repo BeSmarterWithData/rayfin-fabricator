@@ -101,7 +101,7 @@ export const SCRIPT = {
       id: 'recap',
       chapter: 'Recap and your challenge',
       beats: [
-        { id: 'recap', text: "Let's recap. An entity is a TypeScript class with decorators. From it, Rayfin makes your table, APIs, typed client and security. And rayfin up ships it all to Microsoft Fabric.", sources: [`${R}/data`, R] },
+        { id: 'recap', text: "Let's recap. An entity is a TypeScript class with decorators. From it, Rayfin makes your table, APIs, typed client and security. And rayfin up ships it all to Microsoft Fabric.", say: { APIs: "API's" }, sources: [`${R}/data`, R] },
       ],
     },
     {

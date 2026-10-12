@@ -24,6 +24,12 @@ export interface LineSpec {
   /** Overrides the voice's seed, for a retake of this line without changing its words. */
   seed?: number;
   /**
+   * Words the voice says wrong, and how to spell them so it says them right: `{ APIs: "API's" }`.
+   * The voice reads the respelling; the captions and word cues keep the word as written. Write
+   * each respelling as one word (no spaces), so its timing maps back onto the written word.
+   */
+  say?: Readonly<Record<string, string>>;
+  /**
    * The pages each claim in the line rests on: rayfin.ai for Rayfin, the Fabricator docs for
    * Fabricator. They become the "Learn more" links in the lesson's YouTube description.
    */
@@ -114,8 +120,33 @@ export function checkScript(script: LessonScript): void {
       ids.add(beat.id);
       const said = typeof beat.text === 'string' && spokenText(beat.text).length > 0;
       if (said === (beat.hold !== undefined)) throw new Error(`Beat "${beat.id}" needs either text or a hold, not ${said ? 'both' : 'neither'}.`);
+      for (const [word, respelled] of Object.entries(beat.say ?? {})) {
+        if (/\s/.test(respelled) || !respelled) throw new Error(`Beat "${beat.id}" respells "${word}" as "${respelled}"; write it as one word, without spaces.`);
+        if (sayText(beat.text ?? '', { [word]: respelled }) === beat.text) throw new Error(`Beat "${beat.id}" respells "${word}", but its text doesn't have that word.`);
+      }
     }
   }
+}
+
+const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** `word` on its own, not inside another word. */
+const wholeWord = (word: string) => new RegExp(`(?<![\\p{L}\\p{N}'’])${escapeRegExp(word)}(?![\\p{L}\\p{N}'’])`, 'gu');
+
+/** What the voice reads for a line: its text with each word in `say` respelled. */
+export function sayText(text: string, say?: Readonly<Record<string, string>>): string {
+  let out = text;
+  for (const [word, respelled] of Object.entries(say ?? {})) out = out.replace(wholeWord(word), respelled);
+  return out;
+}
+
+/** The voice's word timings, with each respelling turned back into the word as written. */
+export function unsayWords(words: readonly Word[], say?: Readonly<Record<string, string>>): Word[] {
+  const back = Object.entries(say ?? {}).map(([word, respelled]) => ({ word, respelled: respelled.replace(/’/g, "'") }));
+  return words.map((w) => {
+    const text = w.text.replace(/’/g, "'");
+    const hit = back.find((b) => text === b.respelled || (text.startsWith(b.respelled) && /^[,.!?…:;]+$/.test(text.slice(b.respelled.length))));
+    return hit ? { ...w, text: hit.word + text.slice(hit.respelled.length) } : w;
+  });
 }
 
 /** Lays a lesson out on its timeline. Throws when a voiced line has no timing yet. */

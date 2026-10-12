@@ -116,7 +116,9 @@ npm run lesson:voice -- <n> <id> ...   # those lines again
 
 Scan the printed lengths. A line much longer or shorter than its characters suggest (about
 13.5 a second) is probably a bad take: give it a new `seed` in `script.ts` and voice that line
-again. The music bed already exists (`npm run lesson:music` makes it only once). For a new
+again. If Ray says a word wrong, respell it for the voice with the line's `say` (see
+[references/ray-voice.md](references/ray-voice.md#saying-code-out-loud)); the captions keep the
+word as written. The music bed already exists (`npm run lesson:music` makes it only once). For a new
 effect, add it to `EFFECTS` in `tools/sfx.mjs` and its id to `SfxId` in `src/show/types.ts`,
 then run `npm run sfx -- <id>`.
 

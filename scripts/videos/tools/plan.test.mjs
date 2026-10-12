@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { GAP_LINE, GAP_SCENE, LEAD, checkScript, draftTimeline, findWord, isVoiced, planLesson } from '../src/show/plan.ts';
+import { GAP_LINE, GAP_SCENE, LEAD, checkScript, draftTimeline, findWord, isVoiced, planLesson, sayText, unsayWords } from '../src/show/plan.ts';
 import { OVERLAP } from '../src/timing.ts';
 
 const FPS = 30;
@@ -121,4 +121,30 @@ test('a typographic apostrophe matches a straight one', () => {
   const beat = { id: 'x', scene: 's', from: 100, duration: 30, line: curly };
   assert.equal(findWord([beat], FPS, "Let's"), 100);
   assert.equal(findWord([beat], FPS, 'go', { edge: 'end' }), 100 + f(0.7));
+});
+
+test('a respelling changes what the voice reads, and maps back onto the written word', () => {
+  const say = { APIs: "API's" };
+  const text = 'Rayfin makes your table, APIs, typed client and security. RESTAPIs stay.';
+  assert.equal(sayText(text, say), "Rayfin makes your table, API's, typed client and security. RESTAPIs stay.");
+  assert.equal(sayText(text), text);
+  const words = [
+    { text: 'table,', startMs: 0, endMs: 300 },
+    { text: "API's,", startMs: 380, endMs: 1200 },
+    { text: 'typed', startMs: 1300, endMs: 1600 },
+    { text: 'API’s', startMs: 1700, endMs: 2300 },
+  ];
+  assert.deepEqual(
+    unsayWords(words, say).map((w) => w.text),
+    ['table,', 'APIs,', 'typed', 'APIs'],
+  );
+  assert.equal(unsayWords(words, say)[1].endMs, 1200);
+  assert.deepEqual(unsayWords(words), words);
+});
+
+test('a respelling has to be one word, of a word the line has', () => {
+  const scene = (beat) => ({ ...script, scenes: [{ id: 'x', beats: [{ id: 'x1', text: 'Fabric hosts the APIs.', ...beat }] }] });
+  assert.doesNotThrow(() => checkScript(scene({ say: { APIs: "API's" } })));
+  assert.throws(() => checkScript(scene({ say: { APIs: 'A P Is' } })), /one word, without spaces/);
+  assert.throws(() => checkScript(scene({ say: { SQL: 'sequel' } })), /doesn't have that word/);
 });

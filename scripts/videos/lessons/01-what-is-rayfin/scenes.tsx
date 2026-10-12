@@ -316,7 +316,7 @@ const welcome: LessonScene = {
         x={700}
         y={300}
         from={ctx.w('Today') - 4}
-        to={ctx.span.duration - 14}
+        to={ctx.w('dive') - 4}
         items={[
           { text: 'What Rayfin is', at: ctx.w('what') },
           { text: 'How one class becomes a backend', at: ctx.w('how') },
@@ -424,11 +424,12 @@ const problem: LessonScene = {
             <div style={{ marginTop: 18, fontFamily: FONT, fontWeight: 650, fontSize: 48, color: C.inkSoft, opacity: Math.min(1, sub * 1.4) }}>A backend platform for TypeScript developers</div>
           </div>
         ) : null}
-        <FlowNode icon="file" label="Your data, in TypeScript" x={760} y={680} from={ctx.w('describe')} />
-        <Arrow x={1010} y={680} from={ctx.w('generates') - 6} />
-        <FlowNode icon="cog" label="Rayfin generates the backend" x={1260} y={680} from={ctx.w('generates')} />
-        <Arrow x={1510} y={680} from={ctx.w('runs') - 6} />
-        <FlowNode icon="cloud" label="It runs on Microsoft Fabric" x={1760} y={680} from={ctx.w('runs')} />
+        {/* Between Ray (on the left) and the frame's right edge: boxes span 540–1770. */}
+        <FlowNode icon="file" label="Your data, in TypeScript" x={710} y={680} from={ctx.w('describe')} />
+        <Arrow x={932} y={680} from={ctx.w('generates') - 6} />
+        <FlowNode icon="cog" label="Rayfin generates the backend" x={1155} y={680} from={ctx.w('generates')} />
+        <Arrow x={1377} y={680} from={ctx.w('runs') - 6} />
+        <FlowNode icon="cloud" label="It runs on Microsoft Fabric" x={1600} y={680} from={ctx.w('runs')} />
       </AbsoluteFill>
     );
   },
@@ -518,12 +519,13 @@ const entity: LessonScene = {
 /* ------------------------------------------------------------------------------------------ */
 
 const SEED = { x: 960, y: 135 } as const;
+/** Clear of the depth gauge on the left, which runs to x 250 with its reading. */
 const CARDS = {
-  table: { x: 520, y: 420, w: 540 },
-  api: { x: 1040, y: 380, w: 440 },
-  client: { x: 1530, y: 420, w: 480 },
-  rls: { x: 520, y: 805, w: 540 },
-  validation: { x: 1040, y: 800, w: 440 },
+  table: { x: 550, y: 420, w: 540 },
+  api: { x: 1070, y: 380, w: 440 },
+  client: { x: 1560, y: 420, w: 480 },
+  rls: { x: 550, y: 805, w: 540 },
+  validation: { x: 1070, y: 800, w: 440 },
 } as const;
 type Card = keyof typeof CARDS;
 const CARD_IDS = Object.keys(CARDS) as Card[];

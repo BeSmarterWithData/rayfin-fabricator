@@ -54,6 +54,11 @@ mood.
 - "GraphQL", "REST", "Microsoft Entra ID" and "Microsoft Fabric" read as they should. Say
   "Microsoft Fabric" the first time, then "Fabric".
 - Spell out symbols ("an equals sign") or show them on screen instead.
+- If the voice says a word wrong anyway, respell it for the voice alone with the line's `say`:
+  `say: { APIs: "API's" }` fixed lesson 1's odd "APIs". The voice reads the respelling, while
+  the captions and the scenes' word cues keep the word as written. A respelling is one word with
+  no spaces, so the voice's word timings map back onto the written word. If you're unsure which
+  spelling works, voice two or three as separate takes and let the user pick.
 
 ## Recurring beats
 
