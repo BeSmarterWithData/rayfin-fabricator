@@ -23,17 +23,18 @@ reads it before making a lesson and updates the status table when a lesson ships
 | # | Lesson | Folder | Status |
 | --- | --- | --- | --- |
 | 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Published: [youtu.be/n-VtBCmtn78](https://youtu.be/n-VtBCmtn78) |
-| 2 | Your first Rayfin app | | Planned |
-| 3 | Inside a Rayfin project | | Planned |
+| 2 | Your first Rayfin app | `lessons/02-your-first-app` | Rendered |
+| 3 | Inside a Rayfin app | | Planned |
 | 4 | Entities and field types | | Planned |
 | 5 | Relationships | | Planned |
 | 6 | Permissions and row-level security | | Planned |
-| 7 | Querying your data | | Planned |
-| 8 | Creating, updating, deleting and validation | | Planned |
-| 9 | Aggregations | | Planned |
-| 10 | Sign-in with Microsoft Entra ID | | Planned |
-| 11 | Changing your schema and deploying | | Planned |
-| 12 | Capstone: build and ship an app | | Planned |
+| 7 | Reading and writing your data | | Planned |
+| 8 | Connectors: your Fabric data, in your app | | Planned |
+| 9 | Functions and secrets | | Planned |
+| 10 | Storage | | Planned |
+| 11 | Aggregations | | Planned |
+| 12 | Auth: sign-in, sessions and identity | | Planned |
+| 13 | Capstone: build and ship an app | | Planned |
 
 Statuses: Planned → Scripted → Approved → Voiced → Rendered → Published (with the YouTube link).
 
@@ -108,7 +109,9 @@ studio's lesson kit (`src/lesson-kit/`):
 - **Concepts:** `npm create @microsoft/rayfin@latest` with the default `blankapp` template (the
   Universal App); `rayfin login` (Microsoft Entra ID in the browser); `npm run dev` runs
   `rayfin dev`; `rayfin up` and `rayfin up status`. Prerequisites: Node.js 20+, the GitHub CLI
-  and a Fabric account, and Fabric apps turned on in the tenant.
+  and a Fabric account, and Fabric apps turned on in the tenant. The new app starts small, with
+  sign-in and a website and the data service off. Data, functions, connectors and storage are
+  added when the app needs them; lesson 3 maps them, and Module 3 teaches them.
 - **Deep Dive:** `rayfin dev` provisions or reuses the backend in Fabric and runs only the
   frontend (and any Functions) on your machine. There is no backend to run yourself.
   `rayfin dev` doesn't publish; `rayfin up` does.
@@ -117,23 +120,32 @@ studio's lesson kit (`src/lesson-kit/`):
   `rayfin login`? **`rayfin up`.**
 - **Sources:** [/docs/start/quickstart](https://rayfin.ai/docs/start/quickstart),
   [/docs/start/develop-locally](https://rayfin.ai/docs/start/develop-locally),
-  [/docs/start/deploy-to-fabric](https://rayfin.ai/docs/start/deploy-to-fabric)
+  [/docs/start/deploy-to-fabric](https://rayfin.ai/docs/start/deploy-to-fabric),
+  [/docs/start/project-structure](https://rayfin.ai/docs/start/project-structure)
 
-#### 3. Inside a Rayfin project
+#### 3. Inside a Rayfin app
 
 - **Hook:** "Let's take a tour of the reef."
-- **You'll learn:** the Universal App's packages; `rayfin.yml`; which generated files to keep
-  out of git.
+- **You'll learn:** the Universal App's packages; `rayfin.yml` and its services; the building
+  blocks an app can add: data, connectors, functions and storage.
 - **Concepts:** `packages/frontend`, `packages/data`, `packages/shared` (and
-  `packages/functions` when added). The services in `rayfin/rayfin.yml`: auth, data,
-  staticHosting and functions. The Universal App starts with the data service off.
-  `assetAccess` is `protected` or `public`. Rayfin projects ship skills for coding agents in
-  `.agents/skills`.
-- **Deep Dive:** `rayfin.yml` is the declaration that `rayfin dev` and `rayfin up` sync to Fabric.
-- **In Fabricator:** the Code view's file tree; Blueprint's Architecture view.
+  `packages/functions` when added). `rayfin/rayfin.yml` declares the services (`auth`, `data`,
+  `staticHosting`, `functions` and the experimental `storage`), plus top-level `connectors` and
+  `secrets` lists. The Universal App starts with the data service off. `assetAccess` is
+  `protected` or `public`. Which generated files stay out of git. Rayfin projects ship skills
+  for coding agents in `.agents/skills`.
+- **Deep Dive:** how a Fabric app runs. Your frontend is static content in front of a
+  WebService, Data API Builder and an MSSQL database, with Functions and blob storage beside
+  them. Outside the app sit Microsoft Entra ID, data already in Fabric (reached through
+  connectors), Microsoft resources (through function connections) and any HTTPS API (through
+  a function and a secret). `rayfin dev` and `rayfin up` sync `rayfin.yml` to Fabric.
+- **In Fabricator:** the Code view's file tree; Blueprint's Architecture view, with its
+  **Website**, **Sign-in**, **Database**, **File storage**, **Connectors**, **Functions** and
+  **Secrets** pieces.
 - **Pop Quiz:** Which file records your deployments and shouldn't be committed?
   **`rayfin/.deployments.json`.**
-- **Sources:** [/docs/start/project-structure](https://rayfin.ai/docs/start/project-structure),
+- **Sources:** [/docs](https://rayfin.ai/docs),
+  [/docs/start/project-structure](https://rayfin.ai/docs/start/project-structure),
   [/docs/reference/config/rayfin-yml](https://rayfin.ai/docs/reference/config/rayfin-yml)
 
 ### Module 2: Data, the heart of Rayfin
@@ -146,13 +158,15 @@ studio's lesson kit (`src/lesson-kit/`):
   `@text`, `@int`, `@decimal`, `@boolean`, `@date`, `@email` and `@set`; options such as
   `optional`, `default`, `unique`, `min` and `max`. In the Universal App you register the
   entity in `packages/data/src/index.ts` and add its type in `packages/shared`. Some names,
-  such as `Date`, are reserved.
+  such as `Date`, are reserved. The same options validate your forms: `toStandardSchema()`
+  builds a validator from the entity, so there's no second schema to keep in sync.
 - **Deep Dive:** why every `@text` needs a `max`. Without one, MSSQL gets `NVARCHAR(MAX)`,
   which can break the generated GraphQL schema after a deploy that looked fine.
 - **In Fabricator:** Blueprint's Data model view shows each field's type.
 - **Pop Quiz:** What's wrong with `@text() title!: string`? **It has no `max`.**
 - **Sources:** [/docs/data/modeling](https://rayfin.ai/docs/data/modeling),
-  [/docs/data/field-types](https://rayfin.ai/docs/data/field-types)
+  [/docs/data/field-types](https://rayfin.ai/docs/data/field-types),
+  [/docs/data/validation](https://rayfin.ai/docs/data/validation)
 
 #### 5. Relationships
 
@@ -182,94 +196,167 @@ studio's lesson kit (`src/lesson-kit/`):
   Only a server-side policy keeps it private.**
 - **Sources:** [/docs/data/permissions](https://rayfin.ai/docs/data/permissions)
 
-### Module 3: Use your data
+#### 7. Reading and writing your data
 
-#### 7. Querying your data
-
-- **Hook:** "Ask your data a question, in TypeScript."
-- **You'll learn:** the query chain; filtering and sorting; pagination.
+- **Hook:** "Ask your data a question, in TypeScript. Then change the answer."
+- **You'll learn:** the query chain; create, update and delete; pagination.
 - **Concepts:** `client.data.<Entity>` with `select([...])`, `where({ field: { eq } })`,
-  `orderBy({ createdAt: 'desc' })` and `execute()`; `findById` and `findFirst`.
+  `orderBy({ createdAt: 'desc' })` and `execute()`; `findById` and `findFirst`. Writes:
+  `create(data)`, where `id` is optional; `update(filter, data)`; `delete(filter)`;
+  relationship fields as `{ id }`. Every call is typed from the entity, and the entity's
+  policies still decide which rows it touches.
 - **Deep Dive:** `execute()` returns one page (100 records by default) and doesn't say whether
   there are more. Use `first(n)`, `executePaginated()` and `after(cursor)`.
-- **In Fabricator:** the preview listing data.
+- **In Fabricator:** the preview listing and adding data.
 - **Pop Quiz:** Your list stops at 100 items. Why? **`execute()` returns a single page.**
-- **Sources:** [/docs/data/querying](https://rayfin.ai/docs/data/querying)
+- **Sources:** [/docs/data/querying](https://rayfin.ai/docs/data/querying),
+  [/docs/data/mutations](https://rayfin.ai/docs/data/mutations)
 
-#### 8. Creating, updating, deleting and validation
+### Module 3: Beyond your own tables
 
-- **Hook:** "Writes, with the types checked for you."
-- **You'll learn:** create, update and delete; setting relationships; validating a form from
-  the entity.
-- **Concepts:** `create(data)`, where `id` is optional; `update(filter, data)`;
-  `delete(filter)`; relationship fields as `{ id }`; a validator generated from the entity.
-- **Deep Dive:** the same entity drives the database constraints and the form's validation.
-- **Sources:** [/docs/data/mutations](https://rayfin.ai/docs/data/mutations),
-  [/docs/data/validation](https://rayfin.ai/docs/data/validation)
+Rayfin isn't only your own database. This module comes straight after the data client, so
+viewers meet the rest of the platform while the client is fresh: data that already lives in
+Fabric, code that runs on the server, and files. Say each one's availability on screen.
 
-#### 9. Aggregations
+#### 8. Connectors: your Fabric data, in your app
+
+- **Hook:** "Your company's data already lives in Fabric. Use it in your app."
+- **You'll learn:** what a connector is; its two kinds; which identity a connector uses.
+- **Concepts:** a connector points at data your app doesn't own: a Warehouse, a SQL database,
+  a Lakehouse SQL analytics endpoint or a semantic model. `rayfin connector search` finds
+  sources, and `rayfin connector add` writes the entry to `rayfin.yml`; then you install the
+  version-pinned packages it prints. SQL sources become typed entities with `@role()` policies,
+  read with the same query chain at `client.connectors.<name>.<Entity>`. Semantic models run
+  DAX with `client.connectors.<name>.executeQuery(...)`. A Lakehouse SQL endpoint is read-only,
+  and Rayfin 1.36.2 holds back new KQL database connectors.
+- **Deep Dive:** whose identity a connector uses. `connector add` sets SQL connectors to the
+  app identity (the owner of the Fabric app item), so everyone sees the same data; `delegated`
+  gives each user their own access. Semantic models always run as the signed-in user. The
+  source's IDs stay in `rayfin.yml` and are added on the server, so the browser sends only the
+  query.
+- **In Fabricator:** **Connect a semantic model** in the chat composer's add menu, Blueprint's
+  **Semantic model** view, and the Architecture view's **Uses user’s identity** and **Uses app
+  identity** labels.
+- **Pop Quiz:** Which identity does a semantic model connector use? **The signed-in user's.**
+- **Sources:** [/docs/connectors](https://rayfin.ai/docs/connectors),
+  [/docs/connectors/adding](https://rayfin.ai/docs/connectors/adding),
+  [/docs/connectors/sql-sources](https://rayfin.ai/docs/connectors/sql-sources),
+  [/docs/connectors/semantic-models](https://rayfin.ai/docs/connectors/semantic-models),
+  [/docs/auth/delegated-access](https://rayfin.ai/docs/auth/delegated-access)
+
+#### 9. Functions and secrets
+
+- **Hook:** "Some code should never run in the browser."
+- **You'll learn:** when to use a function; how to write and call one; how to keep a secret.
+- **Concepts:** a function is server-side TypeScript that runs in Fabric, for trusted logic,
+  secrets and calls to outside services. `rayfin functions init` adds them, and
+  `services.functions.auth.type: application` is required. Register a handler with
+  `udf.func(name, handler, [])` in `function_app.ts`, and call it from the app with
+  `client.functions.<name>.invoke(...)`, typed by the generated `AppFunctionsSchema`.
+  `rayfin secret set` stores a value with the deployed app, and a function reads it as
+  `ctx.Secrets.<NAME>`. `rayfin dev` runs functions on your machine; `rayfin up` deploys them.
+  For plain reads and writes, use `client.data`, not a function.
+- **Deep Dive:** a function has two identities. `ctx.getDataClient()` runs as the signed-in
+  caller, so your entity policies still apply. `ctx.Tokens.<Audience>` runs as the app identity,
+  which needs access at each resource. Locally, the functions host uses your own sign-in, so a
+  call can work on your machine and fail after `rayfin up`.
+- **In Fabricator:** Code → **Secrets**, with **New secret** and **Ask Copilot to use it**;
+  Blueprint's **Functions** and **Secrets** pieces.
+- **Pop Quiz:** Where can your app read an API key safely? **In a function, with
+  `ctx.Secrets`.**
+- **Availability:** Functions aren't available in every Fabric region or tenant.
+- **Sources:** [/docs/functions](https://rayfin.ai/docs/functions),
+  [/docs/functions/writing-functions](https://rayfin.ai/docs/functions/writing-functions),
+  [/docs/functions/calling-functions](https://rayfin.ai/docs/functions/calling-functions),
+  [/docs/functions/secrets](https://rayfin.ai/docs/functions/secrets),
+  [/docs/auth/delegated-access](https://rayfin.ai/docs/auth/delegated-access)
+
+#### 10. Storage
+
+- **Hook:** "Where do the receipts go?"
+- **You'll learn:** what Storage is, and that it's experimental; how to declare a folder; how
+  to upload, list and download files.
+- **Concepts:** turn it on with `services.storage.enabled: true`. Declare a folder in
+  `rayfin/storage/` with `@blob({ name, maxSize: mb(5), allowedContentTypes })` from
+  `@microsoft/rayfin-core/experimental` and a `@role()` policy, then register it in the storage
+  schema. Call `client.storage['<folder>']` with `upload()`, `list()`, `download()` and
+  `delete()`.
+- **Deep Dive:** files get the same permission model as rows, such as
+  `claims.sub.eq(item.owner_id)`. Every folder needs an authenticated rule, and anonymous
+  storage isn't supported. The service enforces the size and content-type limits.
+- **In Fabricator:** Blueprint's **File storage** piece.
+- **Pop Quiz:** Can a signed-out visitor upload to a Storage folder? **No. Anonymous storage
+  permissions aren't supported.**
+- **Availability:** experimental. It isn't in every Fabric region or tenant, and
+  `@microsoft/rayfin-storage` may change between releases. Say so on screen.
+- **Sources:** [/docs/storage](https://rayfin.ai/docs/storage),
+  [/docs/reference/sdk/rayfin-storage](https://rayfin.ai/docs/reference/sdk/rayfin-storage),
+  [/docs/reference/known-limitations](https://rayfin.ai/docs/reference/known-limitations)
+
+### Module 4: Bring it together
+
+#### 11. Aggregations
 
 - **Hook:** "Totals for a dashboard, without downloading every row."
 - **You'll learn:** `groupBy()`, `aggregate()` and grand totals.
 - **Concepts:** `groupBy([...])`, then `aggregate({ alias: { sum: 'amount' } })`, then
-  `execute()`; filtering with `where()`; skipping `groupBy()` for one total row.
+  `execute()`; filtering with `where()`; skipping `groupBy()` for one total row. SQL connector
+  entities from lesson 8 aggregate the same way.
 - **Deep Dive:** the server computes the numbers, so only the totals travel.
 - **In Fabricator:** the Contoso Expenses chart by category.
 - **Sources:** [/docs/data/aggregations](https://rayfin.ai/docs/data/aggregations)
 
-### Module 4: Ship it
-
-#### 10. Sign-in with Microsoft Entra ID
+#### 12. Auth: sign-in, sessions and identity
 
 - **Hook:** "Who's there? Microsoft Entra ID knows."
-- **You'll learn:** Fabric SSO; sessions; sign-in in React.
-- **Concepts:** Fabric SSO uses a popup flow in a browser (`ensureSignedInWithFabric()` from
-  a user gesture) and an embedded flow inside the Fabric portal. Sessions are opaque; watch
-  them with `onSessionChange`. The React integration and `assetAccess` complete the picture.
-  Email and password are for local development only.
-- **Deep Dive:** public pages don't make data public. Entity permissions still apply.
+- **You'll learn:** how people sign in; sessions; which identity each part of your app uses.
+- **Concepts:** Microsoft Entra ID is the only identity provider for Rayfin Fabric apps; email
+  and password sign-in is for local development only. Fabric
+  SSO has a popup flow in a browser (`ensureSignedInWithFabric()` from a user gesture) and an
+  embedded flow inside the Fabric portal. Sessions are opaque: read `getSession()` and watch
+  `onSessionChange`. The React integration adds `AuthProvider`, `useAuth` and a route guard.
+  `assetAccess` decides whether pages load before sign-in. The session's claims (`sub`,
+  `email`, `role`) drive lesson 6's policies. Direct Entra token sign-in and embedding in your
+  own portal cover other hosts.
+- **Deep Dive:** who's asking? Your own data runs as the signed-in user, even inside a
+  function. Function connections run as the app identity, and each connector chooses its own.
+  Public pages don't make data public: entity permissions still apply.
+- **In Fabricator:** Blueprint's **People** and the identity labels; the **Website** piece's
+  **Pages load after sign-in**.
+- **Pop Quiz:** Your pages load before sign-in (`assetAccess: public`). Is your data public
+  now? **No. APIs and data permissions still apply.**
 - **Sources:** [/docs/auth](https://rayfin.ai/docs/auth),
   [/docs/auth/fabric-sso](https://rayfin.ai/docs/auth/fabric-sso),
+  [/docs/auth/sessions](https://rayfin.ai/docs/auth/sessions),
   [/docs/auth/react](https://rayfin.ai/docs/auth/react),
+  [/docs/auth/delegated-access](https://rayfin.ai/docs/auth/delegated-access),
   [/docs/hosting](https://rayfin.ai/docs/hosting)
 
-#### 11. Changing your schema and deploying
-
-- **Hook:** "You added a column. Now what?"
-- **You'll learn:** how schema changes reach the database; what `rayfin up` does; Fabric
-  apps, capacity and workspaces.
-- **Concepts:** `rayfin up` deploys and applies pending schema changes in one step.
-  `rayfin up db apply` is the schema-only path, and `--force` allows destructive changes after
-  review. Deployment records live in `rayfin/.deployments.json`. The Fabric app (preview) item
-  and capacity.
-- **Deep Dive:** what happens in Fabric when you run `rayfin up`.
-- **In Fabricator:** Redeploy, the redeploy after each successful chat turn, and the
-  deployments panel.
-- **Pop Quiz:** You added a column. Which command ships it? **`rayfin up`.**
-- **Sources:** [/docs/data/migrations](https://rayfin.ai/docs/data/migrations),
-  [/docs/deploy/rayfin-up](https://rayfin.ai/docs/deploy/rayfin-up),
-  [/docs/deploy/fabric-apps](https://rayfin.ai/docs/deploy/fabric-apps)
-
-#### 12. Capstone: build and ship an app
+#### 13. Capstone: build and ship an app
 
 - **Hook:** "Everything you've learned, in one app."
 - **You'll learn:** how the pieces fit together, from start to finish.
 - **Concepts:** Contoso Expenses from start to finish: an entity with an owner policy, a
-  dashboard with an aggregation, sign-in, a deploy, an Advisor check and sharing.
+  dashboard with an aggregation, a connector or a function where the app needs one, sign-in,
+  a deploy, an Advisor check and sharing.
 - **Sources:** [/docs/recipes/todo-app](https://rayfin.ai/docs/recipes/todo-app) and the
   [Fabricator docs](https://spatney.github.io/rayfin-fabricator/docs)
 
 ## Season 2: Rayfin 201 (planned)
 
-- Functions: server-side TypeScript, called from the app
-- Secrets: `rayfin secret set` and `ctx.Secrets`
-- Connections and the app identity
-- Connectors: Fabric SQL sources, semantic models with DAX, and KQL databases
-- Storage (experimental)
+Season 1 introduces connectors, functions and storage. Season 2 goes deeper:
+
+- Changing your schema safely: `rayfin up` and `rayfin up db apply`, and destructive changes
+  with `--force`
+- Fabric apps, workspaces, capacity and billing
+- Environments, deployment targets and Fabric deployment pipelines
+- Function connections in depth: Fabric REST, OneLake, SQL, Azure AI Foundry and Azure DevOps
+- Semantic models and DAX in depth
+- KQL databases, once Rayfin brings back new KQL connectors (held back in 1.36.2)
+- Seeding data
 - Hosting: redirect URIs and deep links
-- Environments and deployment pipelines
 - Testing a Rayfin app
-- Embedding an app in your own portal
+- Signing in with an Entra token, and embedding an app in your own portal
 
 Check each topic's availability notes on rayfin.ai before scripting it. For example, Functions
-aren't in every Fabric region, and Storage is experimental.
+aren't in every Fabric region or tenant, and Storage is experimental.

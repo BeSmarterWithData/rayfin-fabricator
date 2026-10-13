@@ -13,6 +13,8 @@ export interface ThumbnailSpec {
   /** A short piece of code on a chip by Ray. */
   code?: string;
   mood?: RayMood;
+  /** The big words' size in px, 176 unless a line is long enough to reach Ray. */
+  size?: number;
 }
 
 /**
@@ -40,7 +42,7 @@ export function LessonThumbnail({ series, number, spec, theme = 'dark' }: { seri
               style={{
                 fontFamily: FONT,
                 fontWeight: 800,
-                fontSize: 176,
+                fontSize: spec.size ?? 176,
                 lineHeight: 1,
                 letterSpacing: '-0.04em',
                 whiteSpace: 'nowrap',

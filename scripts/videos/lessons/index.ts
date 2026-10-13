@@ -4,5 +4,6 @@
  */
 import type { Lesson } from '../src/show/types';
 import { lesson as lesson01 } from './01-what-is-rayfin';
+import { lesson as lesson02 } from './02-your-first-app';
 
-export const LESSONS: readonly Lesson[] = [lesson01];
+export const LESSONS: readonly Lesson[] = [lesson01, lesson02];

@@ -55,7 +55,7 @@ explaining: small (`s` 0.4–0.5) in a corner while a window or code fills the f
 | `DeepDiveTitle`, `DepthGauge`, `Sonar` | `from, to, tuckAt` / `from, to` / `x, y, at` | With `depth: 1` on the scene and the `dive` and `sonar` effects. Keep the left 260 px clear for the gauge. |
 | `ArtifactCard` | `x, y, width, icon, title, subtitle, at, until, lit` | Holds `TableBody`, `ApiBody`, `AutocompleteBody` (real method names only), `RowSecurityBody` or `ValidationBody` |
 | `ServiceTiles` | `tiles: [{ icon, label, sub, at }], y, boundaryAt, boundaryLabel, until, extra` | What a deploy provides, inside the tenant's boundary |
-| `CommandCard` | `command, output, from, to, typeFrom, typeTo, x, y, width, scale, tagAt` | A Rayfin CLI command "under the hood". Its tag says "Fabricator runs this for you". |
+| `CommandCard` | `command, output, from, to, typeFrom, typeTo, x, y, width, scale, tag, tagAt` | A Rayfin CLI command "under the hood". Its tag says "Fabricator runs this for you", so keep it only on commands Fabricator really runs: `npm create @microsoft/rayfin@latest`, `rayfin login`, `rayfin up`, `rayfin up status`, `rayfin secret set` (check `src-tauri/src` for others). Fabricator never runs `rayfin dev` or `npm run dev`; give those a tag that's true, or none. Output lines are what the installed CLI prints: find them in its `dist/` in the scratch app. |
 | `Quiz` | `question, options: [{ text, code?, at }], answer, countdown: { from, step }, revealAt` | With `tick` on each count and `correct` and `confetti` at the reveal |
 | `Recap`, `Challenge` | `items` / `prompt, typeFrom, typeTo, cta, ctaAt` | |
 | `EndScreen` | `series, next, from, to, fabricator, disclaimer` | Keep `END_SLOTS` clear: the 16:9 slot on the left and the round slot on the right |
