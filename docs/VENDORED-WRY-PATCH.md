@@ -82,9 +82,10 @@ is gone. If you ever bring back something like it, keep
 
 | Crate | Version | Notes |
 |---|---|---|
-| `tauri` | 2.11.3 | Pins the `wry` version |
-| `wry` | 0.55.1 | The crate we vendor |
-| `webview2-com` | 0.38.2 | Provides `set_allow_single_sign_on_using_os_primary_account` (`options.rs`) |
+| `tauri` | 2.12.3 | Pins the `wry` version (through `tauri-runtime-wry` 2.12.1) |
+| `wry` | 0.57.0 | The crate we vendor |
+| `webview2-com` | 0.39.1 | Provides `set_allow_single_sign_on_using_os_primary_account` (`options.rs`) |
+| `windows` / `windows-core` | 0.62.2 | Must match what the vendored wry requires |
 
 ## Upgrading wry with a Tauri bump
 

@@ -68,8 +68,8 @@ of this file; it is only a reference point from a previous run.
    `src-tauri/src/vendor_guard.rs` makes `cargo test --lib` fail when that happens.
 2. **`webview2-com`, `windows`, `windows-core`, `objc2`, `block2`, `objc2-*` MUST match
    the versions the vendored `wry` requires.** Read `src-tauri/vendor/wry/Cargo.toml`
-   for its required versions (e.g. wry 0.55.1 needs `webview2-com = 0.38`,
-   `windows = 0.61`, `objc2 = 0.6.4`). Bumping these in `src-tauri/Cargo.toml`
+   for its required versions (e.g. wry 0.57.0 needs `webview2-com = 0.39`,
+   `windows`/`windows-core = 0.62`, `objc2 = 0.6.4+`). Bumping these in `src-tauri/Cargo.toml`
    **independently of wry** creates a *second copy* of the crate, breaks Cargo's
    unification, and breaks `src-tauri/src/services/preview.rs` (which shares WebView2 /
    WKWebView types with wry). Only move them as part of a coordinated Tauri→wry bump.
