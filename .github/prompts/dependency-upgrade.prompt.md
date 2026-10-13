@@ -97,6 +97,14 @@ of this file; it is only a reference point from a previous run.
    (`loader.config({ monaco })`) or Monaco hangs fetching the CDN
    (`src/renderer/src/monacoOffline.test.ts` enforces this). Keep `monaco-editor`
    and `@monaco-editor/react` compatible, and don't introduce a CDN-loading path.
+   Since 0.56, `monaco-editor` only exposes files through its `exports` map
+   (`"./*"` → `./esm/vs/*.js`), so `src/renderer/src/monaco.ts` imports workers as
+   `monaco-editor/editor/editor.worker?worker` and
+   `monaco-editor/languages/features/<lang>/<worker>?worker` (never `monaco-editor/esm/...`),
+   and the language services live on top-level namespaces (`monaco.typescript`, not
+   `monaco.languages.typescript`). `npm run check:build` fails if a worker stops being
+   bundled. `getWorker` routes on the worker `label` (the language id); confirm those
+   labels in `esm/vs/languages/features/*/workerManager.js` after a bump.
 
 ## Step 4 — Categorize every available update
 
