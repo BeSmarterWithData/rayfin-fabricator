@@ -1016,6 +1016,7 @@ mod tests {
       kind: Some(PermissionRequestKind::Write),
       tool_call_id: None,
       extra: json!({ "fileName": "src/App.tsx" }),
+      ..Default::default()
     };
     assert!(!permitted(&root, &typed));
   }
@@ -1027,11 +1028,11 @@ mod tests {
     let decide = |body: Value| policy.handle(SessionId::from("s"), RequestId::new("1"), request(body));
     assert!(matches!(
       decide(json!({ "kind": "shell", "fullCommandText": "rm -rf ." })).await,
-      PermissionResult::Decision(github_copilot_sdk::PermissionDecision::UserNotAvailable(_))
+      PermissionResult::Decision { decision: github_copilot_sdk::PermissionDecision::UserNotAvailable(_), .. }
     ));
     assert!(matches!(
       decide(json!({ "kind": "read", "path": root.join("rayfin").to_string_lossy() })).await,
-      PermissionResult::Decision(github_copilot_sdk::PermissionDecision::ApproveOnce(_))
+      PermissionResult::Decision { decision: github_copilot_sdk::PermissionDecision::ApproveOnce(_), .. }
     ));
   }
 

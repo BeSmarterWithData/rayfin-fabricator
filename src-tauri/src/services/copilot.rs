@@ -23,7 +23,7 @@ use github_copilot_sdk::handler::{
   ApproveAllHandler, ExitPlanModeHandler, ExitPlanModeResult, PermissionHandler, UserInputHandler,
   UserInputResponse,
 };
-use github_copilot_sdk::rpc::AccountLogoutRequest;
+use github_copilot_sdk::rpc::{AccountLogoutRequest, AuthInfo};
 use github_copilot_sdk::session::Session;
 use github_copilot_sdk::types::GetAuthStatusResponse;
 use github_copilot_sdk::{
@@ -441,7 +441,7 @@ fn remaining_auth_error(auth_type: Option<&str>) -> String {
   }.to_string()
 }
 
-async fn current_account(client: &Client) -> Result<Option<serde_json::Value>, String> {
+async fn current_account(client: &Client) -> Result<Option<AuthInfo>, String> {
   let current = client.rpc().account().get_current_auth().await
     .map_err(|e| format!("Could not read the Copilot account for sign-out: {e}"))?;
   if current.auth_errors.as_ref().is_some_and(|errors| !errors.is_empty()) {
@@ -506,7 +506,7 @@ impl Engine {
     }
     // Keep the credential payload in the backend and let the CLI remove its
     // own keychain/config entries, rather than editing shared credential files.
-    client.rpc().account().logout(AccountLogoutRequest { auth_info }).await
+    client.rpc().account().logout(AccountLogoutRequest { auth_info: Some(auth_info), ..Default::default() }).await
       .map_err(|e| format!("Could not remove the Copilot account: {e}"))?;
     Ok(())
   }
@@ -955,6 +955,16 @@ mod tests {
     json!({ "error": { "code": -32000, "message": message } })
   }
 
+  /// The current-account payload the CLI reports for a credential source. The SDK
+  /// types it, so every field the source requires has to be present.
+  fn auth_info(auth_type: &str) -> Value {
+    let mut info = json!({ "type": auth_type, "host": "https://github.com", "login": "octocat", "token": "t" });
+    if auth_type == "env" {
+      info["envVar"] = json!("COPILOT_GITHUB_TOKEN");
+    }
+    info
+  }
+
   #[tokio::test]
   async fn remembered_account_without_runtime_credentials_is_not_signed_in() {
     let (client, server) = fake_client(vec![
@@ -1014,7 +1024,7 @@ mod tests {
   async fn logout_refuses_to_remove_credentials_owned_by_other_tools() {
     for (auth_type, hint) in [("env", "COPILOT_GITHUB_TOKEN"), ("gh-cli", "gh auth logout"), ("token", "SDK token")] {
       let (client, server) = fake_client(vec![
-        ("account.getCurrentAuth", json!({ "result": { "authInfo": { "type": auth_type } } })),
+        ("account.getCurrentAuth", json!({ "result": { "authInfo": auth_info(auth_type) } })),
         ("auth.getStatus", json!({ "result": { "isAuthenticated": true, "authType": auth_type } })),
       ]);
       let error = manager_with(client).engine.lock().await.remove_current_account().await.unwrap_err();
@@ -1026,7 +1036,7 @@ mod tests {
   #[tokio::test]
   async fn failed_logout_discards_the_old_runtime_without_reporting_success() {
     let (client, server) = fake_client(vec![
-      ("account.getCurrentAuth", json!({ "result": { "authInfo": { "type": "user" } } })),
+      ("account.getCurrentAuth", json!({ "result": { "authInfo": auth_info("user") } })),
       ("auth.getStatus", json!({ "result": { "isAuthenticated": true, "authType": "user" } })),
       ("account.logout", rpc_error("Credential store is unavailable")),
     ]);
@@ -1067,7 +1077,7 @@ mod tests {
     let (client, server) = fake_client(vec![
       ("account.getCurrentAuth", json!({ "result": {} })),
       ("auth.getStatus", json!({ "result": { "isAuthenticated": false } })),
-      ("account.getCurrentAuth", json!({ "result": { "authInfo": { "type": "gh-cli" } } })),
+      ("account.getCurrentAuth", json!({ "result": { "authInfo": auth_info("gh-cli") } })),
       ("auth.getStatus", json!({ "result": { "isAuthenticated": true, "authType": "gh-cli" } })),
     ]);
     let error = manager_with(client).engine.lock().await.verify_signed_out(Duration::ZERO).await.unwrap_err();
@@ -1130,7 +1140,7 @@ mod tests {
   async fn resetting_credentials_evicts_all_session_handles_without_deleting_history() {
     let (client, server) = fake_client(vec![
       ("session.create", json!({ "result": { "sessionId": "saved-session" } })),
-      ("session.destroy", json!({ "result": {} })),
+      ("session.detach", json!({ "result": {} })),
     ]);
     let session = client.create_session(
       SessionConfig::default().with_session_id(SessionId::new("saved-session")),
@@ -1194,8 +1204,8 @@ mod tests {
     let (client, server) = fake_client(vec![
       ("session.create", json!({ "result": { "sessionId": "current-session" } })),
       ("session.create", json!({ "result": { "sessionId": "stale-session" } })),
-      ("session.destroy", json!({ "result": {} })),
-      ("session.destroy", json!({ "result": {} })),
+      ("session.detach", json!({ "result": {} })),
+      ("session.detach", json!({ "result": {} })),
     ]);
     let current = Arc::new(client.create_session(
       SessionConfig::default().with_session_id(SessionId::new("current-session")),
@@ -1235,7 +1245,7 @@ mod tests {
     let (client, server) = fake_client(vec![
       ("session.create", json!({ "result": { "sessionId": "old-session" } })),
       ("auth.getStatus", json!({ "result": { "isAuthenticated": true } })),
-      ("session.destroy", json!({ "result": {} })),
+      ("session.detach", json!({ "result": {} })),
       ("session.resume", json!({ "result": { "sessionId": "new-session" } })),
       ("session.skills.reload", json!({ "result": {} })),
       ("session.model.switchTo", json!({ "result": {} })),

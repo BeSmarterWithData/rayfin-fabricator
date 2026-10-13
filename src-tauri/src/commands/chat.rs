@@ -743,7 +743,7 @@ pub(crate) async fn run_turn(
   // sending. Mode is sticky on the session, so this also handles switching modes
   // between turns. A failure here is non-fatal — fall back to the prior mode.
   let session_mode = session_mode(&mode);
-  if let Err(e) = session.rpc().mode().set(ModeSetRequest { mode: session_mode.clone() }).await {
+  if let Err(e) = session.rpc().mode().set(ModeSetRequest { mode: session_mode.clone(), ..Default::default() }).await {
     log::warn!("failed to set session mode {session_mode:?}: {e}");
   }
 
@@ -801,7 +801,7 @@ pub(crate) async fn run_turn(
               text: "Copilot's saved session is unavailable. Started a new session; your Fabricator chat history is still here.".into(),
             });
           }
-          if let Err(e) = session.rpc().mode().set(ModeSetRequest { mode: session_mode.clone() }).await {
+          if let Err(e) = session.rpc().mode().set(ModeSetRequest { mode: session_mode.clone(), ..Default::default() }).await {
             log::warn!("failed to set recovered session mode {session_mode:?}: {e}");
           }
         }
@@ -1736,13 +1736,14 @@ mod tests {
   fn normalize_todos_drops_blank_or_missing_ids() {
     let rows = vec![
       PlanSqlTodosRow {
+        created_at: None,
         id: Some("t1".into()),
         title: Some("Do the thing".into()),
         description: None,
         status: Some("done".into()),
       },
-      PlanSqlTodosRow { id: None, title: Some("orphaned".into()), description: None, status: None },
-      PlanSqlTodosRow { id: Some("  ".into()), title: Some("blank id".into()), description: None, status: None },
+      PlanSqlTodosRow { created_at: None, id: None, title: Some("orphaned".into()), description: None, status: None },
+      PlanSqlTodosRow { created_at: None, id: Some("  ".into()), title: Some("blank id".into()), description: None, status: None },
     ];
     let (todos, deps) = normalize_todos(rows, vec![]);
     assert_eq!(todos.len(), 1);
@@ -1755,9 +1756,10 @@ mod tests {
   #[test]
   fn normalize_todos_title_falls_back_to_description_then_id() {
     let rows = vec![
-      PlanSqlTodosRow { id: Some("t1".into()), title: None, description: Some("desc only".into()), status: None },
-      PlanSqlTodosRow { id: Some("t2".into()), title: Some("   ".into()), description: None, status: None },
+      PlanSqlTodosRow { created_at: None, id: Some("t1".into()), title: None, description: Some("desc only".into()), status: None },
+      PlanSqlTodosRow { created_at: None, id: Some("t2".into()), title: Some("   ".into()), description: None, status: None },
       PlanSqlTodosRow {
+        created_at: None,
         id: Some("t3".into()),
         title: Some("   ".into()),
         description: Some("   ".into()),
