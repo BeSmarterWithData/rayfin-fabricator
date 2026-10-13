@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import Editor, { type OnMount } from '@monaco-editor/react'
 import type { FileContent, FileNode, StudioProject } from '@shared/ipc'
 import { monacoLanguage } from '../monaco'

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode, type JSX } from 'react'
 import type { AdvisorCategoryId, AdvisorFinding, StudioProject } from '@shared/ipc'
 import { CATALOG, categoryById, normalizeSeverity } from '@shared/advisor/catalog'
 import type { FindingItem } from '../../advisor/lifecycle'

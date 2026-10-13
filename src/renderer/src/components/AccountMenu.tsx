@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode, type JSX } from 'react'
 import { useSuppressPreview } from '../overlay'
 import { moveMenuFocus } from '../menuFocus'
 import { Codicon, ReloadIcon, SignOutIcon } from './icons'

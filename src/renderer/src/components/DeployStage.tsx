@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react'
 import {
   MARK_BRACKET_RX,
   MARK_BRACKETS,

@@ -5,7 +5,8 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type ReactNode
+  type ReactNode,
+  type JSX,
 } from 'react'
 import type {
   AuthStatus,

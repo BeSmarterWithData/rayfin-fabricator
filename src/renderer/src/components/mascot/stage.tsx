@@ -8,7 +8,8 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type RefObject
+  type RefObject,
+  type JSX,
 } from 'react'
 import { MascotContext, useMascot } from './context'
 import { MascotRoamer, type VisitPhase } from './Roamer'

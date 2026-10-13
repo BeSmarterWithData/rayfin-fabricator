@@ -3,6 +3,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import type { AppUpdateInfo } from '@shared/ipc'
 import { UpdateProvider, useUpdates } from './update'
 
+import type { JSX } from 'react'
+
 const updateInfo: AppUpdateInfo = {
   version: '2.0.0',
   currentVersion: '1.2.0',

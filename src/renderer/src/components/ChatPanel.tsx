@@ -7,7 +7,8 @@ import {
   type KeyboardEvent,
   type ChangeEvent,
   type ClipboardEvent,
-  type DragEvent
+  type DragEvent,
+  type JSX,
 } from 'react'
 import {
   type ChatAdvisorSummary,
