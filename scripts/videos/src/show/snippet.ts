@@ -7,6 +7,11 @@ export interface Snippet {
   file: string;
   code: string;
   /**
+   * The file name it's checked under, when two files a lesson shows share a name (the data and
+   * shared packages' `index.ts`). Other snippets import it by this name.
+   */
+  checkAs?: string;
+  /**
    * Compiled with the others but never shown: proof of something a scene claims, such as
    * which methods the typed client has.
    */

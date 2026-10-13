@@ -86,8 +86,8 @@ async function main() {
   await mkdir(dir, { recursive: true });
   const byFile = new Map();
   for (const [key, snippet] of entries) {
-    const name = path.basename(snippet.file);
-    if (byFile.has(name)) throw new Error(`Snippets "${byFile.get(name)}" and "${key}" are both ${name}; snippets are checked side by side, so give them different file names.`);
+    const name = snippet.checkAs ?? path.basename(snippet.file);
+    if (byFile.has(name)) throw new Error(`Snippets "${byFile.get(name)}" and "${key}" are both ${name}; snippets are checked side by side, so give one a checkAs name.`);
     byFile.set(name, key);
     await writeFile(path.join(dir, name), `${snippet.code}\n`);
   }

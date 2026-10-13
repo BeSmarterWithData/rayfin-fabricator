@@ -41,6 +41,11 @@ mood.
   Microsoft Entra account they use for Fabric. Sign-in is part of the app, not something
   outside it to set up: there's no identity provider to run, and no Entra app of your own to
   register for a tenant admin to approve.
+- **Keep the database engine-neutral.** Rayfin's data service runs on SQL Server or
+  PostgreSQL, and not having to care which is part of what Rayfin gives you. Say "your
+  database", "a column", "a text column with no limit", not engine types such as `NVARCHAR` or
+  `DECIMAL(18,2)`, on screen or in a line. When a doc's caveat holds for one engine only, say
+  "on some databases" rather than stating it for all of them.
 - **No hype:** "simply", "easy", "powerful" and "seamless" are out, and so is "just" as a
   minimizer ("just run this"). "Just one class." as a punchline is fine.
 - **At most two ocean puns a lesson.** His catchphrases count: "Let's dive in!", "You didn't lift

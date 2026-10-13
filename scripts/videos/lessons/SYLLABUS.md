@@ -25,7 +25,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Published: [youtu.be/n-VtBCmtn78](https://youtu.be/n-VtBCmtn78) |
 | 2 | Your first Rayfin app | `lessons/02-your-first-app` | Published: [youtu.be/-PzsntUZT7w](https://youtu.be/-PzsntUZT7w) |
 | 3 | Inside a Rayfin app | `lessons/03-inside-a-rayfin-app` | Published: [youtu.be/cYkA6CkVJLA](https://youtu.be/cYkA6CkVJLA) |
-| 4 | Entities and field types | | Planned |
+| 4 | Entities and field types | `lessons/04-entities-and-field-types` | Rendered |
 | 5 | Relationships | | Planned |
 | 6 | Permissions and row-level security | | Planned |
 | 7 | Reading and writing your data | | Planned |
@@ -161,17 +161,25 @@ studio's lesson kit (`src/lesson-kit/`):
 - **You'll learn:** how to define an entity; the field types; how to register it.
 - **Concepts:** `@entity()`; the `id` UUID primary key, which Rayfin adds if you leave it out;
   `@text`, `@int`, `@decimal`, `@boolean`, `@date`, `@email` and `@set`; options such as
-  `optional`, `default`, `unique`, `min` and `max`. In the Universal App you register the
-  entity in `packages/data/src/index.ts` and add its type in `packages/shared`. Some names,
-  such as `Date`, are reserved. The same options validate your forms: `toStandardSchema()`
-  builds a validator from the entity, so there's no second schema to keep in sync.
-- **Deep Dive:** why every `@text` needs a `max`. Without one, MSSQL gets `NVARCHAR(MAX)`,
-  which can break the generated GraphQL schema after a deploy that looked fine.
-- **In Fabricator:** Blueprint's Data model view shows each field's type.
+  `optional` (with a `?` on the property), `default`, `unique`, `min` and `max`, which Rayfin
+  enforces. In the Universal App you register the entity in `packages/data/src/index.ts` and
+  add its record to `UniversalAppSchema` in `packages/shared`, which types the client. Names
+  GraphQL already uses, such as `Date`, are rejected. Rayfin can build a form validator from an
+  entity (`toStandardSchema()`), but the Universal App's frontend doesn't import entity
+  classes, so the lesson only mentions it.
+- **Keep it engine-neutral.** Rayfin's data service runs on SQL Server or PostgreSQL, and not
+  having to care which is part of the point. Say "database" and "column", not engine types
+  such as `NVARCHAR`.
+- **Deep Dive:** why every `@text` needs a `max`. Without one, the column gets the database's
+  maximum length, and on some databases (SQL Server, per the docs) Rayfin can fail to build the
+  GraphQL schema from it, after a deploy that looked fine.
+- **In Fabricator:** Blueprint's Data model view shows each field's type; a set shows as
+  `enum`, a key marks the primary key, and filled and hollow marks show required and optional.
 - **Pop Quiz:** What's wrong with `@text() title!: string`? **It has no `max`.**
 - **Sources:** [/docs/data/modeling](https://rayfin.ai/docs/data/modeling),
   [/docs/data/field-types](https://rayfin.ai/docs/data/field-types),
-  [/docs/data/validation](https://rayfin.ai/docs/data/validation)
+  [/docs/data/validation](https://rayfin.ai/docs/data/validation),
+  [/docs/reference/known-limitations](https://rayfin.ai/docs/reference/known-limitations)
 
 #### 5. Relationships
 
