@@ -12,6 +12,17 @@ export interface Channel {
   playlist: { id: string; title: string };
   /** The Fabricator intro, first in the playlist. */
   intro: string;
+  /**
+   * The intro's end screen: one video element, NEXT UP, pointing to lesson 1. The intro was made
+   * before the lessons and draws no slots, and YouTube's smallest video element (about 620×349
+   * frame px, a third of the width) doesn't fit beside its end card. So the element shows only
+   * while the card is dimmed for the stinger, as low and as far left as YouTube's safe area lets
+   * it (x from about 45, y from about 141 to 916): a 16:9 box in the 1920×1080 frame, from
+   * `start` (Studio's `m:ss:ff`, the first whole second the card is fully dimmed) to `end` (the
+   * frame it starts to brighten). It covers the left ends of the dimmed "Runs on…" line and
+   * Download button; the channel's owner chose that over covering the bright card (October 2026).
+   */
+  introEndScreen: { start: string; end: string; video: { x: number; y: number; w: number; h: number } };
   /** Each published lesson's video id, by lesson number. */
   lessons: Readonly<Record<number, string>>;
   /**
@@ -31,9 +42,11 @@ export const CHANNEL: Channel = {
   handle: '@RayfinFabricator',
   playlist: { id: 'PLXW2FECmSE6Q', title: 'Learn Rayfin with Ray' },
   intro: '4T1oQmT8Bks',
+  introEndScreen: { start: '1:19:00', end: '1:24:13', video: { x: 45, y: 566, w: 620, h: 349 } },
   lessons: {
     1: 'n-VtBCmtn78',
     2: '-PzsntUZT7w',
+    3: 'cYkA6CkVJLA',
   },
   aiUse: 'no',
 };

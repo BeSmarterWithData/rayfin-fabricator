@@ -38,6 +38,10 @@ test('end-screen targets scale the frame’s slots to the editor’s preview', (
   const t = endScreenTargets(END_SLOTS, 480 / 1920);
   assert.deepEqual(t.video, { left: 42.5, top: 82.5, width: 190, height: 107 });
   assert.deepEqual(t.subscribe, { cx: 375, cy: 136.25 });
+  // The intro's end screen has a video element only.
+  const intro = endScreenTargets({ video: { x: 45, y: 566, w: 620, h: 349 } }, 480 / 1920);
+  assert.deepEqual(intro.video, { left: 11.25, top: 141.5, width: 155, height: 87.25 });
+  assert.equal(intro.subscribe, null);
 });
 
 test('an element’s box comes from its inline style', () => {

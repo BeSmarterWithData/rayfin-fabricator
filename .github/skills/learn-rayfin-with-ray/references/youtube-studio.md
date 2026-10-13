@@ -17,6 +17,7 @@ What goes on YouTube (title, description, thumbnail, captions, the end screen's 
 | --- | --- |
 | Channel | Fabricator, `@RayfinFabricator`, `UCbkqoj2jPG5n81qFgBJjpCA` |
 | Playlist | "Learn Rayfin with Ray", `PLXW2FECmSE6Q`: public, sorted by date published (oldest first), with the Fabricator intro (`4T1oQmT8Bks`) first |
+| `introEndScreen` | Where and when the intro's one end-screen element, lesson 1, shows (see [The intro](#the-intro)) |
 | `lessons` | Each published lesson's video id, by number |
 | `aiUse` | The channel owner's answer to Studio's "AI use" question: `no` |
 
@@ -118,7 +119,27 @@ a fix you can run the step again.
   `tp-yt-paper-radio-button` named `PRIVATE` or `UNLISTED` and click Done; untick the playlist
   in `ytcp-video-metadata-playlists` (the same picker as the upload dialog's); then Save, and
   reload to check. Lesson 2's first cut (`1zYRA5gTwcs`) was made private this way in October
-  2026, when the GitHub CLI came out of its prerequisites.
+  2026, when the GitHub CLI came out of its prerequisites. If the new cut is lesson 1's, point
+  the intro's end screen at it too: `npm run yt -- endscreen --intro --replace`.
+
+## The intro
+
+The Fabricator intro (`CHANNEL.intro`) is first in the playlist, but it isn't a lesson: it was
+made before them, its files are off limits, and it draws no end-screen slots. YouTube's smallest
+video element is about 620×349 frame px, which doesn't fit beside the intro's end card, so its
+end screen is one video element, lesson 1, shown only while the card is dimmed for the stinger:
+1:19:00 to 1:24:13, as low and as far left as YouTube allows. It covers the left ends of the
+dimmed "Runs on…" line and Download button. The channel's owner chose that over covering the
+bright card (October 2026). `introEndScreen` in `lessons/channel.ts` holds the place and times.
+
+```powershell
+npm run yt -- endscreen --intro             # lesson 1 (CHANNEL.lessons[1]) on the intro
+npm run yt -- endscreen --intro --replace   # again, after lesson 1's video changes
+```
+
+`check` doesn't cover the intro. To check it as viewers see it, read
+`ytInitialPlayerResponse.endscreen` on its watch page with `npm run yt -- -e "…"`: one `VIDEO`
+element for lesson 1's id, from 79000 to 84434 ms.
 
 ## How the tools work
 
@@ -155,7 +176,9 @@ Things learned the hard way, for when a step needs fixing:
 - Clicks on Studio's checkboxes land on a wrapper, and the playlist picker's boxes have no names:
   click the label's text.
 - The thumbnail and captions open a file chooser (wait for `filechooser`); the video takes
-  `input[type=file]` directly.
+  `input[type=file]` directly. Handing a lesson (about 27 MB) to that input can take longer
+  than Playwright's 15 s default, though Studio still takes it (lesson 3, October 2026), so the
+  upload step waits up to 3 minutes.
 - The upload dialog's steps are `#step-badge-0` to `#step-badge-3`. Its buttons are
   `#next-button`, `#back-button`, `#done-button` (Publish, or Save), `#subtitles-button` and
   `#endscreens-button`. The AI-use and paid-promotion answers are under "Show more"
@@ -173,11 +196,17 @@ Things learned the hard way, for when a step needs fixing:
   - Its preview (`ytve-endscreen-editor-preview-overlay`) is the frame scaled to its width, about
     480 px. Each element (`ytve-endscreen-editor-preview-overlay-item`) sits where its inline
     `left`, `top`, `width` and `height` say, in preview pixels.
-  - Video and playlist elements keep 16:9 and resize from `div.drag.bottom-right`. The subscribe
+  - Video and playlist elements keep 16:9 and resize from `div.drag.bottom-right`, down to about
+    a third of the preview's width (155 of its 480 px, 620×349 in the frame). The subscribe
     element is a fixed circle, about 74 px.
+  - Elements stay inside a safe area, about 45 frame px from the left edge and between about
+    y 141 and 916, clear of the player's top bar and controls. A drag past it stops at its edge.
+  - A drag can land a few pixels off (Subscribe, 4 px low on lesson 3's): drag again from where
+    it landed. The `endscreen` step does.
   - The preview moves when the options panel changes height, so measure it again before each
     drag.
-  - Times are `m:ss:ff`, typed into the options panel's two inputs.
+  - Times are `m:ss:ff`, typed into the options panel's two inputs: from and to. An element can
+    end before the video does (the intro's does).
   - A click on an element in the preview selects it; its row in the timeline is covered by a time
     handle. `#delete` deletes the selected element.
   - Deleted and discarded elements stay in the page until a reload: rows at opacity 0, and items

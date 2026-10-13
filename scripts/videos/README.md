@@ -262,7 +262,8 @@ Each step checks its work and saves screenshots to `out/youtube/shots/`; `npm ru
 says what each does. `lessons/channel.ts` holds the channel, the playlist and each published
 lesson's video id. The `endscreen` step puts YouTube's elements on the slots the lesson draws
 (`END_SLOTS` in `src/show/youtube.ts`), in an upload or, with `--video-id <id> --replace`, on a
-published video, such as pointing a lesson at the next one once it's up. The whole procedure,
+published video, such as pointing a lesson at the next one once it's up. With `--intro`, it
+puts lesson 1 on the Fabricator intro's end screen. The whole procedure,
 the rules for it and what Studio does are in the skill's
 [`references/youtube-studio.md`](../../.github/skills/learn-rayfin-with-ray/references/youtube-studio.md).
 

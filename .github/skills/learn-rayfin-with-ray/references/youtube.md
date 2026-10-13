@@ -47,6 +47,9 @@ The `Lesson<NN>Thumbnail` still is drawn at 1920×1080 and delivered as a 1280×
   **subscribe** element over the round slot on the right. The slots are `END_SLOTS` in
   `src/show/youtube.ts`, and `youtube.md` gives the start time as Studio's editor takes it
   (`m:ss:ff`). The `endscreen` step places both.
+- The intro, which isn't a lesson, has one element: lesson 1, at its lower left, only while its
+  end card is dimmed for the stinger (`introEndScreen` in `lessons/channel.ts`; see
+  [youtube-studio.md](youtube-studio.md#the-intro)).
 
 ## Settings
 

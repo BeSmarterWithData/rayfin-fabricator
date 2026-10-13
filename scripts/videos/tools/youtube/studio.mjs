@@ -135,14 +135,15 @@ export async function loadComments(page) {
 /**
  * Where the end screen's elements go in Studio's end-screen editor, whose preview is the frame
  * scaled by `scale` (the preview's width over 1920): the box for the video or playlist element
- * over the video slot, and the center of the round subscribe slot.
+ * over the video slot, and the center of the round subscribe slot (null when there's none, as on
+ * the intro).
  */
 export function endScreenTargets(slots, scale) {
   const v = slots.video;
   const s = slots.subscribe;
   return {
     video: { left: v.x * scale, top: v.y * scale, width: v.w * scale, height: v.h * scale },
-    subscribe: { cx: s.x * scale, cy: s.y * scale },
+    subscribe: s ? { cx: s.x * scale, cy: s.y * scale } : null,
   };
 }
 

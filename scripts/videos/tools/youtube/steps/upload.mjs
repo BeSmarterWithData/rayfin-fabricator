@@ -23,7 +23,9 @@ export default async ({ page, log, shot, args }) => {
     await page.waitForTimeout(2000);
     input = page.locator('input[type=file]');
   }
-  await input.first().setInputFiles(files.video);
+  // A lesson is about 27 MB, which can take longer than the 15 s default to hand over to the
+  // browser; Studio still takes it, and moves on to Details, after the call has given up.
+  await input.first().setInputFiles(files.video, { timeout: 180000 });
   await dialog.getByRole('textbox').first().waitFor({ timeout: 60000 });
   const link = await dialog
     .locator('a[href*="youtu.be/"]')

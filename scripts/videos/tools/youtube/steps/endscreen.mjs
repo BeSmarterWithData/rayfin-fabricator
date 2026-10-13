@@ -1,7 +1,8 @@
-// Puts the end screen's elements on the slots the lesson draws: the next lesson (or the playlist) over NEXT UP, and Subscribe over the round slot.
+// Puts the end screen's elements on the slots the lesson draws: the next lesson (or the playlist) over NEXT UP, and Subscribe over the round slot. With --intro, lesson 1 on the intro.
 //
 //   npm run yt -- endscreen --lesson <n>                                in the upload dialog
 //   npm run yt -- endscreen --lesson <n> --video-id <id> --replace      on a published video
+//   npm run yt -- endscreen --intro [--replace]                         on the Fabricator intro
 //
 // Options:
 //   --next <video id>  the video for NEXT UP. By default, the next lesson's video when
@@ -14,6 +15,10 @@
 // Both elements start at upload.json's endScreen.start (the first whole second of the slots) and
 // end with the video. The editor's preview is the frame at about a quarter scale, so the step
 // works out each element's place from END_SLOTS and drags it there, then checks where it landed.
+//
+// The intro (CHANNEL.intro) draws no slots. Its end screen is one video element, lesson 1's
+// video (or the playlist, if lesson 1 isn't up), where and when CHANNEL.introEndScreen says:
+// it ends before the video does.
 import { FRAME, STUDIO, drag, endScreenTargets, lessonOf, loadChannel, loadUpload, oembed, stringArg, styleBox, uploadsDialog } from '../studio.mjs';
 
 /** How far, in preview pixels (about 4 frame pixels each), an element may land from its slot. */
@@ -21,10 +26,12 @@ const TOLERANCE = 3;
 
 export default async ({ page, log, shot, args }) => {
   const CHANNEL = await loadChannel();
-  const n = lessonOf(args);
-  const up = await loadUpload(n);
-  const videoId = stringArg(args, 'video-id');
-  const nextId = stringArg(args, 'next') ?? (up.next ? CHANNEL.lessons[up.next.number] : undefined) ?? null;
+  const intro = Boolean(args.intro);
+  const up = intro ? null : await loadUpload(lessonOf(args));
+  /** When the elements show (`end` only when they stop before the video does) and where. */
+  const screen = intro ? { ...CHANNEL.introEndScreen, slots: { video: CHANNEL.introEndScreen.video } } : { start: up.endScreen.start, slots: up.endScreen.slots };
+  const videoId = stringArg(args, 'video-id') ?? (intro ? CHANNEL.intro : undefined);
+  const nextId = stringArg(args, 'next') ?? (intro ? CHANNEL.lessons[1] : up.next ? CHANNEL.lessons[up.next.number] : undefined) ?? null;
 
   if (videoId) {
     // Right after a Studio dialog or editor closes, a goto can leave the tab where it was (the
@@ -93,15 +100,22 @@ export default async ({ page, log, shot, args }) => {
       .click();
     await page.waitForTimeout(2500);
   };
-  const startAt = async () => {
+  // An element's times are the options panel's two inputs: from, then to (the video's end unless
+  // the end screen says otherwise).
+  const times = async () => {
     const inputs = panel.locator('input:not([type=checkbox])');
-    await inputs.nth(0).click({ clickCount: 3 });
-    await page.keyboard.press('ControlOrMeta+A');
-    await page.keyboard.type(up.endScreen.start, { delay: 60 });
-    await page.keyboard.press('Enter');
-    await page.waitForTimeout(1200);
+    const type = async (i, value) => {
+      await inputs.nth(i).click({ clickCount: 3 });
+      await page.keyboard.press('ControlOrMeta+A');
+      await page.keyboard.type(value, { delay: 60 });
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(1200);
+    };
+    await type(0, screen.start);
+    if (screen.end) await type(1, screen.end);
     const [from, to] = await inputs.evaluateAll((els) => els.map((e) => e.value));
-    if (from !== up.endScreen.start) throw new Error(`The element starts at ${from}, not ${up.endScreen.start}.`);
+    if (from !== screen.start) throw new Error(`The element starts at ${from}, not ${screen.start}.`);
+    if (screen.end && to !== screen.end) throw new Error(`The element ends at ${to}, not ${screen.end}.`);
     return `${from}–${to}`;
   };
 
@@ -130,7 +144,7 @@ export default async ({ page, log, shot, args }) => {
     nextUp = `Playlist: ${CHANNEL.playlist.title}`;
   }
   let ov = await overlay();
-  let t = endScreenTargets(up.endScreen.slots, ov.width / FRAME.width);
+  let t = endScreenTargets(screen.slots, ov.width / FRAME.width);
   let b = styleBox(await selected.getAttribute('style'));
   let grab = { x: ov.x + b.left + b.width / 2, y: ov.y + b.top + b.height / 2 };
   await drag(page, grab, { x: grab.x + t.video.left - b.left, y: grab.y + t.video.top - b.top });
@@ -144,23 +158,29 @@ export default async ({ page, log, shot, args }) => {
   b = styleBox(await selected.getAttribute('style'));
   const offVideo = Math.max(Math.abs(b.left - t.video.left), Math.abs(b.top - t.video.top), Math.abs(b.width - t.video.width));
   if (!(offVideo <= TOLERANCE)) throw new Error(`NEXT UP landed ${offVideo.toFixed(1)} px from its slot: ${JSON.stringify(b)} vs ${JSON.stringify(t.video)}.`);
-  const nextTimes = await startAt();
+  const nextTimes = await times();
   log(`${nextUp}: ${nextTimes}, within ${offVideo.toFixed(1)} px of the slot`);
 
   // Subscribe: a fixed-size circle, centered on the round slot. The preview moves when the
-  // options panel changes, so measure it again.
-  await add('Subscribe');
-  ov = await overlay();
-  t = endScreenTargets(up.endScreen.slots, ov.width / FRAME.width);
-  b = styleBox(await selected.getAttribute('style'));
-  grab = { x: ov.x + b.left + b.width / 2, y: ov.y + b.top + b.height / 2 };
-  await drag(page, grab, { x: ov.x + t.subscribe.cx, y: ov.y + t.subscribe.cy });
-  await page.waitForTimeout(800);
-  b = styleBox(await selected.getAttribute('style'));
-  const offSub = Math.hypot(b.left + b.width / 2 - t.subscribe.cx, b.top + b.height / 2 - t.subscribe.cy);
-  if (!(offSub <= TOLERANCE)) throw new Error(`Subscribe landed ${offSub.toFixed(1)} px from its slot.`);
-  const subTimes = await startAt();
-  log(`Subscribe: ${subTimes}, within ${offSub.toFixed(1)} px of the slot`);
+  // options panel changes, so measure it again. A drag can land a few pixels off (October 2026,
+  // 4 px low on lesson 3's), so drag it again from where it landed until it's on the slot.
+  if (screen.slots.subscribe) {
+    await add('Subscribe');
+    let offSub = Infinity;
+    for (let i = 0; i < 3 && !(offSub <= TOLERANCE / 2); i++) {
+      ov = await overlay();
+      t = endScreenTargets(screen.slots, ov.width / FRAME.width);
+      b = styleBox(await selected.getAttribute('style'));
+      grab = { x: ov.x + b.left + b.width / 2, y: ov.y + b.top + b.height / 2 };
+      await drag(page, grab, { x: ov.x + t.subscribe.cx, y: ov.y + t.subscribe.cy });
+      await page.waitForTimeout(800);
+      b = styleBox(await selected.getAttribute('style'));
+      offSub = Math.hypot(b.left + b.width / 2 - t.subscribe.cx, b.top + b.height / 2 - t.subscribe.cy);
+    }
+    if (!(offSub <= TOLERANCE)) throw new Error(`Subscribe landed ${offSub.toFixed(1)} px from its slot.`);
+    const subTimes = await times();
+    log(`Subscribe: ${subTimes}, within ${offSub.toFixed(1)} px of the slot`);
+  }
 
   const warning = /(?:^|[.!?]\s)([^.!?]*(cannot overlap|too close together)[^.!?]*)/.exec(((await editor.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' '))?.[1];
   if (warning) throw new Error(`YouTube says: ${warning.trim()}`);
@@ -174,5 +194,5 @@ export default async ({ page, log, shot, args }) => {
   await page.waitForTimeout(1500);
   log('saved');
   await shot('endscreen');
-  return { nextUp, start: up.endScreen.start, saved: true };
+  return { nextUp, times: nextTimes, saved: true };
 };
