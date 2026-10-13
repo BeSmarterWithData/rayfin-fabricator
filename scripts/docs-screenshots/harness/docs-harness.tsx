@@ -329,6 +329,104 @@ udf.func(
 `
 }
 
+const OWNER_POLICY = `@role('authenticated', '*', {
+  policy: (claims, item) => claims.sub.eq(item.owner_id),
+})`
+
+/**
+ * Contoso Expenses as a Universal App, with expenses filed in reports and tagged through a
+ * join entity: the Data model view's relationship lines. The entities are the ones Learn
+ * Rayfin with Ray's lesson 5 shows (scripts/videos/lessons/05-relationships/snippets.ts).
+ */
+const relationsFiles: Record<string, string> = {
+  'rayfin/rayfin.yml': `id: contoso-expenses
+name: Contoso Expenses
+version: 1.0.0
+services:
+  auth:
+    enabled: true
+    fabric:
+      enabled: true
+  data:
+    enabled: true
+    dialect: mssql
+    path: packages/data
+    buildCommand: npm run build
+  staticHosting:
+    enabled: true
+    path: packages/frontend
+    folder: dist
+    buildCommand: npm run build:fabric
+    assetAccess: protected
+`,
+  'packages/data/src/index.ts': `import { Expense } from './Expense.js';
+import { ExpenseTag } from './ExpenseTag.js';
+import { Report } from './Report.js';
+import { Tag } from './Tag.js';
+
+export { Expense, ExpenseTag, Report, Tag };
+export const schema = [Expense, Report, Tag, ExpenseTag];
+`,
+  'packages/data/src/Expense.ts': `import { date, decimal, entity, one, role, set, text, uuid } from '@microsoft/rayfin-core';
+import { Report } from './Report.js';
+
+@entity()
+${OWNER_POLICY}
+export class Expense {
+  @uuid() id!: string;
+  @date() spentOn!: Date;
+  @decimal({ min: 0 }) amount!: number;
+  @set('Travel', 'Meals', 'Software', 'Office')
+  category!: 'Travel' | 'Meals' | 'Software' | 'Office';
+  @text({ optional: true, max: 500 }) note?: string;
+  @date() createdAt!: Date;
+  @one(() => Report, { optional: true }) report?: Report;
+  @text({ max: 200 }) owner_id!: string;
+}
+`,
+  'packages/data/src/Report.ts': `import { entity, many, role, text, uuid } from '@microsoft/rayfin-core';
+import { Expense } from './Expense.js';
+
+@entity()
+${OWNER_POLICY}
+export class Report {
+  @uuid() id!: string;
+  @text({ max: 200 }) title!: string;
+  @many(() => Expense) expenses?: Expense[];
+  @text({ max: 200 }) owner_id!: string;
+}
+`,
+  'packages/data/src/Tag.ts': `import { entity, role, text, uuid } from '@microsoft/rayfin-core';
+
+@entity()
+${OWNER_POLICY}
+export class Tag {
+  @uuid() id!: string;
+  @text({ max: 50 }) name!: string;
+  @text({ max: 200 }) owner_id!: string;
+}
+`,
+  'packages/data/src/ExpenseTag.ts': `import { entity, one, role, text, uuid } from '@microsoft/rayfin-core';
+import { Expense } from './Expense.js';
+import { Tag } from './Tag.js';
+
+@entity()
+${OWNER_POLICY}
+export class ExpenseTag {
+  @uuid() id!: string;
+  @uuid() expense_id!: string;
+  @one(() => Expense) expense!: Expense;
+  @uuid() tag_id!: string;
+  @one(() => Tag) tag!: Tag;
+  @text({ max: 200 }) owner_id!: string;
+}
+`
+}
+
+/** The sample app's files a shot reads: the Universal App with related entities for `model-relations`. */
+const projectFiles: Record<string, string> =
+  new URLSearchParams(location.search).get('shot') === 'model-relations' ? relationsFiles : expensesFiles
+
 /** The project's file tree holding `paths`, as `projects.files.tree` returns it. */
 function fileTree(paths: string[]): FileNode[] {
   const root: FileNode[] = []
@@ -438,11 +536,11 @@ function installApi(): void {
       files: {
         read: (_project: string, path: string) =>
           Promise.resolve(
-            path in expensesFiles
-              ? { path, size: expensesFiles[path].length, content: expensesFiles[path] }
+            path in projectFiles
+              ? { path, size: projectFiles[path].length, content: projectFiles[path] }
               : { path, size: 0, error: 'Not found' }
           ),
-        tree: ok(fileTree(Object.keys(expensesFiles)))
+        tree: ok(fileTree(Object.keys(projectFiles)))
       }
     },
     fabric: {
@@ -797,10 +895,13 @@ const expensesApp: StudioProject = {
   }
 }
 
-/** Blueprint's Architecture view of the sample app, filling the window as it fills the Build area. */
-function Blueprint(): JSX.Element {
+/**
+ * Blueprint, filling the window as it fills the Build area: the Architecture view of the sample
+ * app, or with `view="data"` its Data model view.
+ */
+function Blueprint({ view = 'architecture' }: { view?: 'architecture' | 'data' }): JSX.Element {
   // Blueprint opens on the view last chosen for the project.
-  localStorage.setItem(`rayfin.model.view.${expensesApp.id}`, 'architecture')
+  localStorage.setItem(`rayfin.model.view.${expensesApp.id}`, view)
   return (
     <div className="workbench" style={{ flex: 1 }}>
       <main className="content">
@@ -946,6 +1047,8 @@ function Shot({ id }: { id: string | null }): JSX.Element {
       return <DeployFailed />
     case 'blueprint':
       return <Blueprint />
+    case 'model-relations':
+      return <Blueprint view="data" />
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>
   }
