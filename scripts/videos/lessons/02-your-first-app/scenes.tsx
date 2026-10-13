@@ -433,15 +433,13 @@ const prereqs: LessonScene = {
     gaze: [
       [0, 0.8, -0.5],
       [c.w('Node.js'), 0.9, -0.6],
-      [c.w('GitHub'), 0.9, -0.4],
-      [c.w('Microsoft'), 0.9, -0.2],
-      [c.at('tenant', 'Fabric'), 0.9, 0.4],
+      [c.w('Microsoft'), 0.9, -0.4],
+      [c.at('tenant', 'Fabric'), 0.9, 0.3],
       [c.at('tenant', 'ask'), 0, 0.1],
     ],
   }),
   sfx: (c) => [
     { f: c.w('Node.js') + 8, id: 'pop', volume: 0.45 },
-    { f: c.w('GitHub') + 8, id: 'pop', volume: 0.45 },
     { f: c.w('Microsoft') + 8, id: 'pop', volume: 0.45 },
     { f: c.at('tenant', 'Fabric'), id: 'swim-whoosh', volume: 0.3 },
     { f: c.at('tenant', 'flips'), id: 'click', volume: 0.6 },
@@ -455,18 +453,17 @@ const prereqs: LessonScene = {
         <ChapterTag text="Before you start" from={ctx.lead} to={end} />
         <NeedList
           x={1130}
-          y={140}
+          y={190}
           width={960}
           from={ctx.lead + 4}
           to={end}
           items={[
             { icon: 'hexagon', text: 'Node.js 20 or later', at: ctx.w('Node.js') },
-            { icon: 'terminal', text: 'The GitHub CLI', at: ctx.w('GitHub') },
             { icon: 'user', text: 'A Microsoft Fabric account', at: ctx.w('Microsoft') },
           ]}
         />
-        <TenantSwitch x={1130} y={600} width={960} from={ctx.at('tenant', 'Fabric') - 2} flip={ctx.at('tenant', 'flips')} to={end} />
-        <Chip x={1130} y={880} from={ctx.at('tenant', 'ask')} to={end} accent="#ffb547" size={32}>
+        <TenantSwitch x={1130} y={560} width={960} from={ctx.at('tenant', 'Fabric') - 2} flip={ctx.at('tenant', 'flips')} to={end} />
+        <Chip x={1130} y={840} from={ctx.at('tenant', 'ask')} to={end} accent="#ffb547" size={32}>
           Not an admin? Ask your Fabric admin to turn it on
         </Chip>
       </AbsoluteFill>

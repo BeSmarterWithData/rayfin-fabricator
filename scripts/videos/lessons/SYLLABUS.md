@@ -23,7 +23,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | # | Lesson | Folder | Status |
 | --- | --- | --- | --- |
 | 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Published: [youtu.be/n-VtBCmtn78](https://youtu.be/n-VtBCmtn78) |
-| 2 | Your first Rayfin app | `lessons/02-your-first-app` | Published: [youtu.be/1zYRA5gTwcs](https://youtu.be/1zYRA5gTwcs) |
+| 2 | Your first Rayfin app | `lessons/02-your-first-app` | Published: [youtu.be/-PzsntUZT7w](https://youtu.be/-PzsntUZT7w) |
 | 3 | Inside a Rayfin app | | Planned |
 | 4 | Entities and field types | | Planned |
 | 5 | Relationships | | Planned |
@@ -108,10 +108,11 @@ studio's lesson kit (`src/lesson-kit/`):
 - **You'll learn:** how to scaffold a project; the dev loop; how to deploy.
 - **Concepts:** `npm create @microsoft/rayfin@latest` with the default `blankapp` template (the
   Universal App); `rayfin login` (Microsoft Entra ID in the browser); `npm run dev` runs
-  `rayfin dev`; `rayfin up` and `rayfin up status`. Prerequisites: Node.js 20+, the GitHub CLI
-  and a Fabric account, and Fabric apps turned on in the tenant. The new app starts small, with
-  sign-in and a website and the data service off. Data, functions, connectors and storage are
-  added when the app needs them; lesson 3 maps them, and Module 3 teaches them.
+  `rayfin dev`; `rayfin up` and `rayfin up status`. Prerequisites: Node.js 20+ and a Fabric
+  account, and Fabric apps turned on in the tenant. The GitHub CLI isn't needed. The new app
+  starts small, with sign-in and a website and the data service off. Data, functions,
+  connectors and storage are added when the app needs them; lesson 3 maps them, and Module 3
+  teaches them.
 - **Deep Dive:** `rayfin dev` provisions or reuses the backend in Fabric and runs only the
   frontend (and any Functions) on your machine. There is no backend to run yourself.
   `rayfin dev` doesn't publish; `rayfin up` does.

@@ -27,8 +27,17 @@ export default async ({ page, log, shot, args }) => {
   const nextId = stringArg(args, 'next') ?? (up.next ? CHANNEL.lessons[up.next.number] : undefined) ?? null;
 
   if (videoId) {
-    await page.goto(`${STUDIO}/video/${videoId}/edit`, { waitUntil: 'load' });
-    await page.waitForTimeout(5000);
+    // Right after a Studio dialog or editor closes, a goto can leave the tab where it was (the
+    // Content list, or another video's details page) without an error, so check where it landed
+    // before touching an end screen.
+    const target = `${STUDIO}/video/${videoId}/edit`;
+    for (let i = 0; i < 3; i++) {
+      await page.goto(target, { waitUntil: 'load' });
+      await page.waitForTimeout(5000);
+      if (page.url().startsWith(target)) break;
+      log(`Studio stayed on ${page.url()}; trying again`);
+    }
+    if (!page.url().startsWith(target)) throw new Error(`Studio wouldn't open ${target}; it stayed on ${page.url()}.`);
     await page.locator('#endscreen-editor-link').click();
   } else {
     const dialog = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog

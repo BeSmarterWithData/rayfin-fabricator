@@ -46,7 +46,7 @@ export const SCRIPT = {
       id: 'prereqs',
       chapter: 'Before you start',
       beats: [
-        { id: 'gear', text: 'First, what you need: Node.js 20 or later, the GitHub CLI, and a Microsoft Fabric account.', say: { 'Node.js': 'NodeJS' }, sources: [`${R}/start/installation`] },
+        { id: 'gear', text: 'First, what you need: Node.js 20 or later and a Microsoft Fabric account.', say: { 'Node.js': 'NodeJS' }, sources: [`${R}/start/installation`] },
         { id: 'tenant', text: "Fabric apps also have to be turned on in your tenant. A Fabric tenant admin flips that switch, so ask yours if it's off.", sources: [`${R}/start/deploy-to-fabric`] },
       ],
     },

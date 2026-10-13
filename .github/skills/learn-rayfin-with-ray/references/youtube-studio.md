@@ -80,7 +80,7 @@ they are. Then, in order:
 | 8 | `lessons/channel.ts` | Add the video id to `lessons`. The steps read it fresh each time. |
 | 9 | `npm run yt -- comment --lesson <n>` | Posts the challenge as the channel, and pins it. |
 | 10 | `npm run yt -- endscreen --lesson <n-1> --video-id <its id> --replace` | Points the previous lesson's NEXT UP at this lesson. |
-| 11 | `npm run yt -- check --lesson <n>`, then `--lesson <n-1>` | Checks both as viewers see them: public, title, captions, clickable links, chapters, the end screen on its slots, the pinned comment, and the playlist's order. |
+| 11 | `npm run yt -- check --lesson <n>`, then `--lesson <n-1>` | Checks both as viewers see them: public, title, captions, clickable links, chapters, the end screen on its slots (and, once the next lesson is up, that NEXT UP is its video), the pinned comment, and the playlist's order. |
 | 12 | `lessons/SYLLABUS.md` | Set the lesson to Published with its link, and commit it with `channel.ts`. |
 
 Look at each step's screenshot before running the next. If a step fails, read its error and
@@ -111,6 +111,14 @@ a fix you can run the step again.
   track, and upload the new `.vtt` with timing.
 - **A new cut of the video:** YouTube can't replace a video's file. Upload it as a new video and
   decide with the user what happens to the old one, which keeps its views, comments and links.
+  Publish the new cut like a new lesson (steps 1–12), putting its id in `lessons/channel.ts`
+  before `comment`, and point the previous lesson's end screen at it. Then, with the user's yes,
+  retire the old one on its details page with `npm run yt -- -e "…"`, after checking that
+  `page.url()` is that video's: open Visibility (`ytcp-video-metadata-visibility`), pick the
+  `tp-yt-paper-radio-button` named `PRIVATE` or `UNLISTED` and click Done; untick the playlist
+  in `ytcp-video-metadata-playlists` (the same picker as the upload dialog's); then Save, and
+  reload to check. Lesson 2's first cut (`1zYRA5gTwcs`) was made private this way in October
+  2026, when the GitHub CLI came out of its prerequisites.
 
 ## How the tools work
 
@@ -137,6 +145,10 @@ Things learned the hard way, for when a step needs fixing:
 
 - A tab in the background doesn't paint, so screenshots and drags wait on it forever. The driver
   brings a step's tab to the front.
+- Right after a dialog or an editor closes (publishing, or saving an end screen), a
+  `page.goto()` can leave the tab where it was, on the Content list or the last video's details
+  page, without an error. Check `page.url()` before changing anything on a video's page. The
+  `endscreen` step checks, and tries again.
 - Every Studio page knows its account and channel: `ytcfg.get('LOGGED_IN')` and
   `ytcfg.get('CHANNEL_ID')`. The sidebar's text changes from page to page.
 - The title and description are contenteditable boxes: `getByRole('textbox')` and `fill()` work.

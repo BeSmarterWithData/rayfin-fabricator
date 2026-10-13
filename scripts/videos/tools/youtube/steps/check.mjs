@@ -1,4 +1,4 @@
-// Checks a published lesson as viewers see it: public, captions, chapters, clickable links, the end screen on its slots, the pinned comment, the playlist.
+// Checks a published lesson as viewers see it: public, captions, chapters, clickable links, the end screen on its slots (and NEXT UP's video, once the next lesson is up), the pinned comment, the playlist.
 //
 //   npm run yt -- check --lesson <n> [--video-id <id>]
 //
@@ -75,6 +75,7 @@ export default async ({ context, state, log, shot, args }) => {
       height: box.height,
       elements: [...document.querySelectorAll('.ytp-ce-element')].map((e) => ({
         kind: /ytp-ce-(video|playlist|channel|website)\b/.exec(e.className)?.[1],
+        href: e.querySelector('a[href]')?.href ?? null,
         left: parseFloat(e.style.left),
         top: parseFloat(e.style.top),
         width: parseFloat(e.style.width),
@@ -89,6 +90,12 @@ export default async ({ context, state, log, shot, args }) => {
   const subOff = sub ? Math.max(Math.abs((sub.left + sub.width / 2) / es.width - s.x / FRAME.width), Math.abs((sub.top + sub.height / 2) / es.height - s.y / FRAME.height)) : 1;
   check('end screen: NEXT UP on its slot', nextOff <= TOLERANCE, next ? `${next.kind}, ${(nextOff * 100).toFixed(1)}% off` : 'missing');
   check('end screen: Subscribe on its slot', subOff <= TOLERANCE, sub ? `${(subOff * 100).toFixed(1)}% off` : 'missing');
+  // Once the next lesson is up, NEXT UP must be its video. An older cut of it can share its title.
+  const nextId = up.next ? CHANNEL.lessons[up.next.number] : undefined;
+  if (nextId) {
+    const target = next?.href ? new URL(next.href).searchParams.get('v') : null;
+    check(`end screen: NEXT UP is lesson ${up.next.number}`, next?.kind === 'video' && target === nextId, next ? `${next.kind}${target ? ` ${target}` : ''}` : 'missing');
+  }
   await shot('check-endscreen', w);
 
   await loadComments(w);
