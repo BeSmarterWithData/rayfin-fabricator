@@ -56,6 +56,16 @@ The **Website** piece shows when people can load the app's pages, set by `assetA
 - **Pages load before sign-in** (`public`): anyone with the link can download the page files, the app's HTML, JavaScript and CSS. The app's data still needs sign-in, and its access rules still apply.
 - **Page access not set**: choose `protected` or `public` before deploying.
 
+## How people sign in
+
+The **Sign-in** piece shows how people sign in to the app. **Microsoft Entra ID, through Fabric** means the app uses Fabric brokered auth, which Rayfin's docs also call Fabric SSO:
+
+- People sign in with the Microsoft Entra account they already use for Fabric.
+- Sign-in is part of the app, so there's no identity provider to run.
+- The app needs no app registration of its own in Microsoft Entra ID, so there's nothing for a tenant admin to approve.
+
+Select **Sign-in** to see its **Provider**, whether it accepts **Entra tokens from other apps**, and its **Sign-in addresses**. If the piece says **Off**, the app can't tell people apart. Learn more in the [Rayfin auth docs](https://rayfin.ai/docs/auth).
+
 ## Secrets
 
 The **Secrets** piece lists the secrets the app's functions use: the ones declared in `rayfin/rayfin.yml` and the ones its code reads. Select it to see what each secret is for, which functions read it, and whether the deployed app has a value for it: **Set**, **No value** or **Not in rayfin.yml**. Values are never shown.
