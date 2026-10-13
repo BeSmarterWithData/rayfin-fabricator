@@ -94,8 +94,9 @@ These actions send a prompt to the Build chat. Fabricator doesn't deploy from th
 The **Data model** view parses the Rayfin schema and draws an entity-relationship diagram. Each entity card shows:
 
 - The entity name.
-- Fields and their parsed types, such as `uuid`, `text`, `date`, `bool`, `decimal`, relation-to-one or relation-to-many.
-- Primary-key and relationship indicators.
+- Each field and its type: `uuid`, `text`, `email`, `int`, `decimal`, `bool`, `date`, or `enum` for a `@set()` field. A relationship field shows the entity it points to, such as `Category`, with `[]` after it when it holds many, such as `Task[]`.
+- A key on the primary key, and a link on a field that references another entity.
+- A diamond before each field name: filled for a required field, hollow for an optional field and for the primary key, and in the accent color for a unique field. Hover over it to see **Required** or **Optional**.
 - Access grants, including role names and whether a grant has a row-level **policy**.
 - An access dot. The legend labels access as **Row-scoped**, **Any signed-in** or **Public**.
 
