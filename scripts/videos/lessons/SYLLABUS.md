@@ -24,7 +24,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | --- | --- | --- | --- |
 | 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Published: [youtu.be/n-VtBCmtn78](https://youtu.be/n-VtBCmtn78) |
 | 2 | Your first Rayfin app | `lessons/02-your-first-app` | Published: [youtu.be/-PzsntUZT7w](https://youtu.be/-PzsntUZT7w) |
-| 3 | Inside a Rayfin app | | Planned |
+| 3 | Inside a Rayfin app | `lessons/03-inside-a-rayfin-app` | Rendered |
 | 4 | Entities and field types | | Planned |
 | 5 | Relationships | | Planned |
 | 6 | Permissions and row-level security | | Planned |
@@ -126,7 +126,7 @@ studio's lesson kit (`src/lesson-kit/`):
 
 #### 3. Inside a Rayfin app
 
-- **Hook:** "Let's take a tour of the reef."
+- **Hook:** "A new Rayfin app comes with more than a hundred files. What are they all for?"
 - **You'll learn:** the Universal App's packages; `rayfin.yml` and its services; the building
   blocks an app can add: data, connectors, functions and storage.
 - **Concepts:** `packages/frontend`, `packages/data`, `packages/shared` (and
@@ -137,14 +137,18 @@ studio's lesson kit (`src/lesson-kit/`):
   for coding agents in `.agents/skills`.
 - **Deep Dive:** how a Fabric app runs. Your frontend is static content in front of a
   WebService, Data API Builder and an MSSQL database, with Functions and blob storage beside
-  them. Outside the app sit Microsoft Entra ID, data already in Fabric (reached through
-  connectors), Microsoft resources (through function connections) and any HTTPS API (through
-  a function and a secret). `rayfin dev` and `rayfin up` sync `rayfin.yml` to Fabric.
-- **In Fabricator:** the Code view's file tree; Blueprint's Architecture view, with its
-  **Website**, **Sign-in**, **Database**, **File storage**, **Connectors**, **Functions** and
-  **Secrets** pieces.
+  them. Sign-in is part of the app too: Fabric brokered auth signs people in with the Microsoft
+  Entra account they use for Fabric, with no identity provider to run and no Entra app of your
+  own to approve. Outside the app sit data already in Fabric (reached through connectors),
+  Microsoft resources (through function connections) and any HTTPS API (through a function and
+  a secret). `rayfin dev` and `rayfin up` sync `rayfin.yml` to Fabric.
+- **In Fabricator:** the Code view's file tree; the Skills tab's always-on Rayfin skills;
+  Blueprint's Architecture view, with its **Website**, **Sign-in**, **Database**, **File
+  storage**, **Connectors**, **Functions** and **Secrets** pieces.
 - **Pop Quiz:** Which file records your deployments and shouldn't be committed?
   **`rayfin/.deployments.json`.**
+- **Challenge:** open Blueprint, send a prompt that adds a notes page with per-person notes,
+  and find the new **Database** piece.
 - **Sources:** [/docs](https://rayfin.ai/docs),
   [/docs/start/project-structure](https://rayfin.ai/docs/start/project-structure),
   [/docs/reference/config/rayfin-yml](https://rayfin.ai/docs/reference/config/rayfin-yml)
@@ -313,9 +317,12 @@ such as Functions, say so on screen.
 - **Hook:** "Who's there? Microsoft Entra ID knows."
 - **You'll learn:** how people sign in; sessions; which identity each part of your app uses.
 - **Concepts:** Microsoft Entra ID is the only identity provider for Rayfin Fabric apps; email
-  and password sign-in is for local development only. Fabric
-  SSO has a popup flow in a browser (`ensureSignedInWithFabric()` from a user gesture) and an
-  embedded flow inside the Fabric portal. Sessions are opaque: read `getSession()` and watch
+  and password sign-in is for local development only. Sign-in is Fabric brokered auth (say
+  that; rayfin.ai also calls it Fabric SSO): Fabric signs people in with the Microsoft Entra
+  account they use for Fabric, so the app has no identity provider to run and no app
+  registration of its own for a tenant admin to approve. It has a popup flow in a browser
+  (`ensureSignedInWithFabric()` from a user gesture) and an embedded flow inside the Fabric
+  portal. Sessions are opaque: read `getSession()` and watch
   `onSessionChange`. The React integration adds `AuthProvider`, `useAuth` and a route guard.
   `assetAccess` decides whether pages load before sign-in. The session's claims (`sub`,
   `email`, `role`) drive lesson 6's policies. Direct Entra token sign-in and embedding in your
@@ -323,8 +330,8 @@ such as Functions, say so on screen.
 - **Deep Dive:** who's asking? Your own data runs as the signed-in user, even inside a
   function. Function connections run as the app identity, and each connector chooses its own.
   Public pages don't make data public: entity permissions still apply.
-- **In Fabricator:** Blueprint's **People** and the identity labels; the **Website** piece's
-  **Pages load after sign-in**.
+- **In Fabricator:** Blueprint's **People**, the **Sign-in** piece and the identity labels; the
+  **Website** piece's **Pages load after sign-in**.
 - **Pop Quiz:** Your pages load before sign-in (`assetAccess: public`). Is your data public
   now? **No. APIs and data permissions still apply.**
 - **Sources:** [/docs/auth](https://rayfin.ai/docs/auth),
@@ -359,6 +366,8 @@ Season 1 introduces connectors, functions and storage. Season 2 goes deeper:
 - Hosting: redirect URIs and deep links
 - Testing a Rayfin app
 - Signing in with an Entra token, and embedding an app in your own portal
+- Bringing your own identity provider through OIDC, once Rayfin supports it (Microsoft Entra ID,
+  through Fabric brokered auth, is the only provider in 1.36.2)
 
 Check each topic's availability notes on rayfin.ai before scripting it. For example, Functions
 aren't in every Fabric region or tenant.

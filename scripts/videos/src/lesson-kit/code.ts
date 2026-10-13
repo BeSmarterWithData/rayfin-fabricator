@@ -1,12 +1,15 @@
 /**
- * A small TypeScript highlighter for the code the lessons show, in the colors of Fabricator's
- * editor (Monaco's dark theme, with bracket pairs colored by depth) and its light twin. Pure
- * and React-free, so tools/code.test.mjs can check it. It's tuned for short, well-formed
- * snippets such as entity classes and client calls, not for every corner of the language.
+ * A small highlighter for the code the lessons show, in the colors of Fabricator's editor
+ * (Monaco's dark theme, with bracket pairs colored by depth) and its light twin. Pure and
+ * React-free, so tools/code.test.mjs can check it. It's tuned for short, well-formed snippets
+ * such as entity classes, client calls and config files, not for every corner of a language.
  */
 import type { ThemeName } from '../theme';
 
 export type TokenKind = 'comment' | 'string' | 'keyword' | 'decorator' | 'type' | 'function' | 'property' | 'number' | 'bracket' | 'punct' | 'plain';
+
+/** The languages the highlighter reads. TypeScript unless a snippet says otherwise. */
+export type CodeLanguage = 'typescript' | 'yaml' | 'json' | 'plaintext';
 
 export interface Token {
   text: string;
@@ -25,7 +28,14 @@ const OPEN = '([{';
 const CLOSE = ')]}';
 
 /** Splits code into lines of tokens. Block comments may span lines. */
-export function tokenize(code: string): Token[][] {
+export function tokenize(code: string, language: CodeLanguage = 'typescript'): Token[][] {
+  if (language === 'yaml') return tokenizeYaml(code);
+  if (language === 'json') return tokenizeJson(code);
+  if (language === 'plaintext') return code.replace(/\r\n?/g, '\n').split('\n').map((line) => (line ? [{ text: line, kind: 'plain' as const }] : []));
+  return tokenizeTypeScript(code);
+}
+
+function tokenizeTypeScript(code: string): Token[][] {
   const lines: Token[][] = [];
   let inBlock = false;
   let depth = 0;
@@ -108,6 +118,69 @@ export function tokenize(code: string): Token[][] {
     lines.push(out);
   }
   return lines;
+}
+
+/** JSON reads like TypeScript, except that a string before a colon is a key, as Monaco colors it. */
+function tokenizeJson(code: string): Token[][] {
+  return tokenizeTypeScript(code).map((line) =>
+    line.map((t, i) => {
+      if (t.kind !== 'string') return t;
+      const next = line.slice(i + 1).find((n) => n.text.trim());
+      return next?.kind === 'punct' && next.text.trimStart().startsWith(':') ? { ...t, kind: 'property' as const } : t;
+    }),
+  );
+}
+
+const YAML_KEYWORDS = new Set(['true', 'True', 'TRUE', 'false', 'False', 'FALSE', 'null', 'Null', 'NULL', '~']);
+
+/**
+ * YAML as Monaco's grammar colors it: keys like types, `-` and `:` as punctuation, booleans and
+ * null as keywords, numbers as numbers, and every other value, quoted or not, as a string.
+ */
+function tokenizeYaml(code: string): Token[][] {
+  return code
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((source) => {
+      const out: Token[] = [];
+      const push = (text: string, kind: TokenKind) => {
+        if (text) out.push({ text, kind });
+      };
+      const indent = (/^\s*/.exec(source) as RegExpExecArray)[0];
+      push(indent, 'plain');
+      let rest = source.slice(indent.length);
+      if (rest.startsWith('#')) {
+        push(rest, 'comment');
+        return out;
+      }
+      for (let item = /^-(\s+|$)/.exec(rest); item; item = /^-(\s+|$)/.exec(rest)) {
+        push('-', 'punct');
+        push(item[1], 'plain');
+        rest = rest.slice(item[0].length);
+      }
+      // A comment after a value starts at a `#` that follows whitespace, outside quotes.
+      let comment = '';
+      const hash = /^((?:"[^"]*"|'[^']*'|[^"'#])*?)\s#/.exec(rest);
+      if (hash) {
+        comment = rest.slice(hash[1].length);
+        rest = hash[1];
+      }
+      const pair = /^((?:"[^"]*"|'[^']*'|[^#'"])*?)(\s*)(:)(?=\s|$)/.exec(rest);
+      if (pair) {
+        push(pair[1], 'type');
+        push(pair[2], 'plain');
+        push(':', 'punct');
+        rest = rest.slice(pair[0].length);
+        const space = (/^\s*/.exec(rest) as RegExpExecArray)[0];
+        push(space, 'plain');
+        rest = rest.slice(space.length);
+      }
+      const value = rest.trimEnd();
+      if (value) push(value, YAML_KEYWORDS.has(value) ? 'keyword' : /^[+-]?(\d+|\d*\.\d+)$/.test(value) ? 'number' : 'string');
+      push(rest.slice(value.length), 'plain');
+      push(comment, 'comment');
+      return out;
+    });
 }
 
 export interface CodePalette {

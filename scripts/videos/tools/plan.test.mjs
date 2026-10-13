@@ -142,9 +142,44 @@ test('a respelling changes what the voice reads, and maps back onto the written 
   assert.deepEqual(unsayWords(words), words);
 });
 
-test('a respelling has to be one word, of a word the line has', () => {
+test('a respelling can be several words, and maps back onto the word as written', () => {
+  const say = { 'rayfin.yml': 'rayfin dot yaml', '.env': 'dot env' };
+  const text = 'The rayfin folder holds rayfin.yml: and .env.';
+  assert.equal(sayText(text, say), 'The rayfin folder holds rayfin dot yaml: and dot env.');
+  const words = [
+    { text: 'The', startMs: 0, endMs: 100 },
+    { text: 'rayfin', startMs: 120, endMs: 400 },
+    { text: 'folder', startMs: 420, endMs: 700 },
+    { text: 'holds', startMs: 720, endMs: 900 },
+    { text: 'rayfin', startMs: 950, endMs: 1200 },
+    { text: 'dot', startMs: 1220, endMs: 1400 },
+    { text: 'yaml:', startMs: 1420, endMs: 1800 },
+    { text: 'and', startMs: 1900, endMs: 2000 },
+    { text: 'dot', startMs: 2050, endMs: 2200 },
+    { text: 'env.', startMs: 2220, endMs: 2500 },
+  ];
+  assert.deepEqual(unsayWords(words, say), [
+    { text: 'The', startMs: 0, endMs: 100 },
+    { text: 'rayfin', startMs: 120, endMs: 400 },
+    { text: 'folder', startMs: 420, endMs: 700 },
+    { text: 'holds', startMs: 720, endMs: 900 },
+    { text: 'rayfin.yml:', startMs: 950, endMs: 1800 },
+    { text: 'and', startMs: 1900, endMs: 2000 },
+    { text: '.env.', startMs: 2050, endMs: 2500 },
+  ]);
+  // Punctuation inside a respelling's run means the voice didn't read it as one word.
+  const broken = [
+    { text: 'rayfin,', startMs: 0, endMs: 300 },
+    { text: 'dot', startMs: 320, endMs: 500 },
+    { text: 'yaml', startMs: 520, endMs: 800 },
+  ];
+  assert.deepEqual(unsayWords(broken, say), broken);
+});
+
+test('a respelling has to say something, of a word the line has', () => {
   const scene = (beat) => ({ ...script, scenes: [{ id: 'x', beats: [{ id: 'x1', text: 'Fabric hosts the APIs.', ...beat }] }] });
   assert.doesNotThrow(() => checkScript(scene({ say: { APIs: "API's" } })));
-  assert.throws(() => checkScript(scene({ say: { APIs: 'A P Is' } })), /one word, without spaces/);
+  assert.doesNotThrow(() => checkScript(scene({ say: { APIs: 'A P Is' } })));
+  assert.throws(() => checkScript(scene({ say: { APIs: ' ' } })), /as nothing/);
   assert.throws(() => checkScript(scene({ say: { SQL: 'sequel' } })), /doesn't have that word/);
 });

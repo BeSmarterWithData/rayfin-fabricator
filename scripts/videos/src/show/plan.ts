@@ -24,9 +24,11 @@ export interface LineSpec {
   /** Overrides the voice's seed, for a retake of this line without changing its words. */
   seed?: number;
   /**
-   * Words the voice says wrong, and how to spell them so it says them right: `{ APIs: "API's" }`.
-   * The voice reads the respelling; the captions and word cues keep the word as written. Write
-   * each respelling as one word (no spaces), so its timing maps back onto the written word.
+   * Words the voice says wrong, and how to say them: `{ APIs: "API's" }`, or several words, such
+   * as `{ 'rayfin.yml': 'rayfin dot yaml' }`. The voice reads the respelling; the captions and
+   * word cues keep the word as written, timed from the respelling's first word to its last. Write
+   * the parts as separate words: in a made-up compound such as rayfin-dot-yaml, the voice reads
+   * each hyphen as "dash".
    */
   say?: Readonly<Record<string, string>>;
   /**
@@ -121,7 +123,7 @@ export function checkScript(script: LessonScript): void {
       const said = typeof beat.text === 'string' && spokenText(beat.text).length > 0;
       if (said === (beat.hold !== undefined)) throw new Error(`Beat "${beat.id}" needs either text or a hold, not ${said ? 'both' : 'neither'}.`);
       for (const [word, respelled] of Object.entries(beat.say ?? {})) {
-        if (/\s/.test(respelled) || !respelled) throw new Error(`Beat "${beat.id}" respells "${word}" as "${respelled}"; write it as one word, without spaces.`);
+        if (!respelled.trim()) throw new Error(`Beat "${beat.id}" respells "${word}" as nothing; give the voice something to say.`);
         if (sayText(beat.text ?? '', { [word]: respelled }) === beat.text) throw new Error(`Beat "${beat.id}" respells "${word}", but its text doesn't have that word.`);
       }
     }
@@ -135,18 +137,33 @@ const wholeWord = (word: string) => new RegExp(`(?<![\\p{L}\\p{N}'’])${escapeR
 /** What the voice reads for a line: its text with each word in `say` respelled. */
 export function sayText(text: string, say?: Readonly<Record<string, string>>): string {
   let out = text;
-  for (const [word, respelled] of Object.entries(say ?? {})) out = out.replace(wholeWord(word), respelled);
+  for (const [word, respelled] of Object.entries(say ?? {})) out = out.replace(wholeWord(word), respelled.trim());
   return out;
 }
 
-/** The voice's word timings, with each respelling turned back into the word as written. */
+/**
+ * The voice's word timings, with each respelling turned back into the word as written. A
+ * respelling of several words becomes one word again, from the start of its first to the end of
+ * its last; punctuation the voice read after it stays on.
+ */
 export function unsayWords(words: readonly Word[], say?: Readonly<Record<string, string>>): Word[] {
-  const back = Object.entries(say ?? {}).map(([word, respelled]) => ({ word, respelled: respelled.replace(/’/g, "'") }));
-  return words.map((w) => {
-    const text = w.text.replace(/’/g, "'");
-    const hit = back.find((b) => text === b.respelled || (text.startsWith(b.respelled) && /^[,.!?…:;]+$/.test(text.slice(b.respelled.length))));
-    return hit ? { ...w, text: hit.word + text.slice(hit.respelled.length) } : w;
-  });
+  const plain = (s: string) => s.replace(/’/g, "'");
+  const back = Object.entries(say ?? {}).map(([word, respelled]) => ({ word, parts: plain(respelled).trim().split(/\s+/) }));
+  // Only a respelling's last part may carry the punctuation that follows it.
+  const matches = (text: string, part: string, last: boolean) => text === part || (last && text.startsWith(part) && /^[,.!?…:;]+$/.test(text.slice(part.length)));
+  const out: Word[] = [];
+  for (let i = 0; i < words.length; i++) {
+    const hit = back.find((b) => b.parts.every((part, k) => i + k < words.length && matches(plain(words[i + k].text), part, k === b.parts.length - 1)));
+    if (!hit) {
+      out.push(words[i]);
+      continue;
+    }
+    const last = words[i + hit.parts.length - 1];
+    const tail = plain(last.text).slice(hit.parts[hit.parts.length - 1].length);
+    out.push({ ...words[i], text: hit.word + tail, endMs: last.endMs });
+    i += hit.parts.length - 1;
+  }
+  return out;
 }
 
 /** Lays a lesson out on its timeline. Throws when a voiced line has no timing yet. */

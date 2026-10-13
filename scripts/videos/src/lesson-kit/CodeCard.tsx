@@ -2,7 +2,7 @@ import { useMemo, type ReactNode } from 'react';
 import { useCurrentFrame, useVideoConfig } from 'remotion';
 import { ease, pop, ramp } from '../anim';
 import { FONT, MONO, useTheme } from '../theme';
-import { CODE_PALETTES, colorOf, tokenize } from './code';
+import { CODE_PALETTES, colorOf, tokenize, type CodeLanguage } from './code';
 
 /** A glowing box around part of a line (1-based), with an optional label beside it. */
 export interface CodeMark {
@@ -19,6 +19,8 @@ export interface CodeMark {
   labelSide?: 'right' | 'below' | 'above';
   /** Extra columns between the line's end and a right-hand label. */
   labelGap?: number;
+  /** The column a label above or below starts at, to clear the line next to it. The mark's start when omitted. */
+  labelFrom?: number;
 }
 
 /** A stretch of frames where only some lines are in focus; the others dim. */
@@ -52,6 +54,14 @@ export interface CodeCardProps {
   opacity?: number;
   /** First line number shown. */
   firstLine?: number;
+  /** How to color the code. TypeScript when omitted. */
+  language?: CodeLanguage;
+  /**
+   * Lines of code the card has room for. When the code is longer, the editor scrolls it under
+   * its header: `scroll` is the number of lines scrolled past (animate it to pan).
+   */
+  rows?: number;
+  scroll?: number;
 }
 
 const PAD_X = 0.9;
@@ -78,12 +88,15 @@ export function CodeCard({
   scale = 1,
   opacity = 1,
   firstLine = 1,
+  language = 'typescript',
+  rows,
+  scroll = 0,
 }: CodeCardProps): JSX.Element | null {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const C = useTheme();
   const P = CODE_PALETTES[C.name];
-  const lines = useMemo(() => tokenize(code), [code]);
+  const lines = useMemo(() => tokenize(code, language), [code, language]);
   if (from !== undefined && frame < from) return null;
   if (to !== undefined && frame > to + 12) return null;
 
@@ -110,6 +123,10 @@ export function CodeCard({
   const header = file.split('/');
   const name = header.pop();
   let shown = 0;
+  const padTop = fontSize * 0.6;
+  const padBottom = fontSize * 0.75;
+  // A scrolling editor keeps its height and clips lines above and below it, but not labels beside them.
+  const viewport = rows === undefined ? {} : { height: padTop + rows * lineH + padBottom, clipPath: 'inset(0 -2000px 0 -2000px)' };
   return (
     <div
       style={{
@@ -134,7 +151,8 @@ export function CodeCard({
           <span style={{ color: P.headerText, fontWeight: 600 }}>{name}</span>
         </span>
       </div>
-      <div style={{ position: 'relative', padding: `${fontSize * 0.6}px 0 ${fontSize * 0.75}px`, fontFamily: MONO, fontSize, lineHeight: `${lineH}px`, fontVariantLigatures: 'contextual' }}>
+      <div style={{ position: 'relative', padding: `${padTop}px 0 ${padBottom}px`, fontFamily: MONO, fontSize, lineHeight: `${lineH}px`, fontVariantLigatures: 'contextual', ...viewport }}>
+        <div style={{ transform: rows === undefined || !scroll ? undefined : `translateY(${-scroll * lineH}px)` }}>
         {lines.map((tokens, i) => {
           const n = i + 1;
           const f = focusOf(n);
@@ -169,6 +187,7 @@ export function CodeCard({
             </div>
           );
         })}
+        </div>
       </div>
     </div>
   );
@@ -211,8 +230,8 @@ function Mark({ mark, lineLength, fontSize, lineH }: { mark: CodeMark; lineLengt
             ...(side === 'right'
               ? { left: `${Math.max(to, lineLength) + (mark.labelGap ?? 2)}ch`, top: lineH / 2, transform: `translateY(-50%) scale(${p})`, transformOrigin: '0% 50%' }
               : side === 'below'
-                ? { left: `${from}ch`, top: lineH * 1.08, transform: `scale(${p})`, transformOrigin: '0% 0%' }
-                : { left: `${from}ch`, bottom: lineH * 1.08, transform: `scale(${p})`, transformOrigin: '0% 100%' }),
+                ? { left: `${mark.labelFrom ?? from}ch`, top: lineH * 1.08, transform: `scale(${p})`, transformOrigin: '0% 0%' }
+                : { left: `${mark.labelFrom ?? from}ch`, bottom: lineH * 1.08, transform: `scale(${p})`, transformOrigin: '0% 100%' }),
             opacity: out,
             zIndex: 2,
           }}

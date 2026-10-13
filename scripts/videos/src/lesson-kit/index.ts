@@ -1,7 +1,7 @@
 export { ApiBody, ArtifactCard, AutocompleteBody, RowSecurityBody, ServiceTiles, TableBody, ValidationBody } from './Artifacts';
 export { ChapterTag, ChapterTitle, Challenge, CommandCard, Objectives, Recap, SeriesBumper } from './Cards';
 export { CodeCard, type CodeFocus, type CodeMark } from './CodeCard';
-export { CODE_PALETTES, locate, tokenize } from './code';
+export { CODE_PALETTES, locate, tokenize, type CodeLanguage } from './code';
 export { DeepDiveTitle, DepthGauge, Sonar } from './DeepDive';
 export { Depths } from './Depths';
 export { END_SLOTS, EndScreen } from './EndScreen';

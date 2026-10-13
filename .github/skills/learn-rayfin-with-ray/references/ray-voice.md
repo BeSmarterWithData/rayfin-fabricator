@@ -36,6 +36,11 @@ mood.
 - **Plain words, in the present tense, to "you".** Define a term the first time you use it.
 - **Say what the docs say.** Prefer their own words for anything technical. Don't turn a hedge
   ("not available in every region", "experimental") into a promise.
+- **Use the series' words for sign-in.** Say "Fabric brokered auth" for how a Rayfin app signs
+  people in (rayfin.ai calls it that, and Fabric SSO too): Fabric signs people in with the
+  Microsoft Entra account they use for Fabric. Sign-in is part of the app, not something
+  outside it to set up: there's no identity provider to run, and no Entra app of your own to
+  register for a tenant admin to approve.
 - **No hype:** "simply", "easy", "powerful" and "seamless" are out, and so is "just" as a
   minimizer ("just run this"). "Just one class." as a punchline is fine.
 - **At most two ocean puns a lesson.** His catchphrases count: "Let's dive in!", "You didn't lift
@@ -54,11 +59,17 @@ mood.
 - "GraphQL", "REST", "Microsoft Entra ID" and "Microsoft Fabric" read as they should. Say
   "Microsoft Fabric" the first time, then "Fabric".
 - Spell out symbols ("an equals sign") or show them on screen instead.
+- Say file names as people say them: "rayfin dot yaml", "dot env", "package dot JSON". Write
+  the name as it is in the line, for the captions, and give the voice the spoken form with `say`
+  (below).
 - If the voice says a word wrong anyway, respell it for the voice alone with the line's `say`:
-  `say: { APIs: "API's" }` fixed lesson 1's odd "APIs". The voice reads the respelling, while
-  the captions and the scenes' word cues keep the word as written. A respelling is one word with
-  no spaces, so the voice's word timings map back onto the written word. If you're unsure which
-  spelling works, voice two or three as separate takes and let the user pick.
+  `say: { APIs: "API's" }` fixed lesson 1's odd "APIs", and
+  `say: { 'rayfin.yml': 'rayfin dot yaml' }` names lesson 3's file. The voice reads the
+  respelling, while the captions and the scenes' word cues keep the word as written, timed from
+  the respelling's first word to its last. Write a respelling's parts as separate words, never
+  joined with hyphens: lesson 3's first take read "rayfin-dot-yaml" as "rayfin dash dot dash
+  yaml". If you're unsure which spelling works, voice two or three as separate takes and let
+  the user pick.
 
 ## Recurring beats
 

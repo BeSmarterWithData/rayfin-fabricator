@@ -191,10 +191,11 @@ npm run lesson:package -- 2          # the YouTube package: video, captions, thu
    Its `.agents/skills/rayfin/SKILL.md` and its packages' own docs are the version-locked
    reference for the script, too.
 3. Have the script approved, then voice it with `lesson:voice`. A line keeps its clip while its
-   words and seed don't change; to retake one, give it a new `seed`. If Ray says a word wrong,
-   give the line a respelling for the voice alone, such as `say: { APIs: "API's" }`: the
-   captions and word cues keep the word as written. A respelling is one word, with no spaces.
-   The tool refuses lines that still say TODO.
+   words, seed and respellings don't change; to retake one, give it a new `seed`. If Ray says a
+   word wrong, give the line a respelling for the voice alone, such as `say: { APIs: "API's" }`
+   or `say: { 'rayfin.yml': 'rayfin dot yaml' }`: the captions and word cues keep the word as
+   written. Write a respelling's words apart, not joined with hyphens, which the voice can read
+   as "dash". The tool refuses lines that still say TODO.
 4. Build `scenes.tsx` from the kit, timing beats to words (`ctx.w('table')`,
    `ctx.at('quiz-options', 'C')`). A line that isn't voiced yet plays at a stand-in pace, so
    scenes can be built before any credits are spent; the real timings replace it line by line.
@@ -218,7 +219,7 @@ made once with `npm run lesson:music`, looped under every lesson and ducked unde
 | Piece | For |
 | --- | --- |
 | `SeriesBumper`, `Objectives`, `ChapterTitle`, `ChapterTag` | The bumper, "Today you'll learn", and chapters |
-| `CodeCard` | Code in a window like Fabricator's editor: it types itself out, focuses lines, and rings and labels code by character (`locate()` finds it) |
+| `CodeCard` | Code in a window like Fabricator's editor, in TypeScript, YAML, JSON or plain text: it types itself out, focuses lines, scrolls a long file, and rings and labels code by character (`locate()` finds it) |
 | `DeepDiveTitle`, `DepthGauge`, `Depths`, `Sonar` | The Deep Dive |
 | `ArtifactCard`, with `TableBody`, `ApiBody`, `AutocompleteBody`, `RowSecurityBody` or `ValidationBody` | What Rayfin makes |
 | `ServiceTiles`, `CommandCard` | What a deploy provides, and a Rayfin CLI command "under the hood", tagged as run by Fabricator |

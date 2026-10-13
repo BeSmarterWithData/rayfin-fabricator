@@ -79,3 +79,65 @@ test('locate finds text by line and column, or says it is gone', () => {
   assert.deepEqual(locate(code, 'two', 2), { line: 2, from: 6, to: 9 });
   assert.throws(() => locate(code, 'four'), /"four" \(#1\) isn't in the snippet/);
 });
+
+test('YAML reads like it does in Fabricator’s editor: keys, values, booleans, lists and comments', () => {
+  const [top, nested, flag, item, url, command, comment, number] = tokenize(
+    `id: my-app
+    assetAccess: protected
+    enabled: false
+  - name: sales_warehouse
+      - http://localhost:5173
+    buildCommand: npm run build:fabric # the frontend
+# Generated
+    port: 5173`,
+    'yaml',
+  );
+  assert.deepEqual(kinds(top), [
+    ['id', 'type'],
+    [':', 'punct'],
+    ['my-app', 'string'],
+  ]);
+  assert.deepEqual(kinds(nested), [
+    ['assetAccess', 'type'],
+    [':', 'punct'],
+    ['protected', 'string'],
+  ]);
+  assert.deepEqual(kinds(flag).at(-1), ['false', 'keyword']);
+  assert.deepEqual(kinds(item), [
+    ['-', 'punct'],
+    ['name', 'type'],
+    [':', 'punct'],
+    ['sales_warehouse', 'string'],
+  ]);
+  assert.deepEqual(kinds(url), [
+    ['-', 'punct'],
+    ['http://localhost:5173', 'string'],
+  ]);
+  assert.deepEqual(kinds(command), [
+    ['buildCommand', 'type'],
+    [':', 'punct'],
+    ['npm run build:fabric', 'string'],
+    ['# the frontend', 'comment'],
+  ]);
+  assert.deepEqual(kinds(comment), [['# Generated', 'comment']]);
+  assert.deepEqual(kinds(number).at(-1), ['5173', 'number']);
+  // Every character is kept, so marks found with locate() land on the code.
+  assert.equal(command.map((t) => t.text).join(''), '    buildCommand: npm run build:fabric # the frontend');
+});
+
+test('JSON keys are told apart from string values', () => {
+  const [line] = tokenize('  "hostingUrl": "https://example.net", "n": 1, "on": true', 'json');
+  assert.deepEqual(kinds(line), [
+    ['"hostingUrl"', 'property'],
+    [':', 'punct'],
+    ['"https://example.net"', 'string'],
+    [',', 'punct'],
+    ['"n"', 'property'],
+    [':', 'punct'],
+    ['1', 'number'],
+    [',', 'punct'],
+    ['"on"', 'property'],
+    [':', 'punct'],
+    ['true', 'keyword'],
+  ]);
+});
