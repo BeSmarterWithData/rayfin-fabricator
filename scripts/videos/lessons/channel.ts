@@ -47,6 +47,7 @@ export const CHANNEL: Channel = {
     1: 'n-VtBCmtn78',
     2: '-PzsntUZT7w',
     3: 'cYkA6CkVJLA',
+    4: 'H3jneRn7Mlk',
   },
   aiUse: 'no',
 };

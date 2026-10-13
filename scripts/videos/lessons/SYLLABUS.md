@@ -25,7 +25,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Published: [youtu.be/n-VtBCmtn78](https://youtu.be/n-VtBCmtn78) |
 | 2 | Your first Rayfin app | `lessons/02-your-first-app` | Published: [youtu.be/-PzsntUZT7w](https://youtu.be/-PzsntUZT7w) |
 | 3 | Inside a Rayfin app | `lessons/03-inside-a-rayfin-app` | Published: [youtu.be/cYkA6CkVJLA](https://youtu.be/cYkA6CkVJLA) |
-| 4 | Entities and field types | `lessons/04-entities-and-field-types` | Rendered |
+| 4 | Entities and field types | `lessons/04-entities-and-field-types` | Published: [youtu.be/H3jneRn7Mlk](https://youtu.be/H3jneRn7Mlk) |
 | 5 | Relationships | | Planned |
 | 6 | Permissions and row-level security | | Planned |
 | 7 | Reading and writing your data | | Planned |
