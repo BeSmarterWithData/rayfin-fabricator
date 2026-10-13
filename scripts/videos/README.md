@@ -21,7 +21,7 @@ isn't part of the app or of CI.
 | --- | --- |
 | `src/ray/` | Ray, imported from the app (`src/renderer/src/components/mascot/Ray.tsx`) and driven frame by frame. `lipsync.ts` shapes his mouth to what he says |
 | `src/anim.ts`, `src/theme.ts`, `src/fx/`, `src/ui/` | Shared by every video: keyframes and easing, each cut's colors (components read them with `useTheme()`), particle bursts, the water, windows that show the app's screenshots, titles and chips |
-| `src/Root.tsx` | Every composition: the intro's, each lesson's, and the checks (`RayCheck`, `KitCheck`) |
+| `src/Root.tsx` | Every composition: the intro's, each lesson's, the checks (`RayCheck`, `KitCheck`), and `RayAvatar` |
 | `public/audio/` | The voice clips, effects and music. Committed, so a render needs no API calls |
 | `tools/` | Node scripts for ElevenLabs, audio, review, rendering and publishing. Nothing in `src/` imports them |
 | **The intro** | |
@@ -160,7 +160,9 @@ designed from a description of Ray. The chosen voice is `VOICE` in `script/lines
   `mascot.css` by class name, and hides the app's mouth while the video draws its own
   (`src/ray/Mouth.tsx`). Open the `RayCheck` composition in the Studio to see him swim,
   roll, wave and show every mood, and to watch his lips on any line: set its `line` and
-  `mood` props.
+  `mood` props. Then render `RayAvatar` again, his 1024×1024 profile picture, centered so a
+  circular crop keeps all of him: `npx remotion still src/index.ts RayAvatar out/ray-avatar.png`
+  (its `theme` and `mood` props pick the water and his face).
 
 ## Learn Rayfin with Ray
 
