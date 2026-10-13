@@ -16,6 +16,12 @@ written, risk-tiered upgrade plan saved to your session `plan.md`, plus a short 
 Always **re-discover live versions** — do not trust the baseline snapshot at the bottom
 of this file; it is only a reference point from a previous run.
 
+Dependabot (`.github/dependabot.yml`) opens weekly, grouped PRs for npm, Cargo and GitHub
+Actions. It ignores the crates pinned to the vendored `wry`, and its Tauri PRs fail the
+vendor guard whenever Tauri moves the `wry` it pins. This review owns what Dependabot can't
+do safely: the Tauri → `wry` re-vendor, majors that need code changes, and anything blocked
+by a peer range. Check the open Dependabot PRs first so the plan doesn't duplicate them.
+
 ---
 
 ## The two dependency surfaces
@@ -110,11 +116,11 @@ of this file; it is only a reference point from a previous run.
 
 For each dependency with an update, classify and record:
 - **Tier A — safe** (patch/minor, no breaking changes): batch together.
-- **Tier B — major / breaking** (e.g. React 18→19, Vite 5→8, TypeScript 5→6,
-  ESLint 9→10, `@vitejs/plugin-react` 4→6): each gets its own todo. For each, briefly
-  research and list the **known breaking changes** relevant to this codebase
-  (e.g. React 19 ref/`forwardRef` & `act` changes; Vite config/Rollup/Node-floor
-  changes; TS 6 lib/strictness changes; ESLint 10 flat-config/Node-floor changes).
+- **Tier B — major / breaking** (for example TypeScript 6 → 7, a new Vite, Vitest or
+  ESLint major, or a Rust crate major such as `zip`): each gets its own todo. For each,
+  briefly research and list the **known breaking changes** relevant to this codebase
+  (for example peer-dependency ranges, Node-floor changes, renamed or removed config
+  options, changed test-runner defaults, and new lint rules that flag existing code).
 - **Tier C — coordinated/blocked**: anything gated by a Hard Constraint (Tauri↔wry↔
   windows/webview2-com/objc2). Mark blocked-by and the re-vendor work.
 - **Skip**: already-latest or intentionally pinned. Say so explicitly so the review is
@@ -152,18 +158,34 @@ short summary. **Stop there.** Do not implement until I say so.
 
 ---
 
-## Reference baseline (from the last manual review — re-verify, do not trust)
+## Reference baseline (after the upgrade stack that started with #43 — re-verify, do not trust)
 
 > Snapshot only; **always re-run Steps 1–2** for live numbers.
 
-- **Already latest (skip):** `tauri` 2.11.3, `wry` 0.55.1 (vendored), `objc2` 0.6.x,
-  `tauri-plugin-*` (caret `2`), `tokio`, all `@tauri-apps/*` JS packages,
-  `@monaco-editor/react`, react-markdown, remark-gfm, highlight.js, yaml.
-- **Pinned-to-wry (do NOT bump alone):** `webview2-com` 0.38, `windows` 0.61,
-  `objc2`/`block2` 0.6 — newer exist on crates.io but wry 0.55.1 requires these exact.
-- **Rust updates that were available:** `github-copilot-sdk` 1.0.3 → 1.0.4 (patch);
-  `reqwest` 0.12 → 0.13 (optional; a 0.13.x copy is already pulled transitively).
-- **JS majors that were available (Tier B):** React/react-dom 18 → 19, Vite 5 → 8,
-  `@vitejs/plugin-react` 4 → 6, TypeScript 5 → 6, ESLint 9 → 10 (+ `@eslint/js`).
-- **JS minors (Tier A):** `typescript-eslint`, `prettier`, `monaco-editor`, `globals`;
-  keep `@types/node` aligned to Node 20/22 (not newest).
+- **Rust (resolved):** `tauri` 2.12.3, `tauri-build` 2.7.2, `tauri-runtime-wry` 2.12.1,
+  `wry` 0.57.0 (vendored + patches `0001` and `0002`), `tao` 0.37.1, `webview2-com` 0.39.1,
+  `windows`/`windows-core` 0.62.2, `objc2` 0.6.5, `block2` 0.6.2, `tauri-plugin-updater`
+  2.13.3, `tauri-plugin-dialog` 2.8.2, `tauri-plugin-opener` 2.7.1, `tauri-plugin-log`
+  2.10.1, `github-copilot-sdk` 1.0.20 (bundles Copilot CLI 1.0.96), `reqwest` 0.13.5,
+  `tokio` 1.53.2, `zip` 9, `dirs` 7, `which` 8, `sha2` 0.11; `rust-version` 1.94.
+- **JS:** React 19.3, Vite 8.3 + `@vitejs/plugin-react` 6.1, Vitest 5.0 + jsdom 29.1,
+  TypeScript 6.0.3, ESLint 10.12 + `@eslint/js` 10 + `globals` 17, `typescript-eslint`
+  8.71, prettier 3.9, monaco-editor 0.57.0 + `@monaco-editor/react` 4.7.0,
+  `@tauri-apps/api` 2.12.3 / `@tauri-apps/cli` 2.12.2, `@types/node` 24.
+- **CI:** Node 24; `actions/checkout` and `actions/setup-node` v7, `actions/cache` v6,
+  `actions/upload-artifact` v7, `actions/download-artifact` v8,
+  `softprops/action-gh-release` v3, Pages actions v6 / v5 / v5.
+- **Blocked or deliberately held:**
+  - TypeScript 7: `typescript-eslint` 8.71.2 accepts only `typescript >=4.8.4 <6.1.0`.
+  - Pre-releases: Tauri 3 alphas, `github-copilot-sdk` previews, `@monaco-editor/react`
+    4.8 release candidates.
+  - `reqwest` uses `native-tls` on purpose: its `rustls` feature adds `aws-lc-rs` next to
+    the updater's `ring`, and rustls then has no default crypto provider to pick.
+  - `serde_yaml` 0.9.34 is deprecated upstream, with no successor chosen yet.
+  - `npm audit` reports 2 low findings for the DOMPurify copy monaco-editor 0.57.0 bundles
+    (GHSA-6688-9rhm-gjv2; monaco never uses the affected `IN_PLACE` mode). An npm
+    `overrides` entry wouldn't change the bundled copy; wait for a monaco release.
+- **Known duplicate crates:** `zip` 4 (from `tauri-plugin-updater`) and 7 (from
+  `github-copilot-sdk`) next to our 9; `dirs` 5 (from `github-copilot-sdk`) next to our 7;
+  `sha2`/`digest` 0.10 (from `github-copilot-sdk` and `tauri-codegen`) next to our 0.11;
+  `base64` 0.21/0.22/0.23; `syn` 1/2/3.

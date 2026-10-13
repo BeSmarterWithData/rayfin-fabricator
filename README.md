@@ -78,7 +78,7 @@ The site's source is in [`website/`](./website); every page has an **Edit this p
 
 ## Build from source
 
-You'll need Windows 10/11 or macOS, Node.js 20+, Rust stable (MSVC on Windows; Xcode command-line tools on macOS), the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), and Git.
+You'll need Windows 10/11 or macOS, Node.js 24 LTS (22.13+ also works), Rust stable (MSVC on Windows; Xcode command-line tools on macOS), the [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/), and Git.
 
 ```bash
 git clone https://github.com/spatney/rayfin-fabricator.git

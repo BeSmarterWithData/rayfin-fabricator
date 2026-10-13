@@ -6,7 +6,7 @@ Repository: https://github.com/spatney/rayfin-fabricator
 
 ## What this project is
 
-Fabricator is a desktop app for Windows and macOS (Apple Silicon) for building "Rayfin apps" via chat. It uses Tauri v2 with a Rust backend and a React 18 + TypeScript renderer built with Vite. It wraps the GitHub Copilot CLI for authoring and the Rayfin CLI (`rayfin up`) for deployment to Microsoft Fabric.
+Fabricator is a desktop app for Windows and macOS (Apple Silicon) for building "Rayfin apps" via chat. It uses Tauri v2 with a Rust backend and a React 19 + TypeScript renderer built with Vite. It wraps the GitHub Copilot CLI for authoring and the Rayfin CLI (`rayfin up`) for deployment to Microsoft Fabric.
 
 You author locally. Fabricator automatically manages a local Vite frontend preview during chat turns when the project has Vite installed, using the existing Fabric backend. Deployment and backend validation still target Microsoft Fabric; projects without local Vite keep the deployed preview.
 
@@ -15,7 +15,7 @@ You author locally. Fabricator automatically manages a local Vite frontend previ
 | Requirement | Notes |
 | --- | --- |
 | Windows 10/11 or macOS | Windows uses the WebView2 runtime; macOS uses the system WebKit. macOS builds target Apple Silicon (arm64). |
-| Node.js 20+ and npm | For the renderer and build scripts. |
+| Node.js 24 LTS and npm | For the renderer and build scripts. Node 22.13+ also works; CI uses 24. |
 | Rust stable | Windows: the MSVC toolchain. macOS: the default toolchain plus the Xcode command-line tools. |
 | Tauri prerequisites | For local desktop development and packaging. |
 | Git | Used for local project history. |
@@ -69,7 +69,7 @@ rayfin-fabricator/
 │  ├─ src/services/           exec, preview, store, telemetry, history, crashlog, emit, paths, team, …
 │  ├─ vendor/wry/             Vendored wry: upstream crate + the patches in vendor/wry-patches
 │  └─ vendor/wry-patches/     WebView2 device-compliance SSO + macOS preview-positioning fix
-├─ src/renderer/              React 18 + TypeScript UI built with Vite
+├─ src/renderer/              React 19 + TypeScript UI built with Vite
 │  ├─ screens/                SetupScreen onboarding and Workbench shell
 │  └─ components/             ChatPanel, PreviewPane, CodeViewer, DeploymentsControl, AdvisorView, GitControl, SettingsModal, …
 ├─ src/shared/ipc.ts          Shared TypeScript IPC types
@@ -97,7 +97,7 @@ flowchart TD
   User["Developer"]
 
   subgraph Desktop["Fabricator desktop app"]
-    Renderer["React 18 + TypeScript renderer<br/>Vite UI"]
+    Renderer["React 19 + TypeScript renderer<br/>Vite UI"]
     Core["Tauri v2 Rust core<br/>IPC commands + services"]
     Editor["Monaco code editor"]
     Model["Data model view<br/>entities + access"]
