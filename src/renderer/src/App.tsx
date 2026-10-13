@@ -139,7 +139,7 @@ function App(): JSX.Element {
         // Superseded by a newer check: that one reports.
         if (failed.length === 0) return {}
         setAuth((prev) => ({ ...(prev ?? CHECKING_AUTH), ...failedAuth(failed, error) }))
-        throw new Error(error)
+        throw new Error(error, { cause: reason })
       }
       if (mountedRef.current) {
         const fresh = pickAuth(result, current())
@@ -237,7 +237,7 @@ function App(): JSX.Element {
     } catch (reason) {
       const error = authErrorMessage(reason, 'Could not verify sign-in. Please retry.')
       if (mountedRef.current) setAuthError(error)
-      throw new Error(error)
+      throw new Error(error, { cause: reason })
     }
   }, [checkAuth])
 

@@ -60,7 +60,7 @@ async function readFunctionSources(
   projectId: string,
   functionsPath: string
 ): Promise<{ path: string; text: string }[]> {
-  let tree: FileNode[] = []
+  let tree: FileNode[]
   try {
     tree = await window.api.projects.files.tree(projectId)
   } catch {

@@ -65,9 +65,9 @@ export function Burst({ kind, at, x, y, count = 12, seed = 1, spread = 1 }: Burs
         const life = LIFE[kind];
         const k = t / life;
         if (k > 1) return null;
-        let px = 0;
-        let py = 0;
-        let opacity = 1;
+        let px: number;
+        let py: number;
+        let opacity: number;
         let scale = 1;
         let content: JSX.Element;
         switch (kind) {

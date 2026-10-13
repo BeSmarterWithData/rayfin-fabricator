@@ -50,7 +50,7 @@ async function get(url) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     return res
   } catch (error) {
-    throw new Error(`Couldn't download ${url}: ${error.cause?.message ?? error.message}`)
+    throw new Error(`Couldn't download ${url}: ${error.cause?.message ?? error.message}`, { cause: error })
   }
 }
 

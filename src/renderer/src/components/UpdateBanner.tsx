@@ -27,7 +27,7 @@ export default function UpdateBanner(): JSX.Element | null {
       ? Math.min(100, Math.round((progress.downloaded / progress.total) * 100))
       : null
 
-  let title = ''
+  let title: string
   let meta: string | null = null
   if (status === 'downloading') {
     title = `Downloading update${info ? ` ${info.version}` : ''}…`
