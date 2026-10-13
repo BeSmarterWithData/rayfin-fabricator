@@ -8,7 +8,7 @@ import { uploadsDialog } from '../studio.mjs';
 export default async ({ page, log, shot, args }) => {
   const as = String(args.as ?? '').toUpperCase();
   if (!['PUBLIC', 'UNLISTED', 'PRIVATE'].includes(as)) throw new Error('Say who can watch: --as public, unlisted or private.');
-  const dialog = uploadsDialog(page);
+  const dialog = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog
   if (!(await dialog.isVisible())) throw new Error('No upload dialog is open.');
   await dialog.locator('#step-badge-3').click();
   await page.waitForTimeout(2500);

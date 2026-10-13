@@ -14,7 +14,7 @@ export default async ({ page, log, shot, args }) => {
   const files = filesOf(up);
   const ai = stringArg(args, 'ai') ?? CHANNEL.aiUse;
   if (ai !== 'yes' && ai !== 'no') throw new Error('--ai is yes or no.');
-  const dialog = uploadsDialog(page);
+  const dialog = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog
   if (!(await dialog.isVisible())) throw new Error('No upload dialog is open. Run the upload step first.');
   await dialog.locator('#step-badge-0').click();
   await page.waitForTimeout(1500);

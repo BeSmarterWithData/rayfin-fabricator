@@ -8,13 +8,14 @@ import { uploadsDialog } from '../studio.mjs';
 
 export default async ({ page, log, shot, args }) => {
   if (args.confirm !== true) throw new Error('Ask the user first (show them what the visibility step reports), then run publish --confirm.');
-  const dialog = uploadsDialog(page);
+  const dialog = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog
   if (!(await dialog.isVisible())) throw new Error('No upload dialog is open.');
   const done = dialog.locator('#done-button');
   log('clicking:', (await done.innerText()).trim());
   await done.click();
-  // A published video gets a share dialog; a private save just closes the upload dialog.
-  const share = page.locator('ytcp-video-share-dialog');
+  // A published video gets a share dialog; a private save just closes the upload dialog. Like the
+  // upload dialog, the share dialog's element has no height, so wait on its panel.
+  const share = page.locator('ytcp-video-share-dialog tp-yt-paper-dialog').first();
   await Promise.race([share.waitFor({ state: 'visible', timeout: 120000 }), dialog.waitFor({ state: 'hidden', timeout: 120000 })]);
   let link = null;
   if (await share.isVisible()) {

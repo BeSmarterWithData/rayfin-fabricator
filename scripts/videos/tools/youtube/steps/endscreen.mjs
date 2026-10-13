@@ -31,13 +31,15 @@ export default async ({ page, log, shot, args }) => {
     await page.waitForTimeout(5000);
     await page.locator('#endscreen-editor-link').click();
   } else {
-    const dialog = uploadsDialog(page);
+    const dialog = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog
     if (!(await dialog.isVisible())) throw new Error('No upload dialog is open. For a published video, pass --video-id <id>.');
     await dialog.locator('#step-badge-1').click();
     await page.waitForTimeout(1500);
     await dialog.locator('#endscreens-button').click();
   }
-  const editor = page.locator('ytve-modal-host');
+  // The editor's modal: `ytve-modal-host` until October 2026, then `ytve-endscreen-modal`, a host
+  // with no height, so its text comes from textContent().
+  const editor = page.locator('ytve-endscreen-modal, ytve-modal-host').first();
   const panel = page.locator('ytve-endscreen-editor-options-panel');
   await panel.waitFor({ timeout: 30000 });
   await page.waitForTimeout(2500);
@@ -151,7 +153,7 @@ export default async ({ page, log, shot, args }) => {
   const subTimes = await startAt();
   log(`Subscribe: ${subTimes}, within ${offSub.toFixed(1)} px of the slot`);
 
-  const warning = /[^\n]*(cannot overlap|too close together)[^\n]*/.exec(await editor.innerText())?.[0];
+  const warning = /(?:^|[.!?]\s)([^.!?]*(cannot overlap|too close together)[^.!?]*)/.exec(((await editor.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' '))?.[1];
   if (warning) throw new Error(`YouTube says: ${warning.trim()}`);
   if (args['no-save']) {
     await shot('endscreen');

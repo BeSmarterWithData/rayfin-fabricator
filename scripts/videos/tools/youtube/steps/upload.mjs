@@ -10,7 +10,7 @@ export default async ({ page, log, shot, args }) => {
   const CHANNEL = await loadChannel();
   const up = await loadUpload(lessonOf(args));
   const files = filesOf(up);
-  const dialog = uploadsDialog(page);
+  const dialog = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog
   if (await dialog.isVisible()) throw new Error('An upload dialog is already open. Finish it, or close it in Studio, first.');
   await page.goto(`${STUDIO}/channel/${CHANNEL.id}/videos/upload`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(4000);

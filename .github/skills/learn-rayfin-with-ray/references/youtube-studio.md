@@ -148,7 +148,16 @@ Things learned the hard way, for when a step needs fixing:
   `#next-button`, `#back-button`, `#done-button` (Publish, or Save), `#subtitles-button` and
   `#endscreens-button`. The AI-use and paid-promotion answers are under "Show more"
   (`#toggle-button`).
-- The end-screen editor (`ytve-modal-host`):
+- Since October 2026 several of Studio's hosts have no height, so Playwright never counts them as
+  visible and `innerText()` reads nothing, while what's in them shows:
+  - The upload dialog `ytcp-uploads-dialog`: steps check and work in its panel,
+    `ytcp-uploads-dialog tp-yt-paper-dialog` (the first).
+  - The "Video published" dialog `ytcp-video-share-dialog`: wait on its `tp-yt-paper-dialog`.
+  - The editors' modals, which were both `ytve-modal-host`: now `ytve-captions-editor-modal`
+    and `ytve-endscreen-modal`. Read their text with `textContent()`.
+- The captions editor's header has `#save-draft-button`, `#publish-button` (Done) and
+  `#close-button`.
+- The end-screen editor (`ytve-endscreen-modal`; `ytve-modal-host` before October 2026):
   - Its preview (`ytve-endscreen-editor-preview-overlay`) is the frame scaled to its width, about
     480 px. Each element (`ytve-endscreen-editor-preview-overlay-item`) sits where its inline
     `left`, `top`, `width` and `height` say, in preview pixels.
@@ -167,5 +176,5 @@ Things learned the hard way, for when a step needs fixing:
 - The Verify link in a "Get advanced features" dialog lands on the dashboard. Verification lives
   in Settings → Channel → Feature eligibility.
 - A comment's ⋮ is the button named "Action menu", and Pin asks "Pin this comment?" to confirm.
-  In a comment thread, `#author-text` is the author's handle, `#content-text` the text as
-  written, and `#pinned-comment-badge` marks the pinned one.
+  In a comment thread, `#author-text` is the author's handle and `#content-text` the text as
+  written. `#pinned-comment-badge` is on every comment, empty; a pinned one's says "Pinned by …".

@@ -116,7 +116,8 @@ export async function challengeComments(page, handle) {
     threads.map((t) => ({
       author: t.querySelector('#author-text')?.textContent.trim() ?? '',
       text: t.querySelector('#content-text')?.innerText.trim() ?? '',
-      pinned: Boolean(t.querySelector('#pinned-comment-badge')),
+      // The badge's element is on every comment; a pinned one's says "Pinned by …".
+      pinned: Boolean(t.querySelector('#pinned-comment-badge')?.textContent.trim()),
     })),
   );
   return all.map((c, index) => ({ ...c, index })).filter((c) => c.author === handle && c.text.startsWith(CHALLENGE));
@@ -175,7 +176,11 @@ export async function studioChannel(page) {
   });
 }
 
-/** Studio's upload dialog, which stays open from the upload step to the publish step. */
+/**
+ * Studio's upload dialog, which stays open from the upload step to the publish step. Since
+ * October 2026 the element itself has no height, so it never counts as visible: steps check, and
+ * work inside, its panel, `.locator('tp-yt-paper-dialog').first()`, which holds every control.
+ */
 export const uploadsDialog = (page) => page.locator('ytcp-uploads-dialog');
 
 /** Drags with the mouse in small moves, the way Studio's editors expect. */

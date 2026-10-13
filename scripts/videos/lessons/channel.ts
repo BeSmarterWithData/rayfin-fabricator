@@ -33,6 +33,7 @@ export const CHANNEL: Channel = {
   intro: '4T1oQmT8Bks',
   lessons: {
     1: 'n-VtBCmtn78',
+    2: '1zYRA5gTwcs',
   },
   aiUse: 'no',
 };

@@ -8,7 +8,7 @@ import { filesOf, lessonOf, loadUpload, uploadsDialog } from '../studio.mjs';
 export default async ({ page, log, shot, args }) => {
   const up = await loadUpload(lessonOf(args));
   const files = filesOf(up);
-  const dialog = uploadsDialog(page);
+  const dialog = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog
   if (!(await dialog.isVisible())) throw new Error('No upload dialog is open. Run the upload and details steps first.');
   await dialog.locator('#step-badge-1').click();
   await page.waitForTimeout(1500);
@@ -19,8 +19,11 @@ export default async ({ page, log, shot, args }) => {
   }
   await dialog.locator('#subtitles-button').click();
   await page.waitForTimeout(2500);
-  const editor = page.locator('ytve-modal-host');
-  const said = (await editor.innerText().catch(() => '')).replace(/\s+/g, ' ');
+  // The editor's modal: `ytve-modal-host` until October 2026, then `ytve-captions-editor-modal`, a
+  // host with no height, so its text comes from textContent().
+  const editor = page.locator('ytve-captions-editor-modal, ytve-modal-host').first();
+  await editor.waitFor({ state: 'attached', timeout: 30000 });
+  const said = ((await editor.textContent().catch(() => '')) ?? '').replace(/\s+/g, ' ');
   if (!/language of this video is set to English/.test(said)) throw new Error(`The subtitles editor isn't set to English: ${said.slice(0, 200)}. Set the video's language in Details first.`);
   await page.getByText('Upload file', { exact: true }).last().click();
   await page.waitForTimeout(1500);

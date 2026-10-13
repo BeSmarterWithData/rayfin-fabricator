@@ -18,7 +18,7 @@ export default async ({ page, context, log }) => {
   }
   const onChannel = channelId === CHANNEL.id;
   log(`Studio: signed in, on ${onChannel ? `${CHANNEL.name} (${CHANNEL.handle})` : `another channel, ${channelId}: switch to ${CHANNEL.name} with the account menu`}`);
-  const upload = uploadsDialog(page);
+  const upload = uploadsDialog(page).locator('tp-yt-paper-dialog').first(); // its panel: see uploadsDialog
   let dialog = null;
   if (await upload.isVisible()) {
     const steps = await upload.locator('[id^=step-badge-]').evaluateAll((els) => els.map((e) => `${e.innerText.trim() || e.id}: ${e.getAttribute('state')}`));
@@ -26,7 +26,7 @@ export default async ({ page, context, log }) => {
     dialog = { upload: title, steps };
     log('upload dialog open:', dialog);
   }
-  if (await page.locator('ytve-modal-host ytve-endscreen-editor-options-panel').isVisible()) {
+  if (await page.locator('ytve-endscreen-editor-options-panel').isVisible()) {
     dialog = { ...dialog, endScreenEditor: true };
     log('the end-screen editor is open');
   }

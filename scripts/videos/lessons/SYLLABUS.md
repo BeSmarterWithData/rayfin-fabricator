@@ -23,7 +23,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | # | Lesson | Folder | Status |
 | --- | --- | --- | --- |
 | 1 | What is Rayfin? | `lessons/01-what-is-rayfin` | Published: [youtu.be/n-VtBCmtn78](https://youtu.be/n-VtBCmtn78) |
-| 2 | Your first Rayfin app | `lessons/02-your-first-app` | Rendered |
+| 2 | Your first Rayfin app | `lessons/02-your-first-app` | Published: [youtu.be/1zYRA5gTwcs](https://youtu.be/1zYRA5gTwcs) |
 | 3 | Inside a Rayfin app | | Planned |
 | 4 | Entities and field types | | Planned |
 | 5 | Relationships | | Planned |
