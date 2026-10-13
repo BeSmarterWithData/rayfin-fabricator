@@ -59,9 +59,13 @@ of this file; it is only a reference point from a previous run.
 ## Step 3 — HARD CONSTRAINTS (a plan that violates any of these is wrong)
 
 1. **`wry` is vendored and version-pinned to whatever Tauri pins.** It lives at
-   `src-tauri/vendor/wry/` and is wired via `[patch.crates-io] wry = { path = "vendor/wry" }`
-   in `src-tauri/Cargo.toml`. The override only applies because the vendored crate has
-   the **exact same version** Tauri pins.
+   `src-tauri/vendor/wry/` (the upstream crate plus the patch files in
+   `src-tauri/vendor/wry-patches/`) and is wired via
+   `[patch.crates-io] wry = { path = "vendor/wry" }` in `src-tauri/Cargo.toml`. The
+   override only applies because the vendored crate has the **exact same version** Tauri
+   pins. Because `tauri = "2"`, a bare `cargo update` can pull in a Tauri that pins a newer
+   wry; Cargo then only warns and silently builds the unpatched registry crate.
+   `src-tauri/src/vendor_guard.rs` makes `cargo test --lib` fail when that happens.
 2. **`webview2-com`, `windows`, `windows-core`, `objc2`, `block2`, `objc2-*` MUST match
    the versions the vendored `wry` requires.** Read `src-tauri/vendor/wry/Cargo.toml`
    for its required versions (e.g. wry 0.55.1 needs `webview2-com = 0.38`,
@@ -70,12 +74,14 @@ of this file; it is only a reference point from a previous run.
    unification, and breaks `src-tauri/src/services/preview.rs` (which shares WebView2 /
    WKWebView types with wry). Only move them as part of a coordinated Tauri→wry bump.
 3. **If Tauri's bump changes the pinned `wry` version**, the plan MUST include:
-   re-vendoring that exact wry version into `src-tauri/vendor/wry/`, then **re-applying
-   BOTH local patches** (device-compliance SSO + disable native-window occlusion).
-   Follow `docs/VENDORED-WRY-PATCH.md` step-by-step. Verify the override stays live:
-   the `wry` entry in `src-tauri/Cargo.lock` must have **no `source = "registry+..."`**
-   line. If both patches ever become unnecessary upstream, the plan may instead delete
-   the vendored tree + the `[patch.crates-io]` entry.
+   re-vendoring that exact wry version with `node scripts/wry/vendor-wry.mjs update <version>`,
+   which re-applies **both local patches** (`0001` WebView2 device-compliance SSO, `0002`
+   macOS child-webview title-bar inset) and stops if one no longer applies. Follow
+   `docs/VENDORED-WRY-PATCH.md` step-by-step. Verify the override stays live:
+   `cargo test --lib vendor_guard` passes, `npm run vendor:wry -- verify` passes, and the
+   `wry` entry in `src-tauri/Cargo.lock` has **no `source = "registry+..."`** line. If both
+   patches ever become unnecessary upstream, the plan may instead delete the vendored tree,
+   the patches, the guard + verify step, and the `[patch.crates-io]` entry.
 4. **`github-copilot-sdk` is an edition-2024 crate → requires Rust ≥ 1.94.** This sets
    `rust-version` in `src-tauri/Cargo.toml`. If a newer SDK raises the floor, bump
    `rust-version` and confirm CI still satisfies it (CI uses
@@ -88,7 +94,8 @@ of this file; it is only a reference point from a previous run.
    because it exists.
 6. **monaco offline constraint.** The app runs from `file://`; any renderer component
    using `@monaco-editor/react` must import the `../monaco` side-effect module
-   (`loader.config({ monaco })`) or Monaco hangs fetching the CDN. Keep `monaco-editor`
+   (`loader.config({ monaco })`) or Monaco hangs fetching the CDN
+   (`src/renderer/src/monacoOffline.test.ts` enforces this). Keep `monaco-editor`
    and `@monaco-editor/react` compatible, and don't introduce a CDN-loading path.
 
 ## Step 4 — Categorize every available update
@@ -107,16 +114,18 @@ For each dependency with an update, classify and record:
 
 ## Step 5 — Validation gates (cite these in the plan; run only when implementing)
 
-- **JS:** `npm run typecheck` && `npm run lint` && `npm run build:renderer`
+- **JS:** `npm run typecheck` && `npm test` && `npm run lint` && `npm run build:renderer`
+  && `npm run check:build` (relative asset URLs, the CSP, and every Monaco worker bundled)
 - **Rust:** from `src-tauri/`: `cargo check` and `cargo test --lib`
-  (e.g. `cargo test --lib commands::git`, `cargo test --lib agent_`).
+  (e.g. `cargo test --lib commands::git`, `cargo test --lib agent_`). CI runs the Rust
+  tests on Windows **and** macOS.
+- **Vendored wry:** `npm run vendor:wry -- verify` and `cargo test --lib vendor_guard`.
 - On this machine `cargo` may not be on `PATH`; use
   `& "$env:USERPROFILE\.cargo\bin\cargo.exe"` and run from `src-tauri/`.
 - After a Tauri/wry bump, also do a real `npm run tauri build` (or `cargo build`) and
   the two manual smoke tests from `docs/VENDORED-WRY-PATCH.md`: (1) sign in inside the
-  preview against a device-compliance-gated app; (2) have the Fabricator agent
-  screenshot the preview while the window is minimized/off-screen and confirm a real
-  (non-blank) frame with no freeze.
+  preview against a device-compliance-gated app (Windows); (2) in a normal (not
+  fullscreen) macOS window, confirm the preview sits right below its toolbar.
 
 ## Step 6 — Deliverable (this run)
 

@@ -1018,6 +1018,7 @@ r#"Object.defineProperty(window, 'ipc', {
       unsafe {
         let parent_view = self.webview.superview().unwrap();
         let mut origin = window_position(&parent_view, x, y, height);
+        // [rayfin-desktop local patch: macos-titlebar-inset]
         // The window uses a full-size content view, so the parent content view
         // extends up under the native title bar. The main webview lays its web
         // content out *below* the title bar (via safe-area insets), so the

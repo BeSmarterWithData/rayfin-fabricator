@@ -294,13 +294,6 @@ impl InnerWebView {
     let additional_browser_args = pl_attrs.additional_browser_args.unwrap_or_else(|| {
       // remove "mini menu" - See https://github.com/tauri-apps/wry/issues/535
       // and "smart screen" - See https://github.com/tauri-apps/tauri/issues/1345
-      //
-      // [rayfin-desktop local patch] Keep native-window occlusion detection
-      // ENABLED so WebView2 stops compositing the preview child when the app
-      // window is minimized/occluded — a meaningful CPU saving under VMs
-      // (Parallels) where the preview otherwise paints continuously. The former
-      // off-screen silent-capture path that needed occlusion disabled was removed;
-      // the remaining capture path is bounded and only runs while visible.
       let default_args = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection";
       let mut arguments = String::from(default_args);
 
@@ -334,14 +327,14 @@ impl InnerWebView {
       options.set_additional_browser_arguments(additional_browser_args);
       options.set_are_browser_extensions_enabled(pl_attrs.browser_extensions_enabled);
 
-      // [rayfin-desktop local patch] Share the OS primary (Entra-joined) account
-      // with this WebView2 environment. This surfaces the device-bound Primary
-      // Refresh Token / device certificate to Azure AD, so deployed apps gated by
-      // a Conditional Access "require compliant/managed device" policy can sign in
-      // inside the embedded preview instead of failing with "You can't get there
-      // from here". Upstream wry leaves this `false` and exposes no setter, hence
-      // the vendored patch (see src-tauri/vendor/wry and the [patch.crates-io]
-      // entry in src-tauri/Cargo.toml).
+      // [rayfin-desktop local patch: webview2-sso] Share the OS primary
+      // (Entra-joined) account with this WebView2 environment. This surfaces the
+      // device-bound Primary Refresh Token / device certificate to Microsoft Entra
+      // ID, so deployed apps gated by a Conditional Access "require
+      // compliant/managed device" policy can sign in inside the embedded preview
+      // instead of failing with "You can't get there from here". Upstream wry
+      // leaves this `false` and exposes no setter, hence the vendored patch (see
+      // docs/VENDORED-WRY-PATCH.md and src-tauri/vendor/wry-patches).
       options.set_allow_single_sign_on_using_os_primary_account(true);
 
       // Get user's system language
