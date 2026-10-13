@@ -88,10 +88,10 @@ of this file; it is only a reference point from a previous run.
    `dtolnay/rust-toolchain@stable` in both `.github/workflows/ci.yml` and
    `release.yml`). Note the SDK's `bundled-cli` feature downloads a pinned Copilot CLI
    at build time (needs network / `BUNDLED_CLI_CACHE_DIR` in CI).
-5. **`@types/node` tracks the Node *runtime*, not "newest".** CI builds on Node 20
-   (`.github/workflows/ci.yml`, `release.yml`). Keep `@types/node` aligned to the
-   supported Node major (e.g. 20 or 22 LTS) — do not jump to the newest major just
-   because it exists.
+5. **`@types/node` tracks the Node *runtime*, not "newest".** CI builds on Node 24 LTS
+   (`.github/workflows/ci.yml`, `release.yml`, `docs.yml`). Keep `@types/node` on that
+   Node major (`^24`) — do not jump to the newest major just because it exists. Moving CI
+   to a new Node major is its own change; Vitest 5 and later need Node ≥ 22.12.
 6. **monaco offline constraint.** The app runs from `file://`; any renderer component
    using `@monaco-editor/react` must import the `../monaco` side-effect module
    (`loader.config({ monaco })`) or Monaco hangs fetching the CDN

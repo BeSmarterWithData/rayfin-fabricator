@@ -681,7 +681,7 @@ describe('ChatPanel Agent-mode ask_user questions', () => {
 
     // Later output appends *after* the anchor — the card does not drift down.
     const streamed = reduceChatMessage(asked, { type: 'delta', text: 'Now editing.' })
-    expect(streamed.segments?.at(-1)).toEqual({ kind: 'text', text: 'Now editing.' })
+    expect((streamed.segments ?? []).slice(-1)[0]).toEqual({ kind: 'text', text: 'Now editing.' })
     expect(streamed.segments?.[2]).toEqual({ kind: 'question', id: 'q1' })
 
     // Re-emitting the same request id must not duplicate the anchor.
