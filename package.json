@@ -18,6 +18,7 @@
     "build": "tauri build",
     "dev:renderer": "vite",
     "build:renderer": "vite build",
+    "check:build": "node scripts/check-renderer-build.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
@@ -27,7 +28,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,html}\"",
+    "vendor:wry": "node scripts/wry/vendor-wry.mjs"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
