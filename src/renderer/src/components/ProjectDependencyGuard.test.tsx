@@ -1,5 +1,5 @@
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { StudioProject } from '@shared/ipc'
 import { OverlayProvider } from '../overlay'
 import { MascotProvider, resetMascotForTests } from './mascot/stage'
@@ -28,7 +28,9 @@ function installApi(ensureDependencies: ReturnType<typeof vi.fn>): void {
   }
 }
 
-function renderGuard(onSwitchProjects = vi.fn(), onReadyChange?: ReturnType<typeof vi.fn>): void {
+type ReadyChange = (projectId: string, ready: boolean) => void
+
+function renderGuard(onSwitchProjects = vi.fn(), onReadyChange?: Mock<ReadyChange>): void {
   render(
     <OverlayProvider>
       <ProjectDependencyGuard
@@ -88,7 +90,7 @@ describe('ProjectDependencyGuard', () => {
   it('reports readiness so chrome outside the guard can follow the same gate', async () => {
     const preparation = deferred<{ ok: boolean }>()
     installApi(vi.fn(() => preparation.promise))
-    const onReadyChange = vi.fn()
+    const onReadyChange = vi.fn<ReadyChange>()
 
     renderGuard(vi.fn(), onReadyChange)
 
@@ -107,7 +109,7 @@ describe('ProjectDependencyGuard', () => {
 
   it('never reports a failed install as ready', async () => {
     installApi(vi.fn().mockResolvedValue({ ok: false, error: 'npm install failed (exit code 1).' }))
-    const onReadyChange = vi.fn()
+    const onReadyChange = vi.fn<ReadyChange>()
 
     renderGuard(vi.fn(), onReadyChange)
 

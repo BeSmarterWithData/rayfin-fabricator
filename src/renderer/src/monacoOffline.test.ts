@@ -1,3 +1,4 @@
+/// <reference types="node" />
 import { readdirSync, readFileSync } from 'fs'
 import { join, relative, resolve } from 'path'
 import { describe, expect, it } from 'vitest'

@@ -8,15 +8,15 @@ import react from '@vitejs/plugin-react'
 const host = process.env.TAURI_DEV_HOST
 
 export default defineConfig({
-  root: resolve(__dirname, 'src/renderer'),
+  root: resolve(import.meta.dirname, 'src/renderer'),
   // Tauri serves assets from a custom protocol; relative asset URLs keep them
   // resolvable both in `tauri dev` and in the packaged app.
   base: './',
   plugins: [react()],
   resolve: {
     alias: {
-      '@renderer': resolve(__dirname, 'src/renderer/src'),
-      '@shared': resolve(__dirname, 'src/shared')
+      '@renderer': resolve(import.meta.dirname, 'src/renderer/src'),
+      '@shared': resolve(import.meta.dirname, 'src/shared')
     }
   },
   // Prevent Vite from obscuring Rust compiler errors during `tauri dev`.
@@ -39,7 +39,7 @@ export default defineConfig({
     }
   },
   build: {
-    outDir: resolve(__dirname, 'dist'),
+    outDir: resolve(import.meta.dirname, 'dist'),
     emptyOutDir: true,
     target: 'esnext',
     sourcemap: false
