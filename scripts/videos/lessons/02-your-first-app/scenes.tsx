@@ -599,7 +599,7 @@ const create: LessonScene = {
           <Beam key={`b${g.word}`} from={[g.x, 690]} to={[g.x < 960 ? 820 : 1100, 486]} at={ctx.at('create-4', g.word) - 2} color={alpha(C.accent2, 0.45)} width={3} dashed until={end} />
         ))}
         {GROWS.map((g) => (
-          <Tile key={g.word} x={g.x} y={790} w={310} h={200} icon={g.icon} label={g.label} sub={g.sub} at={ctx.at('create-4', g.word)} until={end} badge={g.word === 'storage' ? 'Experimental' : undefined} color={C.accent2} />
+          <Tile key={g.word} x={g.x} y={790} w={310} h={200} icon={g.icon} label={g.label} sub={g.sub} at={ctx.at('create-4', g.word)} until={end} color={C.accent2} />
         ))}
       </AbsoluteFill>
     );

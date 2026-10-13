@@ -60,7 +60,7 @@ export const SCRIPT = {
         // npm install to show.
         { id: 'create-2', text: 'Keep the default template, the Universal App, and it installs your packages too.', sources: [`${R}/start/quickstart`, `${R}/reference/cli/templates`] },
         { id: 'create-3', text: 'Your app starts small: a website and sign-in. Its database stays off until your app needs one.', sources: [`${R}/start/project-structure`] },
-        { id: 'create-4', text: 'As it grows, add what it needs: your own data, connectors to data already in Fabric, functions, and experimental file storage.', sources: [R, `${R}/connectors`, `${R}/functions`, `${R}/storage`] },
+        { id: 'create-4', text: 'As it grows, add what it needs: your own data, connectors to data already in Fabric, functions, and file storage.', sources: [R, `${R}/connectors`, `${R}/functions`, `${R}/storage`] },
       ],
     },
     {

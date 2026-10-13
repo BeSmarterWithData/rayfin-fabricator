@@ -130,7 +130,7 @@ studio's lesson kit (`src/lesson-kit/`):
   blocks an app can add: data, connectors, functions and storage.
 - **Concepts:** `packages/frontend`, `packages/data`, `packages/shared` (and
   `packages/functions` when added). `rayfin/rayfin.yml` declares the services (`auth`, `data`,
-  `staticHosting`, `functions` and the experimental `storage`), plus top-level `connectors` and
+  `staticHosting`, `functions` and `storage`), plus top-level `connectors` and
   `secrets` lists. The Universal App starts with the data service off. `assetAccess` is
   `protected` or `public`. Which generated files stay out of git. Rayfin projects ship skills
   for coding agents in `.agents/skills`.
@@ -216,7 +216,8 @@ studio's lesson kit (`src/lesson-kit/`):
 
 Rayfin isn't only your own database. This module comes straight after the data client, so
 viewers meet the rest of the platform while the client is fresh: data that already lives in
-Fabric, code that runs on the server, and files. Say each one's availability on screen.
+Fabric, code that runs on the server, and files. Where a feature isn't available everywhere,
+such as Functions, say so on screen.
 
 #### 8. Connectors: your Fabric data, in your app
 
@@ -274,21 +275,21 @@ Fabric, code that runs on the server, and files. Say each one's availability on 
 #### 10. Storage
 
 - **Hook:** "Where do the receipts go?"
-- **You'll learn:** what Storage is, and that it's experimental; how to declare a folder; how
-  to upload, list and download files.
+- **You'll learn:** what Storage is; how to declare a folder; how to upload, list and download
+  files.
 - **Concepts:** turn it on with `services.storage.enabled: true`. Declare a folder in
-  `rayfin/storage/` with `@blob({ name, maxSize: mb(5), allowedContentTypes })` from
-  `@microsoft/rayfin-core/experimental` and a `@role()` policy, then register it in the storage
-  schema. Call `client.storage['<folder>']` with `upload()`, `list()`, `download()` and
-  `delete()`.
+  `rayfin/storage/` with `@blob({ name, maxSize: mb(5), allowedContentTypes })` and a `@role()`
+  policy, then register it in the storage schema. Call `client.storage['<folder>']` with
+  `upload()`, `list()`, `download()` and `delete()`.
 - **Deep Dive:** files get the same permission model as rows, such as
   `claims.sub.eq(item.owner_id)`. Every folder needs an authenticated rule, and anonymous
   storage isn't supported. The service enforces the size and content-type limits.
 - **In Fabricator:** Blueprint's **File storage** piece.
 - **Pop Quiz:** Can a signed-out visitor upload to a Storage folder? **No. Anonymous storage
   permissions aren't supported.**
-- **Availability:** experimental. It isn't in every Fabric region or tenant, and
-  `@microsoft/rayfin-storage` may change between releases. Say so on screen.
+- **Availability:** treat Storage as released; don't call it experimental. It's experimental
+  in Rayfin 1.36.2 and due to ship soon, so script this lesson against the release where it
+  ships, and check its import path and API again then.
 - **Sources:** [/docs/storage](https://rayfin.ai/docs/storage),
   [/docs/reference/sdk/rayfin-storage](https://rayfin.ai/docs/reference/sdk/rayfin-storage),
   [/docs/reference/known-limitations](https://rayfin.ai/docs/reference/known-limitations)
@@ -359,4 +360,4 @@ Season 1 introduces connectors, functions and storage. Season 2 goes deeper:
 - Signing in with an Entra token, and embedding an app in your own portal
 
 Check each topic's availability notes on rayfin.ai before scripting it. For example, Functions
-aren't in every Fabric region or tenant, and Storage is experimental.
+aren't in every Fabric region or tenant.

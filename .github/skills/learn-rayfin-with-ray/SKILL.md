@@ -99,7 +99,8 @@ thumbnail, next lesson).
 - **Lines:** one idea each, under about 25 words, so a retake is cheap. Use audio tags for
   delivery, and give each claim its `sources`.
 - **Accuracy:** say what the docs say, in plain words. Don't promise what the docs hedge, such
-  as Functions availability or experimental Storage.
+  as Functions availability. (Storage is the exception: it ships soon, so lessons treat it as
+  released and don't call it experimental.)
 - **Get it approved** (rule 5). Apply the edits, then set the lesson's status to Approved.
 
 ### 4. Check the code
