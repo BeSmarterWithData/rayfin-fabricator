@@ -36,6 +36,11 @@ Where things live, all under `scripts/videos/` (read its `README.md` before you 
      `npm run lesson:snippets -- <n>` creates. Its `.agents/skills/rayfin/SKILL.md`, its
      `.agents/skills/*`, and `node_modules/@microsoft/rayfin-*/assets/docs/` are version-locked.
      Where they disagree with rayfin.ai, they win.
+   - when neither says what happens (as with lesson 5's deletes), the version's own backend. In
+     a separate scratch app, with Docker Desktop running, run
+     `$env:RAYFIN_FEATURE_FLAGS='docker-local-dev'; npx rayfin dev --provider docker`, try it
+     through the client, and note what you ran beside the line. Afterwards, `rayfin dev --down`
+     and remove that app's volumes.
 
    Every line that makes a claim lists its pages in `sources`.
 3. **Fabricator facts come from Fabricator.** Use the docs (`website/content/docs/`), the

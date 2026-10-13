@@ -26,7 +26,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | 2 | Your first Rayfin app | `lessons/02-your-first-app` | Published: [youtu.be/-PzsntUZT7w](https://youtu.be/-PzsntUZT7w) |
 | 3 | Inside a Rayfin app | `lessons/03-inside-a-rayfin-app` | Published: [youtu.be/cYkA6CkVJLA](https://youtu.be/cYkA6CkVJLA) |
 | 4 | Entities and field types | `lessons/04-entities-and-field-types` | Published: [youtu.be/H3jneRn7Mlk](https://youtu.be/H3jneRn7Mlk) |
-| 5 | Relationships | | Planned |
+| 5 | Relationships | `lessons/05-relationships` | Rendered |
 | 6 | Permissions and row-level security | | Planned |
 | 7 | Reading and writing your data | | Planned |
 | 8 | Connectors: your Fabric data, in your app | | Planned |
@@ -184,15 +184,31 @@ studio's lesson kit (`src/lesson-kit/`):
 #### 5. Relationships
 
 - **Hook:** "A customer has many orders. How does Rayfin know?"
-- **You'll learn:** `@one` and `@many`; foreign keys; many-to-many.
-- **Concepts:** `@one(() => Project)` and `@many(() => Task)`, with lazy callbacks and runtime
-  imports. Rayfin generates the foreign-key columns; a key you declare follows the
-  `{property}_id` naming. Writes can set a relationship with `{ project: { id } }`.
-- **Deep Dive:** many-to-many isn't supported, so you use a join entity with two `@one()`.
-- **In Fabricator:** the lines between entities in the Data model view.
-- **Pop Quiz:** How do you model students and classes? **With a join entity, such as
-  Enrollment, that has two `@one()`.**
-- **Sources:** [/docs/data/relationships](https://rayfin.ai/docs/data/relationships)
+- **You'll learn:** when your data needs a link, and when an entity can stand alone; `@one` and
+  `@many`; foreign keys; many-to-many; what happens when you delete.
+- **Concepts:** Lesson 4's Expense is an island: its category is a `@set` (a fixed list), and
+  its `owner_id` is plain text from sign-in, not a foreign key. Something people create and
+  share across records, such as a report, gets its own entity and a link.
+  `@one(() => Report)` and `@many(() => Expense)`, with lazy callbacks and runtime imports.
+  Rayfin generates the foreign-key columns; a key you declare follows the `{property}_id`
+  naming. Writes set a relationship with `{ report: { id } }`, and the `@many` side is
+  read-only. Dot paths read across it both ways (`report.title`, `expenses.amount`).
+  Many-to-many isn't supported, so you use a join entity with two `@one()`.
+- **Deep Dive:** what a delete does to linked records. rayfin.ai doesn't say, so the lesson
+  checked Rayfin 1.36.2's own backend (`rayfin dev --provider docker`, on SQL Server and on
+  PostgreSQL): every `@one` is a real foreign key with no delete rule. Linking to a record that
+  doesn't exist fails, and so does deleting a record that others still point at ("Cannot
+  complete this operation because other items depend on this record. Remove the dependent items
+  first."). Nothing cascades, and `@one` has no option to, so you move or delete the expenses
+  first, and a tag's links.
+- **In Fabricator:** the lines between entities in the Data model view, `Expense[]` on the many
+  side, and the join entity in the middle.
+- **Pop Quiz:** You delete a report that still has expenses. What happens? **The delete fails
+  until you move or delete them.**
+- **Sources:** [/docs/data/relationships](https://rayfin.ai/docs/data/relationships),
+  [/docs/data/mutations](https://rayfin.ai/docs/data/mutations),
+  [/docs/data/querying](https://rayfin.ai/docs/data/querying),
+  [/docs/data/field-types](https://rayfin.ai/docs/data/field-types)
 
 #### 6. Permissions and row-level security
 
