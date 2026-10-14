@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react'
+import { useEffect, useId, useState, type ReactNode, type JSX } from 'react'
 import type { AppSettings, AppVersions, ThemePreference } from '@shared/ipc'
 import { applyTheme, applyUiScale, UI_SCALES } from '../theme'
 import { useSuppressPreview } from '../overlay'

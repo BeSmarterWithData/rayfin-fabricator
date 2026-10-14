@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { Codicon } from './icons'
 import { authErrorMessage } from '../authErrors'
 import type {

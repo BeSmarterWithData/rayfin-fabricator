@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type {
@@ -681,7 +681,7 @@ describe('ChatPanel Agent-mode ask_user questions', () => {
 
     // Later output appends *after* the anchor — the card does not drift down.
     const streamed = reduceChatMessage(asked, { type: 'delta', text: 'Now editing.' })
-    expect(streamed.segments?.at(-1)).toEqual({ kind: 'text', text: 'Now editing.' })
+    expect((streamed.segments ?? []).slice(-1)[0]).toEqual({ kind: 'text', text: 'Now editing.' })
     expect(streamed.segments?.[2]).toEqual({ kind: 'question', id: 'q1' })
 
     // Re-emitting the same request id must not duplicate the anchor.
@@ -752,7 +752,7 @@ describe('ChatPanel Agent-mode ask_user questions', () => {
  */
 describe('ChatPanel composer scrollport (issue #13)', () => {
   const rect = (top: number, bottom: number): DOMRect =>
-    ({
+    (({
       top,
       bottom,
       left: 0,
@@ -762,7 +762,7 @@ describe('ChatPanel composer scrollport (issue #13)', () => {
       x: 0,
       y: top,
       toJSON: () => ({})
-    }) as DOMRect
+    }) as DOMRect)
 
   it('renders the textarea and highlight overlay inside one shared scrollport', async () => {
     await act(async () => {

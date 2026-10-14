@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { Codicon } from '../icons'
 import { Ray, RAY_EYES, RAY_MOUTH, RAY_VIEWBOX, type RayMood } from './Ray'
 import { SpeechBubble, TYPE_MS } from './SpeechBubble'

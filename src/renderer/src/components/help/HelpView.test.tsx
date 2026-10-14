@@ -364,7 +364,7 @@ describe('keeping the conversation', () => {
 
     await screen.findByText(/Because no workspace is selected/)
     await waitFor(() => expect(saveHistory).toHaveBeenCalled())
-    const saved = saveHistory.mock.calls.at(-1)?.[0] as Array<{ question: string }> | undefined
+    const saved = saveHistory.mock.calls.slice(-1)[0]?.[0] as Array<{ question: string }> | undefined
     expect(saved?.[0].question).toBe('what broke?')
   })
 

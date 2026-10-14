@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 /**
  * Brand logos for the setup screen, used to identify each third-party product.
  *

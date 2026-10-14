@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type JSX } from 'react'
 import type { StudioProject } from '@shared/ipc'
 import { useSuppressPreview } from '../overlay'
 import { useMascotInstall } from './mascot/stage'

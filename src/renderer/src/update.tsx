@@ -5,7 +5,8 @@ import {
   useEffect,
   useRef,
   useState,
-  type ReactNode
+  type ReactNode,
+  type JSX,
 } from 'react'
 import type { AppUpdateInfo, UpdateProgress } from '@shared/ipc'
 

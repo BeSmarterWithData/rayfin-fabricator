@@ -61,7 +61,7 @@ async function call(method, route, { json, query } = {}) {
         await sleep(1500 * attempt);
         continue;
       }
-      throw new Error(redact(`ElevenLabs ${method} ${url.pathname} failed: ${err.message}`));
+      throw new Error(redact(`ElevenLabs ${method} ${url.pathname} failed: ${err.message}`), { cause: err });
     }
     if ((res.status === 429 || res.status >= 500) && attempt < 4) {
       await sleep(2000 * attempt * attempt);

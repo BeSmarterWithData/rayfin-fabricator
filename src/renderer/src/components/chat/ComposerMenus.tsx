@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import type { CopilotModel, ReasoningEffort } from '@shared/ipc'
 import { isFastModel, useCopilotModels } from '@renderer/copilotModels'
 import { moveMenuFocus } from '@renderer/menuFocus'

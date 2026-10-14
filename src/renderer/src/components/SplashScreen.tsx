@@ -4,7 +4,7 @@
 // an "F", recreated as inline SVG (one element per tile) so each block can glide
 // into place. The tile/bracket geometry + blue→cyan→green gradient are shared with
 // the static <FabricatorMark> so the mark matches exactly.
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type { StartupStage } from '../startup'
 import {
   MARK_BRACKET_RX,

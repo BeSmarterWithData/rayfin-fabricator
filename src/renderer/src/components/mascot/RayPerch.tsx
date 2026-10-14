@@ -4,7 +4,7 @@
  * keeps an eye on the pointer, and likes being petted. The screen decides what
  * he says and how he feels; this draws him and does his tricks.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type JSX } from 'react'
 import { Ray, RAY_MOUTH, RAY_VIEWBOX, type RayMood } from './Ray'
 import { Particles, useParticles } from './Particles'
 import { SpeechBubble, TYPE_MS } from './SpeechBubble'

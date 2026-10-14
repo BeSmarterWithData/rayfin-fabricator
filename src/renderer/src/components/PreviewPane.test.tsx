@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { StudioProject } from '@shared/ipc'
@@ -766,7 +766,7 @@ describe('PreviewPane design mode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Done' }))
     await settle(e)
     expect(screen.queryByRole('toolbar', { name: 'Design tools' })).toBeNull()
-    expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
+    expect(e.calls.filter((c) => c.method === 'design.setEnabled').slice(-1)[0].args).toEqual([false])
     expect(onSend).not.toHaveBeenCalled()
   })
 
@@ -818,7 +818,7 @@ describe('PreviewPane design mode', () => {
     rerender(<DesignHarnessed project={project} deploy={{ running: true, log: [] }} />)
     await settle(e)
     expect(screen.queryByRole('toolbar', { name: 'Design tools' })).toBeNull()
-    expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
+    expect(e.calls.filter((c) => c.method === 'design.setEnabled').slice(-1)[0].args).toEqual([false])
   })
 
   it('keeps Design off during a temporary auto-deploy local preview', async () => {
@@ -861,7 +861,7 @@ describe('PreviewPane design mode', () => {
     rerender(<DesignHarnessed {...props} deploy={{ running: true, log: [] }} />)
     await settle(e)
     expect(screen.queryByRole('toolbar', { name: 'Design tools' })).toBeNull()
-    expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
+    expect(e.calls.filter((c) => c.method === 'design.setEnabled').slice(-1)[0].args).toEqual([false])
   })
 
   it('ends local Design when a turn starts and offers it again once the turn finishes', async () => {
@@ -880,7 +880,7 @@ describe('PreviewPane design mode', () => {
     rerender(<DesignHarnessed {...props} turnRunning />)
     await settle(e)
     expect(screen.queryByRole('toolbar', { name: 'Design tools' })).toBeNull()
-    expect(e.calls.filter((c) => c.method === 'design.setEnabled').at(-1)!.args).toEqual([false])
+    expect(e.calls.filter((c) => c.method === 'design.setEnabled').slice(-1)[0].args).toEqual([false])
     const designBtn = screen.getByRole<HTMLButtonElement>('button', { name: /^design/i })
     expect(designBtn.disabled).toBe(true)
     expect(designBtn.title).toContain('once this turn finishes')

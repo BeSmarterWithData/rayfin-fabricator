@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import { normalizeSeverity, ruleById } from '@shared/advisor/catalog'
 import type { AdvisorDismissReason } from '@shared/ipc'
 import type { FindingItem } from '../../advisor/lifecycle'

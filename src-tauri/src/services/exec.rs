@@ -940,6 +940,9 @@ async fn spawn_and_run(resolved: Resolved, args: &[&str], opts: RunOptions) -> R
   cmd.stdin(if opts.stdin.is_some() { Stdio::piped() } else { Stdio::null() });
   cmd.stdout(Stdio::piped());
   cmd.stderr(Stdio::piped());
+  // A caller that stops waiting (an outer timeout, a `select!`, or a Copilot tool call
+  // the SDK cancels by dropping its future) must not leave the child running.
+  cmd.kill_on_drop(true);
   #[cfg(windows)]
   {
     // CREATE_NO_WINDOW — don't flash a console for child processes.
@@ -1058,6 +1061,24 @@ fn version_from(res: RunResult) -> Option<String> {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[tokio::test]
+  async fn a_run_its_caller_stops_awaiting_kills_the_child() {
+    if which::which("node").is_err() {
+      return;
+    }
+    let marker = std::env::temp_dir().join(format!("exec-dropped-{}", uuid::Uuid::new_v4()));
+    let marker_arg = marker.to_string_lossy().into_owned();
+    let script = "setTimeout(() => require('fs').writeFileSync(process.argv[1], 'still running'), 1000)";
+    let args = ["-e", script, &marker_arg];
+    let pending = run("node", &args, RunOptions::timeout(30_000));
+    // Dropping the future is what the Copilot SDK does when it cancels a tool call.
+    assert!(tokio::time::timeout(Duration::from_millis(300), pending).await.is_err());
+    tokio::time::sleep(Duration::from_millis(2_000)).await;
+    let survived = marker.exists();
+    let _ = std::fs::remove_file(&marker);
+    assert!(!survived, "the child kept running after its caller stopped waiting");
+  }
 
   #[tokio::test]
   async fn stdin_reaches_the_child_but_not_its_arguments() {

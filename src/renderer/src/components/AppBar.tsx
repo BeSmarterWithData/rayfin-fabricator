@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useId, useRef, useState, type CSSProperties, type JSX } from 'react'
 import type { StudioProject, TeamWorkspace } from '@shared/ipc'
 import type { DerivedAdvisor } from '../advisor/lifecycle'
 import { useSuppressPreview } from '../overlay'

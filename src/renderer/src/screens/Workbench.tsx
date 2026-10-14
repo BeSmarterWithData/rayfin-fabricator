@@ -6,7 +6,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type MouseEvent as ReactMouseEvent
+  type MouseEvent as ReactMouseEvent,
+  type JSX,
 } from 'react'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import {

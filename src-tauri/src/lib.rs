@@ -9,6 +9,8 @@ mod error;
 mod services;
 mod state;
 mod types;
+#[cfg(test)]
+mod vendor_guard;
 
 use tauri::Manager;
 

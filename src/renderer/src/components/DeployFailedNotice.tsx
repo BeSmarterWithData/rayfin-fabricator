@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type JSX } from 'react'
 import type { DeployOutcome } from '@shared/ipc'
 import { Codicon } from './icons'
 import { Ray, RAY_VIEWBOX, type RayMood } from './mascot/Ray'
