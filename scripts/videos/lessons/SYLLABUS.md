@@ -27,7 +27,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | 3 | Inside a Rayfin app | `lessons/03-inside-a-rayfin-app` | Published: [youtu.be/cYkA6CkVJLA](https://youtu.be/cYkA6CkVJLA) |
 | 4 | Entities and field types | `lessons/04-entities-and-field-types` | Published: [youtu.be/H3jneRn7Mlk](https://youtu.be/H3jneRn7Mlk) |
 | 5 | Relationships | `lessons/05-relationships` | Published: [youtu.be/RcK4Tx_f63w](https://youtu.be/RcK4Tx_f63w) |
-| 6 | Permissions and row-level security | `lessons/06-permissions` | Rendered |
+| 6 | Permissions and row-level security | `lessons/06-permissions` | Published: [youtu.be/G4HfluMI9iY](https://youtu.be/G4HfluMI9iY) |
 | 7 | Reading and writing your data | | Planned |
 | 8 | Connectors: your Fabric data, in your app | | Planned |
 | 9 | Functions and secrets | | Planned |

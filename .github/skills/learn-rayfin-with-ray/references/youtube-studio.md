@@ -106,6 +106,14 @@ a fix you can run the step again.
   say now. Look at the screenshot, and click the page's Save (`#save`). The lesson's `youtube.md`
   is remade by `lesson:package` after its next render (the video shows parts of `youtube.ts`, so
   packaging waits for one).
+- **Chapters gone, description intact:** in October 2026 lesson 4's chapters stopped showing
+  after its end screen was replaced, though its description still had every chapter line, and
+  `check` failed on "chapters". Re-saving the description brought them back within minutes. On
+  the details page the description box is the textbox named "Tell viewers about your video (type
+  @ to mention a channel)". Studio ignores trailing whitespace and keeps Save disabled for an
+  unchanged text, so, with the user's yes, add a second space inside the last line, Save, remove
+  it, and Save again. Check the text before each step, and reload at the end to confirm it reads
+  exactly as before.
 - **The thumbnail:** it's drawn from `youtube.ts`, so render and package the lesson again, then
   upload the new `thumbnail.jpg` on the details page.
 - **Captions:** not scripted yet. In Studio, open the video's subtitles, remove the English
