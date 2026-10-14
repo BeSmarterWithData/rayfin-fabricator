@@ -423,9 +423,21 @@ export class ExpenseTag {
 `
 }
 
-/** The sample app's files a shot reads: the Universal App with related entities for `model-relations`. */
+/**
+ * The same app with Report's permission decorator left out: the Data model view's access dots and
+ * Harden, as Learn Rayfin with Ray's lesson 6 shows them (`model-access`).
+ */
+const accessFiles: Record<string, string> = {
+  ...relationsFiles,
+  'packages/data/src/Report.ts': relationsFiles['packages/data/src/Report.ts']
+    .replace(`${OWNER_POLICY}\n`, '')
+    .replace('entity, many, role, text', 'entity, many, text')
+}
+
+/** The sample app's files a shot reads: the Universal App with related entities for the Data model shots. */
+const SHOT_FILES: Record<string, Record<string, string>> = { 'model-relations': relationsFiles, 'model-access': accessFiles }
 const projectFiles: Record<string, string> =
-  new URLSearchParams(location.search).get('shot') === 'model-relations' ? relationsFiles : expensesFiles
+  SHOT_FILES[new URLSearchParams(location.search).get('shot') ?? ''] ?? expensesFiles
 
 /** The project's file tree holding `paths`, as `projects.files.tree` returns it. */
 function fileTree(paths: string[]): FileNode[] {
@@ -1048,6 +1060,7 @@ function Shot({ id }: { id: string | null }): JSX.Element {
     case 'blueprint':
       return <Blueprint />
     case 'model-relations':
+    case 'model-access':
       return <Blueprint view="data" />
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>

@@ -129,6 +129,8 @@ Each entity card also has:
 
 Fabricator flags loose access on entities that are public, authenticated-only, default or mixed. Those cards show **Harden**.
 
+![The Data model view with four entities. Expense, ExpenseTag and Tag have green access dots and an authenticated grant with a policy. Report has an amber dot, says no explicit roles, and offers Harden beside Open and Focus.](/screenshots/model-access.webp)
+
 Select **Harden** to send a ready prompt to Copilot asking it to tighten the entity's access control with Rayfin decorators and row-level policy. Fabricator does not deploy from that prompt directly; the normal chat turn and redeploy flow applies.
 
 ```prompt title="Add row-level access"

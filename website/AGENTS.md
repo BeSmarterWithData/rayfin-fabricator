@@ -162,6 +162,7 @@ in `.md`.
 | `blueprint` | Blueprint's Architecture view of the sample app (sample data) | `/docs/build/data-model` |
 | `model` | Blueprint's Data model view with the entity diagram | `/docs/build/data-model` |
 | `model-relations` | Blueprint's Data model view with four related entities and a join entity (sample data) | `/docs/build/data-model` |
+| `model-access` | The same Data model view with one entity left without a permission decorator: its amber access dot and **Harden** (sample data) | `/docs/build/data-model` |
 | `skills` | The Skills view | `/docs/build/skills` |
 | `secrets` | The Secrets view with a secret selected | `/docs/build/secrets` |
 | `deployments` | The deployments panel | `/docs/ship/deploy` |
