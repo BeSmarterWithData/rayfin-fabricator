@@ -27,7 +27,7 @@ reads it before making a lesson and updates the status table when a lesson ships
 | 3 | Inside a Rayfin app | `lessons/03-inside-a-rayfin-app` | Published: [youtu.be/cYkA6CkVJLA](https://youtu.be/cYkA6CkVJLA) |
 | 4 | Entities and field types | `lessons/04-entities-and-field-types` | Published: [youtu.be/H3jneRn7Mlk](https://youtu.be/H3jneRn7Mlk) |
 | 5 | Relationships | `lessons/05-relationships` | Published: [youtu.be/RcK4Tx_f63w](https://youtu.be/RcK4Tx_f63w) |
-| 6 | Permissions and row-level security | | Planned |
+| 6 | Permissions and row-level security | `lessons/06-permissions` | Rendered |
 | 7 | Reading and writing your data | | Planned |
 | 8 | Connectors: your Fabric data, in your app | | Planned |
 | 9 | Functions and secrets | | Planned |
@@ -214,16 +214,28 @@ studio's lesson kit (`src/lesson-kit/`):
 
 - **Hook:** "Your data, your rows. Nobody else's."
 - **You'll learn:** the permission decorators; row-level policies; why the UI isn't security.
-- **Concepts:** `@role()` and its `@anonymous()` and `@authenticated()` shorthands. Actions
-  (`'*'`, create, read, update, delete). Policies on claims (`sub`, `email`, `role`), such as
-  `claims.sub.eq(item.owner_id)`. Field visibility with `include` and `exclude`. Anonymous data
+- **Concepts:** the two built-in roles, `authenticated` and `anonymous`. `@authenticated()`
+  and `@anonymous()` are shorthands for `@role()` (lessons 4 and 5 used `@role`). Actions
+  (`'*'`, create, read, update, delete). A policy on claims (`sub`, `email`, `role`), such as
+  `claims.sub.eq(item.owner_id)`, typed on both sides. The policy checks `owner_id` but
+  doesn't fill it in: the app sets it from the session when it creates a row. Anonymous data
   on Fabric needs a tenant admin switch.
 - **Deep Dive:** an entity with no permission decorator gives any signed-in user full CRUD.
-  Policies run on the server, so a filter in the UI isn't access control.
-- **In Fabricator:** Blueprint's access dots and **Harden**.
-- **Pop Quiz:** A filter in the UI hides other people's rows. Is their data private? **No.
-  Only a server-side policy keeps it private.**
-- **Sources:** [/docs/data/permissions](https://rayfin.ai/docs/data/permissions)
+  A filter in the app shapes what one query asks for; anyone signed in can ask without it.
+  Checked on Rayfin 1.36.2's own backend (`rayfin dev --provider docker`, on SQL Server and
+  on PostgreSQL), with two signed-in people: without a decorator, Blake read, edited and
+  deleted Avery's rows; with the owner policy, he couldn't reach them at all, and creating a
+  row with her `owner_id` was refused.
+- **Left out:** field visibility (`include` and `exclude`). The 1.36.2 backend dropped an
+  excluded-from-read field from creates as well, where rayfin.ai says it stays writable. And
+  public read with an owner-scoped write: signed-in people saw only their own rows there.
+- **In Fabricator:** Blueprint's access dots (**Row-scoped**, **Any signed-in**, **Public**)
+  and **Harden**, on the `model-access` screenshot: lesson 5's model with Report's decorator
+  left out.
+- **Pop Quiz:** A filter in the app hides other people's rows. Are they private? **No. Only a
+  policy on the server keeps them private.**
+- **Sources:** [/docs/data/permissions](https://rayfin.ai/docs/data/permissions),
+  [/docs/data/mutations](https://rayfin.ai/docs/data/mutations)
 
 #### 7. Reading and writing your data
 
