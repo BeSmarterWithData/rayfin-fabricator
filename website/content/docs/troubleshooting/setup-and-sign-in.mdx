@@ -9,7 +9,9 @@ Use this page for the first-run setup screen and account problems. Fabricator ve
 
 You see **Getting your environment ready**, a tool row such as **Node.js**, **npm**, **Git**, **Azure CLI**, or **GitHub CLI (gh)** is not **Installed**, or the row has a **Re-check** button. A failed version check can say a tool "was found, but its version check failed".
 
-Fabricator needs Node.js 20 or newer, npm, Git, and Azure CLI. **GitHub CLI (gh)** is optional repository tooling. It is separate from the bundled GitHub Copilot engine, so installing Copilot with pnpm does not satisfy the **GitHub CLI (gh)** check.
+Fabricator needs Node.js 22.12 or newer, npm, Git, and Azure CLI. **GitHub CLI (gh)** is optional repository tooling. It is separate from the bundled GitHub Copilot engine, so installing Copilot with pnpm does not satisfy the **GitHub CLI (gh)** check.
+
+A row that says **Needs updating** found an older version than Fabricator supports, for example "Version 20.10.0 — Fabricator needs 22.12 or newer". On macOS, when an older Node.js comes first on your PATH, such as the default version of a version manager like nvm, Fabricator uses a newer Node.js it finds further along your PATH, such as one installed by Homebrew. The **Node.js** row then shows that newer version.
 
 1. If Fabricator offers **Install** or **Install all**, use it.
 2. If setup says **Almost there.** and shows **Restart now**, select **Restart now**. Installed tools are often not visible to the running app until restart.
