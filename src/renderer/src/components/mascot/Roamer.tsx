@@ -601,7 +601,7 @@ export function MascotRoamer({
         avoid: s.avoid,
         aimX: m.x + W / 2
       })
-      bubble.style.transform = `translate3d(${place.x.toFixed(1)}px, ${place.y.toFixed(1)}px, 0)`
+      bubble.style.translate = `${place.x.toFixed(1)}px ${place.y.toFixed(1)}px`
       bubble.style.setProperty('--tail-x', `${place.tail.toFixed(1)}px`)
       bubble.classList.toggle('is-below', place.below)
     }

@@ -5892,16 +5892,14 @@ button.deploy-trouble-ray:focus-visible {
   max-width: 400px;
   padding: 8px 12px 9px;
   font-size: 13px;
-  cursor: default;
-  transform: none;
+  translate: none;
+  transform-origin: -10px 50%;
 }
 
 .deploy-trouble-bubble .mascot-bubble-tail {
-  top: calc(50% - 5px);
-  bottom: auto;
-  left: -6px;
-  margin-left: 0;
-  transform: rotate(135deg);
+  top: 50%;
+  left: 1px;
+  rotate: 90deg;
 }
 
 .deploy-trouble-text {

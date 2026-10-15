@@ -159,7 +159,14 @@ export default function DeployFailedNotice({
           {withRay ? (
             <>
               <div className="deploy-trouble-bubble">
-                {arrived && <SpeechBubble line={{ kind: 'chat', text: line }} typing={!reduced} />}
+                {arrived && (
+                  // Beside him in the pane, which can resize while he talks: no balancing.
+                  <SpeechBubble
+                    line={{ kind: 'chat', text: line }}
+                    typing={!reduced}
+                    balance={false}
+                  />
+                )}
               </div>
               <span className="sr-only" role="alert">
                 {line}
