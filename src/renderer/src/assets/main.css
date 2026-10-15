@@ -11904,19 +11904,16 @@ select.ws-input:disabled {
   font-size: 12px;
 }
 
-.alert--warn {
-  color: var(--text);
-  background: color-mix(in srgb, var(--pending) 12%, var(--bg-elev));
-  border: 1px solid color-mix(in srgb, var(--pending) 45%, var(--border));
-}
-
-/* The Accounts dialog */
+/* The Accounts dialog: a card per service, built like Settings' cards. The top
+   row names the service and holds its one action (Sign in, Add account or
+   Install from setup); a row per account follows, with that account's own
+   actions; messages and forms close the card. Rows line up under the name. */
 .accounts-modal {
-  max-width: 620px;
+  max-width: 660px;
 }
 
 .accounts-body {
-  gap: 12px;
+  gap: 10px;
 }
 
 .accounts-help {
@@ -11927,128 +11924,273 @@ select.ws-input:disabled {
   margin: 0;
 }
 
+/* Fabric and the Azure CLI in different organizations: what's off, why it
+   matters, and the fix, in one click when the Azure CLI has the account. */
+.acct-warn {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  border: 1px solid color-mix(in srgb, var(--pending) 35%, var(--border));
+  background: color-mix(in srgb, var(--pending) 8%, var(--bg-elev-2));
+}
+
+[data-theme='light'] .acct-warn {
+  background: color-mix(in srgb, var(--pending) 9%, var(--bg-elev));
+}
+
+.acct-warn .codicon.acct-warn-ico {
+  flex: none;
+  margin-top: 1px;
+  font-size: 15px;
+  color: var(--pending);
+}
+
+.acct-warn-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.acct-warn-text p {
+  margin: 0;
+}
+
+.acct-warn-text strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.acct-warn-text .acct-warn-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.acct-warn-text .btn {
+  margin-top: 5px;
+}
+
 .acct-card {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 14px;
-  padding: 14px;
+  display: flex;
+  flex-direction: column;
   border-radius: var(--radius);
   border: 1px solid var(--border-soft);
   background: var(--bg-elev-2);
-}
-
-.acct-card--ok {
-  border-color: color-mix(in srgb, var(--ok) 30%, var(--border));
 }
 
 .acct-card--error {
   border-color: color-mix(in srgb, var(--pending) 40%, var(--border));
 }
 
-/* The accounts dialog used to borrow the setup screen's `.auth-ico` box. The
-   setup screen dropped its icon boxes in the flat redesign, so this owns the
-   treatment it actually wants rather than depending on another screen's. */
-.acct-card-ico {
-  flex: none;
-  width: 38px;
-  height: 38px;
+.acct-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'ico title action'
+    'ico purpose action';
+  column-gap: 12px;
+  align-items: center;
+  padding: 11px 12px;
+}
+
+.acct-ico {
+  grid-area: ico;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--bg-elev-3);
   border: 1px solid var(--border);
   color: var(--text);
 }
 
-.acct-card-ico .codicon {
-  font-size: 20px;
-}
-
-.acct-card-ico .brand-glyph {
-  width: 23px;
-  height: 23px;
+.acct-ico > svg,
+.acct-ico .brand-glyph {
+  width: 18px;
+  height: 18px;
   object-fit: contain;
   display: block;
 }
 
-.acct-card-main {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+.acct-ico .codicon {
+  font-size: 18px;
 }
 
-.acct-card-head {
+.acct-title {
+  grid-area: title;
+  margin: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.acct-card-title {
-  margin: 0;
-  font-size: 14px;
+  gap: 7px;
+  min-width: 0;
+  font-size: 13.5px;
   font-weight: 650;
+  line-height: 1.35;
   color: var(--text);
 }
 
-.acct-card-purpose {
-  margin: -4px 0 0;
-  font-size: 12.5px;
-  line-height: 1.45;
+.acct-purpose {
+  grid-area: purpose;
+  margin: 1px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+.acct-head-action {
+  grid-area: action;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+/* Add account is the card's own action: quieter than the per-account buttons. */
+.btn.acct-add-btn {
+  gap: 4px;
+  padding: 0 8px;
+  color: var(--accent);
+  border-color: transparent;
+  background: transparent;
+}
+
+.btn.acct-add-btn:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--accent-soft);
+}
+
+.acct-add-btn .codicon {
+  font-size: 13px;
+}
+
+/* Signed in is a quiet check beside the name; anything else says what's up. */
+.acct-ok {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+}
+
+.acct-ok svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3;
 }
 
 .acct-chip {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px;
+  padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11.5px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-dim);
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
-}
-
-.acct-chip--ok {
-  color: var(--ok);
-  border-color: color-mix(in srgb, var(--ok) 32%, var(--border));
-  background: color-mix(in srgb, var(--ok) 10%, transparent);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
 }
 
 .acct-chip--error {
   color: var(--pending);
-  border-color: color-mix(in srgb, var(--pending) 40%, var(--border));
-  background: color-mix(in srgb, var(--pending) 10%, transparent);
+  background: color-mix(in srgb, var(--pending) 14%, transparent);
 }
 
-.acct-chip-ico {
-  width: 12px;
-  height: 12px;
-  stroke-width: 2.6;
+.acct-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
-.acct-id {
+.acct-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-height: 40px;
+  padding: 6px 12px 6px 54px;
+  border-top: 1px solid var(--border);
+}
+
+.acct-row-who {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 4px 10px;
-  min-width: 0;
+  gap: 2px 8px;
 }
 
-.acct-id-primary {
+.acct-row-name {
+  min-width: 0;
   font-size: 13px;
   font-weight: 600;
   color: var(--text);
   overflow-wrap: anywhere;
 }
 
-.acct-id-secondary {
+.acct-row-meta {
   font-size: 12px;
   color: var(--text-dim);
+}
+
+.acct-row-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.acct-row-actions .btn--xs {
+  align-self: center;
+}
+
+/* Sign out is each row's quiet action, so the one you'd pick stands out. */
+.btn.acct-quiet {
+  border-color: transparent;
+  color: var(--text-dim);
+}
+
+.btn.acct-quiet:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+}
+
+.acct-badge {
+  align-self: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.acct-badge--warn {
+  color: var(--pending);
+  background: color-mix(in srgb, var(--pending) 14%, transparent);
+}
+
+.acct-confirm {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.acct-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px 54px;
+  border-top: 1px solid var(--border);
 }
 
 .acct-error {
@@ -12059,13 +12201,7 @@ select.ws-input:disabled {
   overflow-wrap: anywhere;
 }
 
-.acct-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.acct-hint {
+.acct-note {
   margin: 0;
   font-size: 12px;
   line-height: 1.45;
@@ -12125,89 +12261,16 @@ select.ws-input:disabled {
   color: var(--text-dim);
 }
 
-.acct-github-ico {
-  font-size: 20px;
-}
-
-.acct-list-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.acct-list-label {
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text-dim);
-}
-
-.acct-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.acct-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 8px;
-  padding: 7px 9px;
-  border-radius: 8px;
-  border: 1px solid var(--border-soft);
-  background: var(--bg-elev);
-}
-
-.acct-row-name {
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  overflow-wrap: anywhere;
-}
-
-.acct-row-meta {
-  font-weight: 400;
-  color: var(--text-dim);
-}
-
-.acct-row-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .acct-add {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 11px;
-  border-radius: 8px;
-  border: 1px solid var(--border);
-  background: var(--bg-elev);
 }
 
-.acct-badge {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 999px;
-  color: var(--accent);
-  background: var(--accent-soft);
-}
-
-.acct-badge--warn {
-  color: var(--pending);
-  background: color-mix(in srgb, var(--pending) 14%, transparent);
-}
-
-.acct-confirm {
-  font-size: 12px;
-  color: var(--text);
+.acct-add-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
 }
 
 @media (prefers-reduced-motion: reduce) {
