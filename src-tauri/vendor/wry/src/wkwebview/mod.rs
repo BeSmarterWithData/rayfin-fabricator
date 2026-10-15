@@ -1048,7 +1048,15 @@ impl InnerWebView {
         // inset, so without this correction it lands `title_bar_inset` points too
         // high — covering the toolbar. Shift it down to align with the web content.
         // In fullscreen there is no title bar, the inset is 0, and this is a no-op.
-        if let Some(win) = self.webview.window() {
+        // The main webview is a child too (Tauri's multiwebview mode), which Tauri
+        // resizes to fill the window on every resize. It keeps its full frame and
+        // safe-area insets: shifted, its page's bottom would hang below the window.
+        let parent_size = parent_view.frame().size;
+        let fills_window = x == 0
+          && y == 0
+          && width >= parent_size.width - 1.0
+          && height >= parent_size.height - 1.0;
+        if let Some(win) = self.webview.window().filter(|_| !fills_window) {
           let cl = win.contentLayoutRect();
           let title_bar_inset =
             parent_view.frame().size.height - (cl.origin.y + cl.size.height);

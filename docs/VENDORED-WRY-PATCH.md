@@ -35,13 +35,19 @@ Edge on the same device. See [Background](#background-why-0001-is-needed).
 **Where:** `InnerWebView::set_bounds`, for macOS child webviews.
 
 **Change:** shifts the child webview down by the title-bar inset: the content view's height
-minus the bottom of the window's `contentLayoutRect`.
+minus the bottom of the window's `contentLayoutRect`. A child webview that fills the whole
+window is left where it is.
 
 **Why:** the main window uses a full-size content view, so the main webview lays its web
 content out *below* the native title bar (via safe-area insets), while wry positions child
 webviews purely by frame against the whole content view. Without the correction the preview
 child lands a title bar's height too high and covers the preview toolbar. In fullscreen
 there is no title bar, the inset is 0, and the patch changes nothing.
+
+Tauri's multiwebview mode (the `unstable` feature) makes the main webview a child too, and
+resizes it to fill the window on every window resize. Shifting it as well would push the
+bottom of the app, including the status bar, a title bar's height below the window after
+any resize, so a webview that fills the window keeps its frame.
 
 ### Retired: disabling native-window occlusion
 
@@ -116,7 +122,8 @@ is gone. If you ever bring back something like it, keep
    - Windows: sign in inside the preview to an app behind a device-compliance Conditional
      Access policy.
    - macOS: in a normal (not fullscreen) window, the preview sits right below the preview
-     toolbar instead of covering it.
+     toolbar instead of covering it, and after resizing the window the status bar is still
+     visible at the bottom.
 
 ### Changing or adding a patch
 

@@ -25,6 +25,7 @@ const PATCHES: &[(&str, &str, &[&str])] = &[
       "[rayfin-desktop local patch: macos-titlebar-inset]",
       "let cl = win.contentLayoutRect();",
       "origin.y -= title_bar_inset;",
+      "self.webview.window().filter(|_| !fills_window)",
     ],
   ),
 ];
