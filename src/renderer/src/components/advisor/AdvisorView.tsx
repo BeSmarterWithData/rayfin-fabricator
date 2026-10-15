@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, type JSX } from 'react'
 import type { AdvisorCategoryId, AdvisorFinding, StudioProject } from '@shared/ipc'
-import { CATALOG, categoryById, normalizeSeverity } from '@shared/advisor/catalog'
+import { CATALOG, categoryById } from '@shared/advisor/catalog'
 import type { FindingItem } from '../../advisor/lifecycle'
 import type { AdvisorController } from '../../advisor/store'
 import type { MarkdownLinks } from '../Markdown'
@@ -34,18 +34,14 @@ function matchesQuery(item: FindingItem, q: string): boolean {
 }
 
 function isActionable(item: FindingItem): boolean {
-  return (
-    normalizeSeverity(item.finding.severity) !== 'note' &&
-    item.status !== 'fixing' &&
-    item.status !== 'checking'
-  )
+  return item.status !== 'fixing' && item.status !== 'checking'
 }
 
 /**
  * The Advisor tab: a health summary (grade, a strip of every check, live
  * review progress) over an issues inbox whose rows open in place, beside the
  * checks for each area. Quick checks run automatically; the Copilot deep review
- * runs on demand and streams findings in. Issues can be fixed with Copilot (one,
+ * runs on demand and streams findings in. Findings can be fixed with Copilot (one,
  * selected, or all), explained, verified after a fix, or dismissed.
  */
 export default function AdvisorView({

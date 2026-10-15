@@ -76,6 +76,8 @@ Use file chips to open the flagged code in the **Code** tab.
 
 Select **Fix with Copilot** on one finding, or use a summary action such as **Fix selected (1)** or **Fix 2 with Copilot**. Fabricator sends the finding details to the Build chat as an Advisor fix card.
 
+These actions also apply to note-level findings under **Suggestions**. Suggestions do not lower your health score.
+
 Copilot receives the issue, location, suggested fix, relevant code excerpt, and Rayfin guidance links. It is instructed not to run `rayfin up`; Fabricator handles redeploys.
 
 ```prompt title="Ask for a careful Advisor fix"
