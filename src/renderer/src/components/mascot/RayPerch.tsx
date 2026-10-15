@@ -13,7 +13,8 @@ import { useRayGaze } from './gaze'
 import type { MascotLine } from './lines'
 
 export interface RayPerchProps {
-  /** What he says. A new line types out while his mouth moves. */
+  /** What he says. A new line types out while his mouth moves; an empty one
+   *  keeps him quiet for now. */
   line: MascotLine
   /** How he looks while he isn't talking or being petted. */
   mood: RayMood
@@ -67,7 +68,7 @@ export function RayPerch({
 
   // His mouth moves while a line types out.
   useEffect(() => {
-    if (reduced) return
+    if (reduced || !line.text) return
     setTalking(true)
     const timer = window.setTimeout(() => setTalking(false), Array.from(line.text).length * TYPE_MS)
     return () => window.clearTimeout(timer)
@@ -127,7 +128,8 @@ export function RayPerch({
   return (
     <div className={`ray-perch${className ? ` ${className}` : ''}`}>
       <div className="ray-perch-bubble">
-        <SpeechBubble key={line.text} line={line} typing={!reduced} />
+        {/* Nothing to say (yet): the bubble's room stays, so nothing moves when he speaks. */}
+        {line.text && <SpeechBubble key={line.text} line={line} typing={!reduced} />}
       </div>
       <div
         className={`ray-perch-ray${arriving ? ' is-arriving' : ''}`}

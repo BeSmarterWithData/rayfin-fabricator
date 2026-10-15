@@ -1182,7 +1182,9 @@ pub async fn chat_reset(state: State<'_, AppState>, project_id: String) -> Resul
   Ok(())
 }
 
-#[tauri::command]
+/// Runs off the main thread: a long transcript is a large file to read and parse,
+/// and the app is opening it at startup.
+#[tauri::command(async)]
 pub fn chat_history(project_id: String) -> Vec<ChatMessage> {
   history::load_history(&project_id)
 }

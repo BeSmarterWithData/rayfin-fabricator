@@ -5,7 +5,8 @@ use serde::Deserialize;
 use crate::services::store;
 use crate::types::{AppSettings, ExperimentFlags};
 
-#[tauri::command]
+/// Off the main thread, like every read the app makes while it starts.
+#[tauri::command(async)]
 pub fn settings_get() -> AppSettings {
   store::get_settings()
 }

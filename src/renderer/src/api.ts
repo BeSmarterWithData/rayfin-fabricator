@@ -91,6 +91,7 @@ export const api: RayfinStudioApi = {
   },
   openInEditor: (id: string) => invoke('open_in_editor', { id }),
   relaunch: () => invoke('relaunch'),
+  revealWindow: (background?: string) => invoke('window_reveal', { background: background ?? null }),
 
   updates: {
     check: () => invoke('update_check'),
@@ -377,6 +378,7 @@ export const api: RayfinStudioApi = {
   preview: {
     ...serializePreviewMutations({
       showUrl: (url: string, bounds: PreviewBounds) => invoke('preview_show_url', { url, bounds }),
+      preload: (url: string, bounds: PreviewBounds) => invoke('preview_preload', { url, bounds }),
       navigate: (url: string, bounds: PreviewBounds) => invoke('preview_navigate', { url, bounds }),
       setBounds: (bounds: PreviewBounds) => invoke('preview_set_bounds', { bounds }),
       hide: () => invoke('preview_hide'),

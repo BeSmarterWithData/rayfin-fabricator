@@ -120,24 +120,36 @@ pub fn run() {
       let version = app.package_info().version.to_string();
       services::telemetry::init(telemetry_connection_string(app), version);
 
-      // Materialize Fabricator's product-scoped agent skills/instructions under
-      // app-data so chat sessions can inject them (never written into the repo).
-      services::agent_skills::ensure_materialized();
-
       // Watch for main-thread freezes (Parallels/VM hangs) and record them. The
       // monitor actively probes the main thread, so an idle (event-starved) loop
       // is never mistaken for a hang.
       services::watchdog::start(app.handle().clone());
 
-      // Trim old chat-session diagnostics so the logs directory stays bounded.
-      // Runs once at startup so per-turn capture adds no pruning I/O.
-      services::diagnostics::prune();
+      // The main window starts hidden; the renderer shows it once its first
+      // screen is painted (see `window_reveal`). Should the page never get that
+      // far, show it anyway rather than leave the app invisible. (`get_window`:
+      // with the preview added, it's no longer a single-webview window.)
+      let handle = app.handle().clone();
+      std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        if let Some(window) = handle.get_window("main") {
+          commands::misc::reveal(&window);
+        }
+      });
 
-      // Retired app-data storage nothing reads anymore: the Design Studio
-      // experiment's drafts, receipts and imported assets, and the per-user npm
-      // cache earlier releases seeded from a cache bundled with the app. Remove
-      // them in the background (a no-op once they're gone).
+      // Housekeeping nothing needs during startup runs off the main thread, so
+      // the window and the first commands aren't kept waiting on the disk:
+      //   - materialize Fabricator's product-scoped agent skills/instructions
+      //     under app-data, which chat sessions inject (never into the repo);
+      //   - trim old chat-session diagnostics, so the logs directory stays
+      //     bounded (once per launch, so per-turn capture adds no pruning I/O);
+      //   - remove retired app-data storage nothing reads anymore: the Design
+      //     Studio experiment's drafts, receipts and imported assets, and the
+      //     per-user npm cache earlier releases seeded from a cache bundled with
+      //     the app (a no-op once they're gone).
       std::thread::spawn(|| {
+        services::agent_skills::ensure_materialized();
+        services::diagnostics::prune();
         for (dir, what) in [
           (services::paths::retired_design_studio_dir(), "Design Studio data"),
           (services::paths::retired_npm_cache_dir(), "npm cache"),
@@ -159,6 +171,7 @@ pub fn run() {
       commands::misc::open_external,
       commands::misc::open_logs,
       commands::misc::open_in_editor,
+      commands::misc::window_reveal,
       commands::misc::relaunch,
       // diagnostics
       commands::diagnostics::diagnostics_export,
@@ -362,6 +375,7 @@ pub fn run() {
             services::dev_server::dev_register_port,
       // preview
       services::preview::preview_show_url,
+      services::preview::preview_preload,
       services::preview::preview_navigate,
       services::preview::preview_set_bounds,
       services::preview::preview_hide,

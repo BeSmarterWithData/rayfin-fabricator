@@ -6,6 +6,7 @@ import UpdateBanner from './components/UpdateBanner'
 import UpdateModal from './components/UpdateModal'
 import ForcedUpdateScreen from './components/ForcedUpdateScreen'
 import SplashScreen from './components/SplashScreen'
+import LaunchCurtain from './components/LaunchCurtain'
 import { MascotProvider } from './components/mascot/stage'
 import { applyUiScale, watchTheme } from './theme'
 import { useUpdates } from './update'
@@ -17,6 +18,8 @@ import {
   failedAuth,
   hasCompletedSetup,
   pickAuth,
+  rememberedMascot,
+  rememberMascot,
   rememberSetupComplete,
   setupAttention,
   startupStage
@@ -25,10 +28,28 @@ import {
 type Phase = 'loading' | 'setup' | 'ready'
 
 // Keep the playful splash on screen long enough to actually be seen on a first
-// launch, even when the startup checks resolve almost instantly. A computer that
-// already passed setup skips it and opens straight into the app.
+// launch, even when the startup checks resolve almost instantly.
 const SPLASH_MIN_MS = 2500
 const SPLASH_MIN_MS_REDUCED = 700
+
+/**
+ * Once setup has passed, a launch opens on a short launch screen that covers
+ * the app while it loads, then fades away into it. It stays long enough for Ray
+ * to swim up and say hello (or for the wordmark to build itself), then until the
+ * app underneath is ready to look at, but at most a grace period longer. A
+ * first launch's splash fades into the next screen the same way.
+ */
+const LAUNCH_MIN_MS = { ray: 1500, alone: 1000, reduced: 300 }
+const LAUNCH_GRACE_MS = 1000
+/** The launch screen's fade-out. Matches `.launch-curtain--leaving` in main.css. */
+const LAUNCH_FADE_MS = 450
+const LAUNCH_FADE_MS_REDUCED = 150
+
+type Curtain = 'up' | 'lifting' | 'gone'
+
+function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false
+}
 
 const ALL_PROVIDERS: AuthProvider[] = ['copilot', 'rayfin', 'az']
 /** Setup gates entry on these; the slower Fabric check only matters inside the app. */
@@ -93,15 +114,11 @@ function App(): JSX.Element {
   const phaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const toast = useToast()
   const { blocking } = useUpdates()
+  const [reducedMotion] = useState(prefersReducedMotion)
 
   // Don't leave the first-run splash before its minimum showtime has elapsed.
   const gateUntilRef = useRef(
-    returning
-      ? 0
-      : Date.now() +
-          (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
-            ? SPLASH_MIN_MS_REDUCED
-            : SPLASH_MIN_MS)
+    returning ? 0 : Date.now() + (reducedMotion ? SPLASH_MIN_MS_REDUCED : SPLASH_MIN_MS)
   )
   const applyPhase = useCallback((next: Phase): void => {
     if (phaseTimerRef.current !== null) clearTimeout(phaseTimerRef.current)
@@ -320,10 +337,54 @@ function App(): JSX.Element {
   }, [])
 
   const attention = useMemo(() => setupAttention(doctor, auth, checkError), [doctor, auth, checkError])
-  // Ray is on unless turned off in Settings, including before settings load.
-  const mascot = settings?.mascot !== false
+  // Ray is on unless turned off in Settings. Until settings load, he's as he was
+  // last time, so the launch screen doesn't show him and then take him away.
+  const [mascotLastTime] = useState(rememberedMascot)
+  const mascot = settings ? settings.mascot !== false : mascotLastTime
+  useEffect(() => {
+    if (settings) rememberMascot(settings.mascot !== false)
+  }, [settings])
   // How far the first-launch checks have got, for Ray to narrate on the splash.
   const stage = startupStage(doctor, auth, Boolean(checkError || authError))
+
+  // The launch screen (the splash, at a first launch) covers whatever screen is
+  // under it until that screen is ready to look at, then fades away. Setup has
+  // nothing to load; the workbench says when it's ready.
+  const [curtain, setCurtain] = useState<Curtain>('up')
+  const [screenSettled, setScreenSettled] = useState(false)
+  const onScreenSettled = useCallback((): void => setScreenSettled(true), [])
+  /** The project the app is opening (null for Home), once the workbench knows. */
+  const [opening, setOpening] = useState<string | null | undefined>(undefined)
+  const launchedAtRef = useRef(Date.now())
+  /** When a screen first went up under the launch screen. */
+  const coveredSinceRef = useRef<number | null>(null)
+  const covering = phase !== 'loading'
+  const settled = screenSettled || phase === 'setup'
+  const launchMin = reducedMotion
+    ? LAUNCH_MIN_MS.reduced
+    : mascot
+      ? LAUNCH_MIN_MS.ray
+      : LAUNCH_MIN_MS.alone
+  useEffect(() => {
+    if (curtain !== 'up' || !covering) return
+    const now = Date.now()
+    coveredSinceRef.current ??= now
+    // A first launch's splash has had its showtime already.
+    const minUntil = returning ? launchedAtRef.current + launchMin : coveredSinceRef.current
+    const liftAt = settled
+      ? Math.max(minUntil, now)
+      : Math.max(minUntil, coveredSinceRef.current) + LAUNCH_GRACE_MS
+    const timer = setTimeout(() => setCurtain('lifting'), Math.max(0, liftAt - now))
+    return () => clearTimeout(timer)
+  }, [curtain, covering, settled, returning, launchMin])
+  useEffect(() => {
+    if (curtain !== 'lifting') return
+    const timer = setTimeout(
+      () => setCurtain('gone'),
+      reducedMotion ? LAUNCH_FADE_MS_REDUCED : LAUNCH_FADE_MS
+    )
+    return () => clearTimeout(timer)
+  }, [curtain, reducedMotion])
 
   // A mandatory startup update blocks the entire app behind a forced-update screen
   // until it installs and restarts. Offline / up-to-date launches never set this.
@@ -331,37 +392,19 @@ function App(): JSX.Element {
     return <ForcedUpdateScreen />
   }
 
-  if (phase === 'loading') {
-    return (
-      <>
-        <UpdateBanner />
-        <UpdateModal />
-        <SplashScreen mascot={mascot} stage={stage} />
-      </>
-    )
-  }
-
-  if (phase === 'ready' && auth) {
-    return (
-      <MascotProvider enabled={mascot}>
-        <UpdateBanner />
-        <UpdateModal />
-        <Workbench
-          auth={auth}
-          attention={attention}
-          onReviewSetup={reviewSetup}
-          onAuthChanged={refreshAuth}
-          settings={settings}
-          onSettingsChange={updateSettings}
-        />
-      </MascotProvider>
-    )
-  }
-
-  return (
-    <MascotProvider enabled={mascot}>
-      <UpdateBanner />
-      <UpdateModal />
+  const screen =
+    phase === 'loading' ? null : phase === 'ready' && auth ? (
+      <Workbench
+        auth={auth}
+        attention={attention}
+        onReviewSetup={reviewSetup}
+        onAuthChanged={refreshAuth}
+        settings={settings}
+        onSettingsChange={updateSettings}
+        onSettled={onScreenSettled}
+        onOpening={setOpening}
+      />
+    ) : (
       <SetupScreen
         doctor={doctor}
         auth={auth}
@@ -371,6 +414,24 @@ function App(): JSX.Element {
         onEnter={enter}
         onBack={setupDone ? backToApp : undefined}
       />
+    )
+
+  return (
+    <MascotProvider enabled={mascot}>
+      <UpdateBanner />
+      <UpdateModal />
+      {screen}
+      {curtain !== 'gone' && (
+        <LaunchCurtain leaving={curtain === 'lifting'}>
+          <SplashScreen
+            mascot={mascot}
+            stage={stage}
+            launch={returning}
+            opening={opening}
+            leaving={curtain === 'lifting'}
+          />
+        </LaunchCurtain>
+      )}
     </MascotProvider>
   )
 }

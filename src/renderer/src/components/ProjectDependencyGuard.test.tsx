@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import type { StudioProject } from '@shared/ipc'
 import { OverlayProvider } from '../overlay'
 import { MascotProvider, resetMascotForTests } from './mascot/stage'
-import ProjectDependencyGuard from './ProjectDependencyGuard'
+import ProjectDependencyGuard, { PREPARING_CARD_DELAY_MS } from './ProjectDependencyGuard'
 
 function makeProject(): StudioProject {
   return {
@@ -116,6 +116,34 @@ describe('ProjectDependencyGuard', () => {
     expect(await screen.findByRole('alert', { name: 'Could not prepare Cloned app' })).toBeTruthy()
     expect(onReadyChange).not.toHaveBeenCalledWith('project-1', true)
     expect(onReadyChange).toHaveBeenLastCalledWith('project-1', false)
+  })
+
+  it('shows its card only for a check that takes a while, so a quick one never flashes it', async () => {
+    vi.useFakeTimers()
+    try {
+      const preparation = deferred<{ ok: boolean }>()
+      installApi(vi.fn(() => preparation.promise))
+      renderGuard()
+      const card = (): HTMLElement | null => screen.queryByText('Preparing Cloned app')
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(PREPARING_CARD_DELAY_MS - 1)
+      })
+      expect(screen.getByRole('status', { name: 'Preparing Cloned app' })).toBeTruthy()
+      expect(card()).toBeNull()
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1)
+      })
+      expect(card()).not.toBeNull()
+
+      await act(async () => {
+        preparation.resolve({ ok: true })
+      })
+      expect(screen.getByText('Project tools are ready')).toBeTruthy()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

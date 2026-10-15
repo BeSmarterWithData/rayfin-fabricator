@@ -16,8 +16,27 @@ vi.mock('./components/UpdateBanner', () => ({ default: () => null }))
 vi.mock('./components/UpdateModal', () => ({ default: () => null }))
 vi.mock('./components/ForcedUpdateScreen', () => ({ default: () => null }))
 vi.mock('./components/SplashScreen', () => ({
-  default: ({ mascot, stage }: { mascot?: boolean; stage?: string }) => (
-    <div data-testid="splash" data-mascot={String(mascot)} data-stage={stage}>
+  default: ({
+    mascot,
+    stage,
+    launch,
+    opening,
+    leaving
+  }: {
+    mascot?: boolean
+    stage?: string
+    launch?: boolean
+    opening?: string | null
+    leaving?: boolean
+  }) => (
+    <div
+      data-testid="splash"
+      data-mascot={String(mascot)}
+      data-stage={stage}
+      data-launch={String(Boolean(launch))}
+      data-opening={String(opening)}
+      data-leaving={String(Boolean(leaving))}
+    >
       Splash
     </div>
   )
@@ -57,12 +76,16 @@ vi.mock('./screens/Workbench', () => ({
     auth,
     attention,
     onAuthChanged,
-    onReviewSetup
+    onReviewSetup,
+    onSettled,
+    onOpening
   }: {
     auth: AuthStatus
     attention?: SetupAttention | null
     onAuthChanged: () => Promise<void>
     onReviewSetup: () => void
+    onSettled?: () => void
+    onOpening?: (projectName: string | null) => void
   }) => {
     const [draft, setDraft] = useState('')
     const [error, setError] = useState('')
@@ -79,6 +102,8 @@ vi.mock('./screens/Workbench', () => ({
           Refresh accounts
         </button>
         <button onClick={onReviewSetup}>Review setup</button>
+        <button onClick={() => onSettled?.()}>Workbench ready</button>
+        <button onClick={() => onOpening?.('lead-tracker')}>Workbench opening</button>
         {error && <div role="alert">{error}</div>}
       </div>
     )
@@ -147,6 +172,22 @@ async function finishSplash(): Promise<void> {
   })
 }
 
+async function advance(ms: number): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms)
+  })
+}
+
+/** The launch screen (or first-run splash) as it covers the app: 'up', 'leaving' or 'gone'. */
+function curtain(): 'up' | 'leaving' | 'gone' {
+  const splash = screen.queryByTestId('splash')
+  if (!splash) return 'gone'
+  return splash.parentElement?.classList.contains('launch-curtain--leaving') ? 'leaving' : 'up'
+}
+
+/** Its fade-out, from the moment it starts to lift (LAUNCH_FADE_MS). */
+const FADE_MS = 450
+
 async function settle(): Promise<void> {
   await act(async () => {})
 }
@@ -205,7 +246,8 @@ describe('App startup', () => {
     answerSetupChecks(api, () => setupSignIns.promise)
     renderApp()
 
-    expect(screen.queryByTestId('splash')).toBeNull()
+    // No checklist: the app loads at once, under the short launch screen.
+    expect(screen.getByTestId('splash').dataset.launch).toBe('true')
     expect(screen.getByTestId('workbench')).toBeTruthy()
     expect(screen.getByTestId('copilot').textContent).toBe('checking')
     await settle()
@@ -279,6 +321,9 @@ describe('App authentication orchestration', () => {
     answerSetupChecks(api, () => Promise.reject('Authentication bridge unavailable'))
     renderApp()
     await finishSplash()
+    // The splash fades into setup.
+    await advance(0)
+    await advance(FADE_MS)
 
     expect(screen.queryByTestId('splash')).toBeNull()
     expect(screen.getByTestId('setup')).toBeTruthy()
@@ -396,6 +441,109 @@ describe('App authentication orchestration', () => {
     expect(screen.getByTestId('copilot').textContent).toBe('false')
     expect(screen.getByRole('alert').textContent).toContain('Current startup failed')
     expect(screen.queryByTestId('workbench')).toBeNull()
+  })
+})
+
+describe('the launch screen', () => {
+  it('covers the app while it loads, for at least Ray’s hello, then fades away', async () => {
+    localStorage.setItem(SETUP_DONE, '1')
+    installApi()
+    renderApp()
+    expect(curtain()).toBe('up')
+    expect(screen.getByTestId('splash').dataset.mascot).toBe('true')
+
+    // The app underneath is ready early; Ray still gets to say hello.
+    await advance(200)
+    fireEvent.click(screen.getByRole('button', { name: 'Workbench ready' }))
+    await advance(1299)
+    expect(curtain()).toBe('up')
+    await advance(1)
+    expect(curtain()).toBe('leaving')
+    await advance(FADE_MS)
+    expect(curtain()).toBe('gone')
+    expect(screen.getByTestId('workbench')).toBeTruthy()
+  })
+
+  it('says which project it’s opening, and tells Ray when to swim off', async () => {
+    localStorage.setItem(SETUP_DONE, '1')
+    installApi()
+    renderApp()
+    const splash = (): HTMLElement => screen.getByTestId('splash')
+    expect(splash().dataset.opening).toBe('undefined')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Workbench opening' }))
+    expect(splash().dataset.opening).toBe('lead-tracker')
+    expect(splash().dataset.leaving).toBe('false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Workbench ready' }))
+    await advance(1500)
+    expect(splash().dataset.leaving).toBe('true')
+  })
+
+  it('waits for a slow app only a grace period longer', async () => {
+    localStorage.setItem(SETUP_DONE, '1')
+    installApi()
+    renderApp()
+
+    await advance(2499)
+    expect(curtain()).toBe('up')
+    await advance(1)
+    expect(curtain()).toBe('leaving')
+    await advance(FADE_MS)
+    expect(curtain()).toBe('gone')
+  })
+
+  it('lifts as soon as a slow app is ready after Ray’s hello', async () => {
+    localStorage.setItem(SETUP_DONE, '1')
+    installApi()
+    renderApp()
+
+    await advance(1800)
+    expect(curtain()).toBe('up')
+    fireEvent.click(screen.getByRole('button', { name: 'Workbench ready' }))
+    await advance(0)
+    expect(curtain()).toBe('leaving')
+  })
+
+  it('is shorter without Ray, who stays away from its first frame', async () => {
+    localStorage.setItem(SETUP_DONE, '1')
+    localStorage.setItem('fabricator.mascot', '0')
+    const api = installApi()
+    api.settings.get.mockResolvedValue({ theme: 'system', mascot: false })
+    renderApp()
+    expect(screen.getByTestId('splash').dataset.mascot).toBe('false')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Workbench ready' }))
+    await advance(999)
+    expect(curtain()).toBe('up')
+    await advance(1)
+    expect(curtain()).toBe('leaving')
+  })
+
+  it('remembers whether Ray is on for the next launch screen', async () => {
+    const api = installApi()
+    api.settings.get.mockResolvedValue({ theme: 'system', mascot: false })
+    renderApp()
+    await settle()
+    expect(localStorage.getItem('fabricator.mascot')).toBe('0')
+  })
+
+  it('fades the first-run splash into setup once its showtime is up', async () => {
+    const api = installApi()
+    answerSetupChecks(api, () =>
+      Promise.resolve(pick(['copilot', 'az'], { ...signedIn, az: { signedIn: false } }))
+    )
+    renderApp()
+    expect(screen.getByTestId('splash').dataset.launch).toBe('false')
+    await advance(2499)
+    expect(screen.queryByTestId('setup')).toBeNull()
+
+    await advance(1)
+    expect(screen.getByTestId('setup')).toBeTruthy()
+    await advance(0)
+    expect(curtain()).toBe('leaving')
+    await advance(FADE_MS)
+    expect(curtain()).toBe('gone')
   })
 })
 

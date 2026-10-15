@@ -1521,3 +1521,77 @@ describe('Workbench team workspaces', () => {
     expect(await screen.findByRole('dialog', { name: 'Publish' })).toBeTruthy()
   })
 })
+
+describe('Workbench at launch', () => {
+  it('is ready to be seen once its projects load, with none open', async () => {
+    installApi(false)
+    const onSettled = vi.fn()
+    render(<Workbench {...makeProps({ onSettled })} />, { wrapper: Wrapper })
+    await waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1))
+  })
+
+  it('tells the launch screen which project it’s opening, once', async () => {
+    const api = installApi(true)
+    const onOpening = vi.fn()
+    render(<Workbench {...makeProps({ onOpening })} />, { wrapper: Wrapper })
+    await waitFor(() => expect(onOpening).toHaveBeenCalledWith('Project One'))
+    await act(async () => previewProps.mock.lastCall?.[0].onPreviewModeChanged?.())
+    expect(api.projects.state.mock.calls.length).toBeGreaterThan(1)
+    expect(onOpening).toHaveBeenCalledTimes(1)
+  })
+
+  it('tells the launch screen it’s opening Home when no project is open', async () => {
+    installApi(false)
+    const onOpening = vi.fn()
+    render(<Workbench {...makeProps({ onOpening })} />, { wrapper: Wrapper })
+    await waitFor(() => expect(onOpening).toHaveBeenCalledWith(null))
+  })
+
+  it('waits for the open project’s chat and preview before it’s ready to be seen', async () => {
+    const api = installApi(true)
+    const history = deferred<never[]>()
+    api.chat.history.mockReturnValueOnce(history.promise)
+    const onSettled = vi.fn()
+    render(<Workbench {...makeProps({ onSettled })} />, { wrapper: Wrapper })
+    await waitFor(() => expect(previewProps).toHaveBeenCalled())
+    expect(onSettled).not.toHaveBeenCalled()
+
+    act(() => previewProps.mock.lastCall?.[0].onSettle?.())
+    expect(onSettled, 'the chat is still loading').not.toHaveBeenCalled()
+    await act(async () => history.resolve([]))
+    expect(onSettled).toHaveBeenCalledTimes(1)
+  })
+
+  it('checks the accounts again when another project opens, not for the first one', async () => {
+    const api = installApi(true)
+    const props = makeProps()
+    render(<Workbench {...props} />, { wrapper: Wrapper })
+    await waitFor(() => expect(previewProps).toHaveBeenCalled())
+    // The app checks every account as it starts; the first project adds nothing.
+    expect(props.onAuthChanged).not.toHaveBeenCalled()
+
+    const two: StudioProject = { ...project, id: 'p2', name: 'Project Two' }
+    const switched = { workspaceRoot: 'C:\\projects', activeProjectId: two.id, projects: [project, two] }
+    api.projects.state.mockResolvedValue(switched)
+    api.deploy.reconcile.mockResolvedValue(switched)
+    await act(async () => previewProps.mock.lastCall?.[0].onPreviewModeChanged?.())
+    await waitFor(() => expect(props.onAuthChanged).toHaveBeenCalledTimes(1))
+  })
+
+  it('lists the projects once at launch, and again only when team workspaces are turned on or off', async () => {
+    const api = installApi(false)
+    ;(api as unknown as { team: unknown }).team = { onProgress: vi.fn(() => () => {}) }
+    const props = makeProps()
+    const view = render(<Workbench {...props} />, { wrapper: Wrapper })
+    await waitFor(() => expect(api.projects.state).toHaveBeenCalledTimes(1))
+
+    view.rerender(<Workbench {...props} settings={{ theme: 'system' }} />)
+    await act(async () => {})
+    expect(api.projects.state).toHaveBeenCalledTimes(1)
+
+    view.rerender(
+      <Workbench {...props} settings={{ theme: 'system', experiments: { teamWorkspaces: true } }} />
+    )
+    await waitFor(() => expect(api.projects.state).toHaveBeenCalledTimes(2))
+  })
+})

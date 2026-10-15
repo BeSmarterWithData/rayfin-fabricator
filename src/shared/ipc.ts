@@ -2651,6 +2651,12 @@ export interface RayfinStudioApi {
   openInEditor: (id: string) => Promise<OpenInEditorResult>
   /** Restart the app (used to pick up newly installed Node/Git on PATH). */
   relaunch: () => Promise<void>
+  /**
+   * Show the main window. It starts hidden, and the renderer calls this once its
+   * first screen is on the page so a launch never shows an empty window.
+   * `background` (`#rrggbb`) is that screen's colour. Later calls do nothing.
+   */
+  revealWindow: (background?: string) => Promise<void>
 
   /** In-app auto-update (Tauri updater, backed by GitHub Releases). */
   updates: {
@@ -3265,6 +3271,14 @@ export interface RayfinStudioApi {
      * first call; afterwards navigates (when `url` changed) and repositions.
      */
     showUrl: (url: string, bounds: PreviewBounds) => Promise<void>
+    /**
+     * Load `url` without showing it, so the page has painted by the time
+     * {@link showUrl} reveals it at the same size (a pure move). For a first load
+     * that starts while something covers the preview, such as the launch screen.
+     * Creates the webview when there is none; otherwise navigates it when `url`
+     * changed. Navigation state arrives through {@link onNavState} as usual.
+     */
+    preload: (url: string, bounds: PreviewBounds) => Promise<void>
     /**
      * Navigate the preview to `url` and reposition to `bounds`, **without**
      * changing visibility. Used to load a switch/redeploy/Fabric-toggle target

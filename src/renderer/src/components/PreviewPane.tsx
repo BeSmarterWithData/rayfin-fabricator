@@ -69,6 +69,10 @@ const FADE_MS = 260
  *  transition to the reveal), so a fast switch doesn't blink it in and out. */
 const MIN_LOADING_MS = 400
 
+/** How long a freshly loaded page gets to paint, off-screen, before it's
+ *  revealed (see revealSeq). */
+const PAINT_SETTLE_MS = 180
+
 /** The URL the singleton native preview surface was last revealed at. Tracked at
  *  MODULE scope because the surface persists (parked, still rendering) across
  *  PreviewPane unmounts — a Build→Code/Model/Advisor tab switch unmounts the pane
@@ -81,10 +85,16 @@ const MIN_LOADING_MS = 400
  *      shows and the previous project's frame never flashes. */
 let surfaceShownUrl: string | null = null
 
+/** The URL a never-revealed surface was last loaded with off-screen (see
+ *  `preview.preload`), so a cover that is still up doesn't start that load again
+ *  — a fresh mount included, since the surface outlives the pane. */
+let surfacePreloadedUrl: string | null = null
+
 /** Test-only: clear the module-scoped surface tracking so each test starts as a
  *  fresh app with no preview surface shown. */
 export function __resetPreviewSurfaceState(): void {
   surfaceShownUrl = null
+  surfacePreloadedUrl = null
 }
 
 interface Props {
@@ -141,6 +151,10 @@ interface Props {
   teamView?: 'preview' | 'production'
   /** Team apps: open the workspace overview. */
   onOpenTeamMap?: () => void
+  /** Called once, when the pane first has something to look at: nothing to
+   *  load, the live page on screen, or — while something covers the pane — a
+   *  still of the loaded page ready behind it. The launch screen waits on it. */
+  onSettle?: () => void
 }
 
 /** What the status says once the deployed app is up: solo apps have one
@@ -227,7 +241,8 @@ export default function PreviewPane({
   localBackend,
   teamRun,
   teamView,
-  onOpenTeamMap
+  onOpenTeamMap,
+  onSettle
 }: Props): JSX.Element {
   const suppressed = usePreviewSuppressed()
   const running = deploy?.running ?? false
@@ -304,6 +319,16 @@ export default function PreviewPane({
   // minimum "Loading…" beat (see MIN_LOADING_MS) and not blink the overlay away.
   const transitionStartRef = useRef(0)
 
+  // Report the first moment there's something to look at (see Props.onSettle).
+  const onSettleRef = useRef(onSettle)
+  onSettleRef.current = onSettle
+  const settledRef = useRef(false)
+  const markSettled = useCallback((): void => {
+    if (settledRef.current) return
+    settledRef.current = true
+    onSettleRef.current?.()
+  }, [])
+
   const clearWatchdog = useCallback((): void => {
     if (watchdogRef.current !== null) {
       window.clearTimeout(watchdogRef.current)
@@ -320,9 +345,16 @@ export default function PreviewPane({
     const token = revealTokenRef.current
     // Keep the "Loading <project>…" overlay up for a minimum beat so a fast switch
     // doesn't blink it in and out — a deliberate loading moment reads smoother.
-    const elapsed = performance.now() - transitionStartRef.current
-    if (elapsed < MIN_LOADING_MS) {
-      await new Promise<void>((r) => window.setTimeout(r, MIN_LOADING_MS - elapsed))
+    // And reveal no sooner than a moment after the load finished: "finished"
+    // can arrive a frame or two before the parked page paints, and a reveal in
+    // that gap flashes the page it showed before (the previous project).
+    const finishedAt = performance.now()
+    const wait = Math.max(
+      transitionStartRef.current + MIN_LOADING_MS,
+      finishedAt + PAINT_SETTLE_MS
+    ) - finishedAt
+    if (wait > 0) {
+      await new Promise<void>((r) => window.setTimeout(r, wait))
       if (token !== revealTokenRef.current) return
     }
     // Reveal the live webview (positioning effect) and fade the loading overlay out
@@ -463,7 +495,7 @@ export default function PreviewPane({
     if (!visible || !host || !previewUrl) {
       setNativeShown(false)
       // An HTML overlay covering a live preview suppresses the native webview,
-      // which paints above ALL HTML and would otherwise cover the overlay. Two
+      // which paints above ALL HTML and would otherwise cover the overlay. Three
       // cases, handled differently (only while the preview is otherwise STABLE —
       // during a load `transitioningRef` we skip this and use the transition park
       // further below, so we never capture/park mid-navigation):
@@ -474,12 +506,28 @@ export default function PreviewPane({
       //   • PARTIAL overlay (dropdown/menu/modal over the visible preview): SNAPSHOT
       //     the live frame FIRST and paint it as a backstop, THEN park — so the
       //     overlay floats over a still preview and the pane never flashes bare.
+      //   • A cover over a pane that has never been on screen (the launch screen):
+      //     there's no frame to keep yet, so LOAD the page off-screen first; once
+      //     it has loaded, it's stilled like a partial overlay's.
       if (suppressed && showWebview && previewUrl && !transitioningRef.current) {
         const hostBounds = measureHost()
         if (!hostBounds) {
           void window.api.preview.suppress(
             lastBoundsRef.current ?? { x: 0, y: 0, width: 1, height: 1 }
           )
+          return
+        }
+        // Nothing has been on screen yet and the cover sits over a laid-out pane
+        // (the launch screen): load the page off-screen now, behind the loading
+        // placeholder, so it has painted by the time the cover lifts. When the
+        // load finishes under the cover, this branch runs again and stills it.
+        if (surfaceShownUrl === null && surfacePreloadedUrl !== previewUrl) {
+          surfacePreloadedUrl = previewUrl
+          beginTransition(previewUrl)
+          void window.api.preview.preload(previewUrl, hostBounds).catch(() => {
+            // Couldn't load it off-screen; the reveal loads it on screen instead.
+            endTransition()
+          })
           return
         }
         let cancelled = false
@@ -504,6 +552,7 @@ export default function PreviewPane({
             if (cancelled) return
             setFrozen(frame)
           }
+          markSettled()
           // Park only AFTER the still has painted (double rAF ⇒ past a paint) so the
           // overlay floats over the still, never a bare host. Skip if the overlay
           // closed mid-capture (the visible branch already re-showed the webview).
@@ -557,11 +606,13 @@ export default function PreviewPane({
         if (!cancelled) {
           setSurfaceError(null)
           setNativeShown(true)
+          markSettled()
         }
       }).catch((reason: unknown) => {
         if (!cancelled) {
           setNativeShown(false)
           setSurfaceError(reason instanceof Error ? reason.message : String(reason))
+          markSettled()
         }
       })
     }
@@ -688,7 +739,22 @@ export default function PreviewPane({
       if (raf !== 0) cancelAnimationFrame(raf)
       if (clearFrozenTimer !== 0) window.clearTimeout(clearFrozenTimer)
     }
-  }, [deployedUrl, previewUrl, showWebview, suppressed, transitioning, measureHost])
+  }, [
+    deployedUrl,
+    previewUrl,
+    showWebview,
+    suppressed,
+    transitioning,
+    measureHost,
+    beginTransition,
+    endTransition,
+    markSettled
+  ])
+
+  // Nothing to load (not deployed yet, or a deploy is running) is settled too.
+  useEffect(() => {
+    if (!showWebview) markSettled()
+  }, [showWebview, markSettled])
 
   // The positioning effect hides the webview whenever a dependency change makes it
   // not-visible (and its rAF loop hides it when the host collapses to 0×0). On the

@@ -184,6 +184,13 @@ interface Props {
   onAuthChanged: () => Promise<void> | void
   settings: AppSettings | null
   onSettingsChange: (patch: Partial<AppSettings>) => void
+  /** Called once, when the workbench is ready to be seen: its projects loaded
+   *  and, with one open, that project's packages checked, its chat loaded and
+   *  its preview showing something. The launch screen waits on it. */
+  onSettled?: () => void
+  /** Called once, when the projects first load: the open project's name, or
+   *  null for Home. The launch screen says where it's headed. */
+  onOpening?: (projectName: string | null) => void
 }
 
 export default function Workbench({
@@ -192,7 +199,9 @@ export default function Workbench({
   onReviewSetup,
   onAuthChanged,
   settings,
-  onSettingsChange
+  onSettingsChange,
+  onSettled,
+  onOpening
 }: Props): JSX.Element {
   const toast = useToast()
   const [versions, setVersions] = useState<AppVersions | null>(null)
@@ -380,6 +389,28 @@ export default function Workbench({
   projectsRef.current = projects
   /** The currently active project (or null). Declared early — effects depend on it. */
   const active = projects?.projects.find((p) => p.id === projects.activeProjectId) ?? null
+  /** The project whose preview first had something to show (see onSettled). */
+  const [previewSettledId, setPreviewSettledId] = useState<string | null>(null)
+  const onSettledRef = useRef(onSettled)
+  onSettledRef.current = onSettled
+  const settledRef = useRef(false)
+  const activeChatLoaded = Boolean(active && chats[active.id] !== undefined)
+  const onOpeningRef = useRef(onOpening)
+  onOpeningRef.current = onOpening
+  const openingToldRef = useRef(false)
+  useEffect(() => {
+    if (openingToldRef.current || !projects) return
+    openingToldRef.current = true
+    onOpeningRef.current?.(active?.name ?? null)
+  }, [projects, active])
+  useEffect(() => {
+    if (settledRef.current || !projects) return
+    if (active && !(depsReadyId === active.id && activeChatLoaded && previewSettledId === active.id)) {
+      return
+    }
+    settledRef.current = true
+    onSettledRef.current?.()
+  }, [projects, active, depsReadyId, activeChatLoaded, previewSettledId])
   /** The workspaces your apps use, most recent first; the deploy pickers list them first. */
   const recentDeployWorkspaces = useMemo(() => recentWorkspaces(projects?.projects ?? []), [projects])
   // A share request that hasn't opened yet (the project was still preparing)
@@ -565,9 +596,14 @@ export default function Workbench({
   }, [devServers, teamWork, active?.id, stopDevServer])
 
   // Showing or hiding team workspaces changes which projects the backend lists.
+  // The first value seen is the one the projects were just loaded with.
+  const listedTeamRef = useRef<boolean | null>(null)
   useEffect(() => {
-    void refreshProjects()
-  }, [teamEnabled, refreshProjects])
+    if (!settings) return
+    const listed = listedTeamRef.current
+    listedTeamRef.current = teamEnabled
+    if (listed !== null && listed !== teamEnabled) void refreshProjects()
+  }, [settings, teamEnabled, refreshProjects])
 
   /** Leaving a team app with unpublished changes: they're safe, but not live. */
   const remindUnpublished = useCallback((): void => {
@@ -1226,10 +1262,18 @@ export default function Workbench({
     void refreshRayfinVer(id)
   }, [projects?.activeProjectId, refreshRayfinVer])
 
+  // Fabric sign-in goes through the open project's Rayfin CLI, so check it again
+  // when another project opens. Not for the launch's first project: the app is
+  // checking every account as it starts.
+  const authProjectRef = useRef<string | null | undefined>(undefined)
   useEffect(() => {
-    if (!active?.id) return
+    if (!projects) return
+    const id = active?.id ?? null
+    const previous = authProjectRef.current
+    authProjectRef.current = id
+    if (previous === undefined || !id || id === previous) return
     void refreshAuthWithFeedback()
-  }, [active?.id, refreshAuthWithFeedback])
+  }, [projects, active?.id, refreshAuthWithFeedback])
 
   // Attribute recorded errors to the project the user is working in, so Help
   // can answer "why did *my* deploy fail?" without every call site passing an id.
@@ -1994,6 +2038,7 @@ export default function Workbench({
                           }}
                           onDesignSurface={setDesignSurface}
                           onLoadingChange={setPreviewLoading}
+                          onSettle={() => setPreviewSettledId(active.id)}
                         />
                         {previewLoading && (
                           <div

@@ -452,6 +452,73 @@ pub async fn preview_show_url(
   Ok(())
 }
 
+/// Load `url` into the preview without putting it on screen, so the page has
+/// painted by the time the renderer reveals it with [`preview_show_url`] (then a
+/// pure move). The renderer uses this for a first load that starts while
+/// something covers the preview, such as the launch screen. Creates the child
+/// webview when there is none yet, and otherwise navigates it when `url` changed.
+///
+/// On Windows the surface is parked off-screen at `bounds`' size and stays shown,
+/// so it keeps rendering (as in [`preview_suppress`]). Elsewhere there is no
+/// off-screen park, so it is hidden instead.
+#[tauri::command]
+pub async fn preview_preload(
+  app: AppHandle,
+  state: State<'_, PreviewState>,
+  url: String,
+  bounds: PreviewBounds,
+) -> AppResult<()> {
+  let parsed: Url = url
+    .parse()
+    .map_err(|e| AppError::Msg(format!("invalid preview url {url:?}: {e}")))?;
+  #[cfg(windows)]
+  let parked = bounds.parked();
+  #[cfg(not(windows))]
+  let parked = bounds;
+
+  // Claim creation atomically, as in `preview_show_url`.
+  let need_build = {
+    let mut inner = state.inner.lock().unwrap();
+    if inner.created {
+      false
+    } else {
+      inner.created = true;
+      true
+    }
+  };
+  if need_build {
+    if let Err(e) = build(&app, parsed, parked) {
+      state.inner.lock().unwrap().created = false;
+      return Err(e);
+    }
+    state.inner.lock().unwrap().reset_to(&url);
+  } else if let Some(wv) = app.get_webview(PREVIEW_LABEL) {
+    let needs_nav = {
+      let inner = state.inner.lock().unwrap();
+      inner.commanded.as_deref() != Some(url.as_str())
+    };
+    if needs_nav {
+      wv.navigate(parsed).map_err(|e| AppError::Msg(e.to_string()))?;
+      state.inner.lock().unwrap().reset_to(&url);
+    }
+  }
+
+  if let Some(wv) = app.get_webview(PREVIEW_LABEL) {
+    wv.set_bounds(parked.to_rect()?).map_err(|e| AppError::Msg(e.to_string()))?;
+    #[cfg(windows)]
+    {
+      wv.show().map_err(|e| AppError::Msg(e.to_string()))?;
+      state.inner.lock().unwrap().visible = true;
+    }
+    #[cfg(not(windows))]
+    {
+      wv.hide().map_err(|e| AppError::Msg(e.to_string()))?;
+      state.inner.lock().unwrap().visible = false;
+    }
+  }
+  Ok(())
+}
+
 /// Navigate the preview to `url` (recording it as the new commanded root and
 /// resetting history) and reposition to `bounds`, **without** changing the
 /// webview's visibility.

@@ -19,6 +19,26 @@ export function rememberSetupComplete(): void {
   }
 }
 
+/** Whether Ray was on last time, so the launch screen has him (or not) from its
+ *  first frame, before settings load. */
+const MASCOT_KEY = 'fabricator.mascot'
+
+export function rememberedMascot(): boolean {
+  try {
+    return localStorage.getItem(MASCOT_KEY) !== '0'
+  } catch {
+    return true
+  }
+}
+
+export function rememberMascot(on: boolean): void {
+  try {
+    localStorage.setItem(MASCOT_KEY, on ? '1' : '0')
+  } catch {
+    /* best-effort: only the next launch screen's first frame depends on it */
+  }
+}
+
 /** Every account unknown while the first checks of a launch run. */
 export const CHECKING_AUTH: AuthStatus = {
   copilot: { signedIn: false, checking: true },

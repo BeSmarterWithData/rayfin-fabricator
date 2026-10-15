@@ -22,7 +22,8 @@ function Harnessed({
   localPreviewUrl,
   onRefreshAuth,
   authBusy,
-  onDiagnoseDeploy
+  onDiagnoseDeploy,
+  onSettle
 }: {
   project: StudioProject
   suppressed: boolean
@@ -31,6 +32,7 @@ function Harnessed({
   onRefreshAuth?: () => void
   authBusy?: boolean
   onDiagnoseDeploy?: () => void
+  onSettle?: () => void
 }): JSX.Element {
   return (
     <OverlayProvider>
@@ -44,6 +46,7 @@ function Harnessed({
         localPreviewUrl={localPreviewUrl}
         focused={false}
         onToggleFocus={() => {}}
+        onSettle={onSettle}
       />
     </OverlayProvider>
   )
@@ -342,6 +345,108 @@ describe('PreviewPane visibility', () => {
     expect(reveal!.bounds.width).toBeGreaterThan(0)
   })
 
+  // The launch screen covers a pane that has never been on screen. There's no
+  // frame to keep, so the page loads off-screen under the cover and is stilled
+  // there, and the cover lifts onto a finished page rather than a blank one.
+  // The cover is up first and the pane mounts under it, as at launch.
+  function Covered({ pane, covered = true, project = makeProject('p1'), onSettle }: {
+    pane: boolean
+    covered?: boolean
+    project?: StudioProject
+    onSettle?: () => void
+  }): JSX.Element {
+    return (
+      <OverlayProvider>
+        {covered && <SuppressPreview />}
+        {pane && (
+          <PreviewPane
+            project={project}
+            deploy={undefined}
+            focused={false}
+            onToggleFocus={() => {}}
+            onSettle={onSettle}
+          />
+        )}
+      </OverlayProvider>
+    )
+  }
+
+  async function mountCovered(onSettle?: () => void): Promise<ReturnType<typeof render>> {
+    const view = render(<Covered pane={false} onSettle={onSettle} />)
+    await settle(e)
+    view.rerender(<Covered pane onSettle={onSettle} />)
+    await settle(e)
+    return view
+  }
+
+  it('loads off-screen under a cover it was never shown before, then stills it', async () => {
+    const onSettle = vi.fn()
+    await mountCovered(onSettle)
+
+    expect(e.api.preload).toHaveBeenCalledTimes(1)
+    const [url, bounds] = e.api.preload.mock.calls[0] as [string, { width: number; height: number }]
+    expect(url).toBe('https://p1.example.app/')
+    expect(bounds.width).toBeGreaterThan(0)
+    expect(e.api.showUrl).not.toHaveBeenCalled()
+    expect(e.api.capture, 'nothing to capture before the page loads').not.toHaveBeenCalled()
+    expect(onSettle).not.toHaveBeenCalled()
+
+    act(() => e.emitNav({ url: 'https://p1.example.app/', loading: true }))
+    act(() => e.emitNav({ url: 'https://p1.example.app/', loading: false }))
+    await settle(e)
+
+    expect(e.api.capture).toHaveBeenCalled()
+    expect(e.api.preload).toHaveBeenCalledTimes(1)
+    expect(e.api.showUrl, 'still covered').not.toHaveBeenCalled()
+    expect(onSettle).toHaveBeenCalledTimes(1)
+  })
+
+  it('reveals the page it loaded under a cover once the cover lifts', async () => {
+    const view = await mountCovered()
+    act(() => e.emitNav({ loading: true }))
+    act(() => e.emitNav({ loading: false }))
+    await settle(e)
+    const mark = e.calls.length
+
+    view.rerender(<Covered pane covered={false} />)
+    await settle(e)
+
+    const reveal = lastShowUrl(e)
+    expect(reveal!.index).toBeGreaterThanOrEqual(mark)
+    expect(reveal!.url).toBe('https://p1.example.app/')
+    expect(e.methodsAfter(mark)).not.toContain('preload')
+  })
+
+  it('keeps a page still loading behind its placeholder when the cover lifts first', async () => {
+    const view = await mountCovered()
+    act(() => e.emitNav({ loading: true }))
+    view.rerender(<Covered pane covered={false} />)
+    await settle(e)
+    expect(e.api.showUrl, 'never revealed mid-load').not.toHaveBeenCalled()
+
+    act(() => e.emitNav({ loading: false }))
+    await settle(e)
+    expect(lastShowUrl(e)?.url).toBe('https://p1.example.app/')
+  })
+
+  it('settles at once with nothing to load, and once the live page is on screen', async () => {
+    const nothing = vi.fn()
+    const covered = render(<Covered pane={false} />)
+    await settle(e)
+    covered.rerender(
+      <Covered pane project={makeProject('p1', { lastDeploy: undefined })} onSettle={nothing} />
+    )
+    await settle(e)
+    expect(nothing).toHaveBeenCalledTimes(1)
+    expect(e.api.preload).not.toHaveBeenCalled()
+    covered.unmount()
+
+    const live = vi.fn()
+    render(<Harnessed project={makeProject('p2')} suppressed={false} onSettle={live} />)
+    await settle(e)
+    expect(live).toHaveBeenCalledTimes(1)
+  })
+
   // Reproduces the reported regression: switching projects via the Home launcher
   // leaves the preview blank. Home opens (suppressed + the pane goes display:none
   // so the host is 0×0), the active project is swapped WHILE still suppressed,
@@ -466,6 +571,32 @@ describe('PreviewPane visibility', () => {
     expect(reveal!.index).toBeGreaterThanOrEqual(mark)
     expect(reveal!.url).toBe('https://p2.example.app/')
     expect(reveal!.bounds.width).toBeGreaterThan(0)
+  })
+
+  // "Finished" can arrive a frame or two before the parked page has painted; a
+  // reveal in that gap shows the previous project's frame for a moment.
+  it('gives a page that just finished loading a moment to paint before revealing it', async () => {
+    const first = render(<Harnessed project={makeProject('p1')} suppressed={false} />)
+    await settle(e)
+    first.unmount()
+    render(<Harnessed project={makeProject('p2')} suppressed={false} />)
+    await settle(e) // long past the minimum "Loading…" beat
+    const mark = e.calls.length
+
+    await act(async () => {
+      e.emitNav({ url: 'https://p2.example.app/', loading: true })
+    })
+    await act(async () => {
+      e.emitNav({ url: 'https://p2.example.app/', loading: false })
+    })
+    await act(async () => {
+      e.advanceTimers(150)
+      e.flushRaf(2)
+    })
+    expect(e.methodsAfter(mark), 'p1 may still be on the surface').not.toContain('showUrl')
+
+    await settle(e)
+    expect(lastShowUrl(e)?.url).toBe('https://p2.example.app/')
   })
 
   it('hides and shows no webview for an undeployed project', async () => {
