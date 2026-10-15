@@ -1354,7 +1354,7 @@ code {
   animation: none;
   will-change: transform, opacity;
 }
-.splash--launch.splash--ray .splash-status-line {
+.splash--launch .splash-status-line {
   animation-delay: 0.6s;
 }
 .splash-water {
@@ -5515,7 +5515,7 @@ code {
   }
 }
 
-/* With Ray turned off: the self-building mark. */
+/* With Ray sent away: the self-building mark. */
 .dstage-mark {
   width: clamp(112px, 26vh, 164px);
   aspect-ratio: 428 / 424;
@@ -8109,29 +8109,35 @@ button.deploy-trouble-ray:focus-visible {
   transform: translateX(16px);
   background: #fff;
 }
-.settings-beta {
-  display: inline-block;
-  margin-left: 6px;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  vertical-align: middle;
+/* About: the app's mark, name and version, over the parts it runs on. */
+.set-about {
+  column-gap: 12px;
 }
-.settings-footer {
-  justify-content: space-between;
-  align-items: center;
+/* Name and version are short, so Copy can stay beside them in a narrow window. */
+.set-about .set-item-text {
+  flex-basis: 120px;
 }
-.settings-version {
-  font-size: 11px;
+.set-about-mark {
+  flex: none;
+  width: 32px;
+  height: 32px;
+}
+.set-versions {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 24px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.set-versions dt {
   color: var(--text-dim);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+}
+.set-versions dd {
+  margin: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .field {
@@ -8169,14 +8175,6 @@ button.deploy-trouble-ray:focus-visible {
 .set-expander-head:focus-visible {
   outline: 2px solid var(--accent-ring);
   outline-offset: -2px;
-}
-.set-expander-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.set-expander-title .settings-beta {
-  margin-left: 0;
 }
 .set-expander-head .codicon.set-expander-caret {
   flex: none;

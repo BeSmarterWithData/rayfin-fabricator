@@ -18,8 +18,6 @@ import {
   failedAuth,
   hasCompletedSetup,
   pickAuth,
-  rememberedMascot,
-  rememberMascot,
   rememberSetupComplete,
   setupAttention,
   startupStage
@@ -35,11 +33,11 @@ const SPLASH_MIN_MS_REDUCED = 700
 /**
  * Once setup has passed, a launch opens on a short launch screen that covers
  * the app while it loads, then fades away into it. It stays long enough for Ray
- * to swim up and say hello (or for the wordmark to build itself), then until the
- * app underneath is ready to look at, but at most a grace period longer. A
- * first launch's splash fades into the next screen the same way.
+ * to swim up and say hello, then until the app underneath is ready to look at,
+ * but at most a grace period longer. A first launch's splash fades into the
+ * next screen the same way.
  */
-const LAUNCH_MIN_MS = { ray: 1500, alone: 1000, reduced: 300 }
+const LAUNCH_MIN_MS = { ray: 1500, reduced: 300 }
 const LAUNCH_GRACE_MS = 1000
 /** The launch screen's fade-out. Matches `.launch-curtain--leaving` in main.css. */
 const LAUNCH_FADE_MS = 450
@@ -337,13 +335,6 @@ function App(): JSX.Element {
   }, [])
 
   const attention = useMemo(() => setupAttention(doctor, auth, checkError), [doctor, auth, checkError])
-  // Ray is on unless turned off in Settings. Until settings load, he's as he was
-  // last time, so the launch screen doesn't show him and then take him away.
-  const [mascotLastTime] = useState(rememberedMascot)
-  const mascot = settings ? settings.mascot !== false : mascotLastTime
-  useEffect(() => {
-    if (settings) rememberMascot(settings.mascot !== false)
-  }, [settings])
   // How far the first-launch checks have got, for Ray to narrate on the splash.
   const stage = startupStage(doctor, auth, Boolean(checkError || authError))
 
@@ -360,11 +351,7 @@ function App(): JSX.Element {
   const coveredSinceRef = useRef<number | null>(null)
   const covering = phase !== 'loading'
   const settled = screenSettled || phase === 'setup'
-  const launchMin = reducedMotion
-    ? LAUNCH_MIN_MS.reduced
-    : mascot
-      ? LAUNCH_MIN_MS.ray
-      : LAUNCH_MIN_MS.alone
+  const launchMin = reducedMotion ? LAUNCH_MIN_MS.reduced : LAUNCH_MIN_MS.ray
   useEffect(() => {
     if (curtain !== 'up' || !covering) return
     const now = Date.now()
@@ -417,14 +404,13 @@ function App(): JSX.Element {
     )
 
   return (
-    <MascotProvider enabled={mascot}>
+    <MascotProvider>
       <UpdateBanner />
       <UpdateModal />
       {screen}
       {curtain !== 'gone' && (
         <LaunchCurtain leaving={curtain === 'lifting'}>
           <SplashScreen
-            mascot={mascot}
             stage={stage}
             launch={returning}
             opening={opening}

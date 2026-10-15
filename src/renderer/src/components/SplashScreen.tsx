@@ -6,7 +6,7 @@
 // and, in his own words, tells you how the startup checks are going. Once setup
 // has passed, launches get a shorter version that covers the app while it loads:
 // Ray swims in, leaving ripples on the water, says welcome back, and darts off as
-// the screen fades into your project. With Ray off, it's the wordmark alone.
+// the screen fades into your project.
 //
 // Flat like the rest of the app: solid canvas, hairline ripples, no glows.
 import {
@@ -409,37 +409,32 @@ function SplashStatus({
   )
 }
 
-/** When the wordmark starts building (seconds): as Ray arrives, or at once
- *  without him. */
-const WORD_AT_ALONE = 0.05
-const LAUNCH_WORD_AT_RAY = 0.5
+/** When the wordmark starts building at a later launch (seconds): as Ray arrives. */
+const LAUNCH_WORD_AT = 0.5
 
 /**
- * The startup screen. `mascot`: Ray is on (Settings → Appearance). `stage`: how
- * far the startup checks have got, for him to narrate. `launch`: setup passed
- * here before, so this only covers the app while it loads; the checks run in the
- * background. `opening`: the project the app is opening (null for Home) once
- * it's known. `leaving`: the screen is fading away into the app.
+ * The startup screen. `stage`: how far the startup checks have got, for Ray to
+ * narrate. `launch`: setup passed here before, so this only covers the app while
+ * it loads; the checks run in the background. `opening`: the project the app is
+ * opening (null for Home) once it's known. `leaving`: the screen is fading away
+ * into the app.
  */
 export default function SplashScreen({
-  mascot = true,
   stage = 'tools',
   launch = false,
   opening,
   leaving = false
 }: {
-  mascot?: boolean
   stage?: StartupStage
   launch?: boolean
   opening?: string | null
   leaving?: boolean
 }): JSX.Element {
-  const wordAt = !mascot ? WORD_AT_ALONE : launch ? LAUNCH_WORD_AT_RAY : WORD_AT
   return (
-    <div className={`splash${launch ? ' splash--launch' : ''}${mascot ? ' splash--ray' : ''}`}>
-      {mascot && (launch ? <LaunchRay leaving={leaving} /> : <SplashRay stage={stage} />)}
+    <div className={`splash${launch ? ' splash--launch' : ''}`}>
+      {launch ? <LaunchRay leaving={leaving} /> : <SplashRay stage={stage} />}
       <div className="splash-brand">
-        <Wordmark start={wordAt} />
+        <Wordmark start={launch ? LAUNCH_WORD_AT : WORD_AT} />
         <SplashStatus launch={launch} stage={stage} opening={opening} />
       </div>
     </div>

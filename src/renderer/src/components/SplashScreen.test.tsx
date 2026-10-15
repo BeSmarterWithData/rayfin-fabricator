@@ -22,16 +22,10 @@ function wait(ms: number): void {
 }
 
 describe('SplashScreen', () => {
-  it('is Ray’s while he is on, and the wordmark alone when he is off', () => {
-    const { container, unmount } = render(<SplashScreen />)
+  it('is Ray’s, over the wordmark', () => {
+    const { container } = render(<SplashScreen />)
     expect(container.querySelector('.ray-perch-ray svg.ray')).not.toBeNull()
     expect(container.querySelector('.splash-word--mark')).not.toBeNull()
-    unmount()
-
-    const off = render(<SplashScreen mascot={false} />)
-    expect(off.container.querySelector('.splash-word--mark')).not.toBeNull()
-    expect(off.container.querySelector('svg.ray')).toBeNull()
-    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('says how the checks are going, in plain words, under the wordmark', () => {
@@ -94,13 +88,6 @@ describe('SplashScreen at a later launch', () => {
     unmount()
     render(<SplashScreen launch />)
     expect(said()).not.toMatch(/I’m Ray/)
-  })
-
-  it('is just the wordmark while Ray is off', () => {
-    const { container } = render(<SplashScreen launch mascot={false} />)
-    expect(container.querySelector('svg.ray')).toBeNull()
-    expect(container.querySelector('.splash-word--mark')).not.toBeNull()
-    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('names the project it’s opening, with its initial, once that’s known', () => {

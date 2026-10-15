@@ -169,7 +169,7 @@ describe('ProjectDependencyGuard with Ray', () => {
 
     render(
       <OverlayProvider>
-        <MascotProvider enabled>
+        <MascotProvider>
           <ProjectDependencyGuard project={makeProject()} onSwitchProjects={vi.fn()} hidden={false}>
             <p>Project tools are ready</p>
           </ProjectDependencyGuard>

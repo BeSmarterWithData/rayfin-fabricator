@@ -9,7 +9,6 @@ import {
 } from './FabricatorMark'
 import { Codicon } from './icons'
 import { deployRuns, readDeployProgress, type DeployTopic } from '../deployProgress'
-import { useMascot } from './mascot/context'
 import { isRaySentAway, useRayOnScreen } from './mascot/stage'
 import { RayPerch } from './mascot/RayPerch'
 import type { RayMood } from './mascot/Ray'
@@ -29,8 +28,8 @@ import {
  * deployProgress.ts), with the CLI's own words for the step in progress. The
  * raw output is one click away under View logs.
  *
- * With Ray turned off (Settings → Appearance) or sent away, the Fabricator mark
- * builds itself in his place. Flat throughout: solid fills, no glow or shadow.
+ * With Ray sent away, the Fabricator mark builds itself in his place. Flat
+ * throughout: solid fills, no glow or shadow.
  */
 
 const RAY_SIZE = 168
@@ -49,7 +48,7 @@ const READING: ReadonlySet<DeployTopic> = new Set(['data', 'storage', 'connector
 /** Where he sticks to the point instead of sharing facts. */
 const NO_FACTS: ReadonlySet<DeployTopic> = new Set(['signin', 'retry', 'live'])
 
-/** Per-brick fly-in offset + stagger for the self-building mark (Ray turned off). */
+/** Per-brick fly-in offset + stagger for the self-building mark (Ray sent away). */
 const BUILD: Record<string, { tx: number; ty: number; d: number }> = {
   'tile--topbar': { tx: 0, ty: -22, d: 0 },
   'tile--stem': { tx: -22, ty: 0, d: 0.08 },
@@ -212,9 +211,8 @@ export default function DeployStage({
   firstDeploy?: boolean
 }): JSX.Element {
   const appName = name?.trim() ?? ''
-  const mascot = useMascot()
   const [sentAway] = useState(isRaySentAway)
-  const withRay = mascot && !sentAway
+  const withRay = !sentAway
   useRayOnScreen(withRay)
 
   const [now, setNow] = useState(() => Date.now())

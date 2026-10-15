@@ -17,13 +17,11 @@ vi.mock('./components/UpdateModal', () => ({ default: () => null }))
 vi.mock('./components/ForcedUpdateScreen', () => ({ default: () => null }))
 vi.mock('./components/SplashScreen', () => ({
   default: ({
-    mascot,
     stage,
     launch,
     opening,
     leaving
   }: {
-    mascot?: boolean
     stage?: string
     launch?: boolean
     opening?: string | null
@@ -31,7 +29,6 @@ vi.mock('./components/SplashScreen', () => ({
   }) => (
     <div
       data-testid="splash"
-      data-mascot={String(mascot)}
       data-stage={stage}
       data-launch={String(Boolean(launch))}
       data-opening={String(opening)}
@@ -213,15 +210,12 @@ afterEach(() => {
 })
 
 describe('App startup', () => {
-  it('shows Ray on the splash, narrating the checks, unless he was turned off', async () => {
-    const api = installApi()
-    api.settings.get.mockResolvedValue({ theme: 'system', mascot: false })
+  it('has Ray narrate the checks on the splash', async () => {
+    installApi()
     renderApp()
     const splash = (): HTMLElement => screen.getByTestId('splash')
-    expect(splash().dataset.mascot).toBe('true')
     expect(splash().dataset.stage).toBe('tools')
     await settle()
-    expect(splash().dataset.mascot).toBe('false')
     expect(splash().dataset.stage).toBe('ready')
   })
 
@@ -450,7 +444,6 @@ describe('the launch screen', () => {
     installApi()
     renderApp()
     expect(curtain()).toBe('up')
-    expect(screen.getByTestId('splash').dataset.mascot).toBe('true')
 
     // The app underneath is ready early; Ray still gets to say hello.
     await advance(200)
@@ -503,29 +496,6 @@ describe('the launch screen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Workbench ready' }))
     await advance(0)
     expect(curtain()).toBe('leaving')
-  })
-
-  it('is shorter without Ray, who stays away from its first frame', async () => {
-    localStorage.setItem(SETUP_DONE, '1')
-    localStorage.setItem('fabricator.mascot', '0')
-    const api = installApi()
-    api.settings.get.mockResolvedValue({ theme: 'system', mascot: false })
-    renderApp()
-    expect(screen.getByTestId('splash').dataset.mascot).toBe('false')
-
-    fireEvent.click(screen.getByRole('button', { name: 'Workbench ready' }))
-    await advance(999)
-    expect(curtain()).toBe('up')
-    await advance(1)
-    expect(curtain()).toBe('leaving')
-  })
-
-  it('remembers whether Ray is on for the next launch screen', async () => {
-    const api = installApi()
-    api.settings.get.mockResolvedValue({ theme: 'system', mascot: false })
-    renderApp()
-    await settle()
-    expect(localStorage.getItem('fabricator.mascot')).toBe('0')
   })
 
   it('fades the first-run splash into setup once its showtime is up', async () => {

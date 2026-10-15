@@ -731,10 +731,6 @@ pub struct AppSettings {
   /// Settings → Diagnostics.
   #[serde(default, skip_serializing_if = "Option::is_none")]
   pub full_diagnostics: Option<bool>,
-  /// Show Ray, the stingray mascot, while apps install and in Help. On unless
-  /// turned off; an unset value means on.
-  #[serde(default, skip_serializing_if = "Option::is_none")]
-  pub mascot: Option<bool>,
   /// With the Deploy manually experiment on, the status bar's deploy mode:
   /// "manual" (the default) or "auto". Ignored while the experiment is off.
   #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -1520,11 +1520,6 @@ export interface AppSettings {
    */
   fullDiagnostics?: boolean
   /**
-   * Show Ray, Fabricator's stingray mascot, while apps install and in Help.
-   * On unless turned off (an unset value means on).
-   */
-  mascot?: boolean
-  /**
    * With the Deploy manually experiment on, the status bar's deploy mode:
    * 'manual' (the default) keeps chat changes local until Redeploy, 'auto'
    * deploys after each turn as usual. Ignored while the experiment is off.
