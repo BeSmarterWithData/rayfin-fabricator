@@ -23,7 +23,9 @@ function Harnessed({
   onRefreshAuth,
   authBusy,
   onDiagnoseDeploy,
-  onSettle
+  onSettle,
+  watching,
+  onWatchChange
 }: {
   project: StudioProject
   suppressed: boolean
@@ -33,6 +35,8 @@ function Harnessed({
   authBusy?: boolean
   onDiagnoseDeploy?: () => void
   onSettle?: () => void
+  watching?: boolean
+  onWatchChange?: (watching: boolean) => void
 }): JSX.Element {
   return (
     <OverlayProvider>
@@ -47,6 +51,9 @@ function Harnessed({
         focused={false}
         onToggleFocus={() => {}}
         onSettle={onSettle}
+        watching={watching}
+        onWatchChange={onWatchChange}
+        deploymentName="Production"
       />
     </OverlayProvider>
   )
@@ -662,10 +669,11 @@ describe('PreviewPane status label', () => {
     )
   }
 
-  it('says Live for a solo app, and names which deployment a team app shows', async () => {
-    const { rerender } = render(pane())
+  it('has no status for a solo app (the app bar shows its deployment), and names which deployment a team app shows', async () => {
+    const { rerender, container } = render(pane())
     await settle(e)
-    expect(screen.getByText('Live')).toBeTruthy()
+    expect(container.querySelector('.preview-status')).toBeNull()
+    expect(screen.queryByText('Live')).toBeNull()
 
     rerender(pane({ team: true, teamView: 'preview' }))
     expect(screen.getByText('My preview')).toBeTruthy()
@@ -722,7 +730,8 @@ describe('PreviewPane local preview', () => {
     expect(reveal, 'the local preview was never revealed').not.toBeNull()
     expect(reveal!.index).toBeGreaterThanOrEqual(mark)
     expect(reveal!.url).toBe(LOCAL)
-    expect(screen.getByText('Local')).toBeTruthy()
+    expect(screen.getByText('localhost:5173')).toBeTruthy()
+    expect(screen.queryByText('Local'), 'the address says it is local').toBeNull()
   })
 
   it('shows the local dev server even for a never-deployed project', async () => {
@@ -740,26 +749,167 @@ describe('PreviewPane local preview', () => {
     const reveal = lastShowUrl(e)
     expect(reveal, 'the local preview should show without a deployment').not.toBeNull()
     expect(reveal!.url).toBe(LOCAL)
-    expect(screen.getByText('Local')).toBeTruthy()
+    // Its address shows straight away, before the page reports where it is.
+    expect(screen.getByText('localhost:5173')).toBeTruthy()
   })
 
-  it('lets a running deploy override the local preview (DeployStage wins)', async () => {
+  it('says whose data a team app’s local preview uses only when it isn’t its own', async () => {
+    const props = {
+      project: makeProject('p1'),
+      deploy: undefined,
+      focused: false,
+      onToggleFocus: () => {},
+      localPreviewUrl: LOCAL,
+      team: true
+    }
+    const { rerender } = render(
+      <OverlayProvider>
+        <PreviewPane {...props} localBackend="production" />
+      </OverlayProvider>
+    )
+    await settle(e)
+    expect(screen.getByText('Published data').className).toContain('preview-local-badge--warn')
+
+    rerender(
+      <OverlayProvider>
+        <PreviewPane {...props} localBackend="none" />
+      </OverlayProvider>
+    )
+    expect(screen.getByText('No data yet')).toBeTruthy()
+
+    rerender(
+      <OverlayProvider>
+        <PreviewPane {...props} localBackend="preview" />
+      </OverlayProvider>
+    )
+    expect(screen.queryByText('Published data')).toBeNull()
+    expect(screen.queryByText('No data yet')).toBeNull()
+    expect(screen.getByText('localhost:5173')).toBeTruthy()
+  })
+
+  it('keeps the local preview on screen through a redeploy, under a strip saying how it goes', async () => {
     render(
       <Harnessed
         project={makeProject('p1')}
         suppressed={false}
-        deploy={{ running: true, log: [] }}
+        deploy={{ running: true, log: ['Deploying Project p1 to Fabric…\n'], startedAt: Date.now() }}
         localPreviewUrl={LOCAL}
       />
     )
     await settle(e)
 
-    // The deploy stage takes the surface; the local URL is never shown, and no
-    // "Local" badge appears while deploying.
+    expect(screen.getByText('Deploying to Production')).toBeTruthy()
+    expect(screen.queryByText(/Fabricating/i), 'the deploy screen waits to be asked for').toBeNull()
+    expect(screen.getByText('localhost:5173')).toBeTruthy()
+    expect(lastShowUrl(e)?.url).toBe(LOCAL)
+  })
+
+  it('shows a redeploy on the deploy screen to watch it, and goes back to the app', async () => {
+    const onWatchChange = vi.fn()
+    const deploy: DeployUiState = { running: true, log: [], startedAt: Date.now() }
+    const { rerender } = render(
+      <Harnessed project={makeProject('p1')} suppressed={false} deploy={deploy} onWatchChange={onWatchChange} />
+    )
+    await settle(e)
+    fireEvent.click(screen.getByRole('button', { name: 'Watch' }))
+    expect(onWatchChange).toHaveBeenCalledWith(true)
+
+    const mark = e.calls.length
+    rerender(
+      <Harnessed project={makeProject('p1')} suppressed={false} deploy={deploy} watching onWatchChange={onWatchChange} />
+    )
+    await settle(e)
     expect(screen.getByText(/Fabricating/i)).toBeTruthy()
+    expect(e.methodsAfter(mark)).toContain('hide')
+    fireEvent.click(screen.getByRole('button', { name: 'Back to your app' }))
+    expect(onWatchChange).toHaveBeenLastCalledWith(false)
+  })
+
+  it('takes the stage for a first deploy, with nothing to go back to', async () => {
+    render(
+      <Harnessed
+        project={makeProject('p1', { lastDeploy: undefined })}
+        suppressed={false}
+        deploy={{ running: true, log: [], startedAt: Date.now() }}
+        localPreviewUrl={LOCAL}
+        onWatchChange={() => {}}
+      />
+    )
+    await settle(e)
+
+    // The deploy screen takes the surface; the local URL is never shown.
+    expect(screen.getByText(/Fabricating/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Back to your app' })).toBeNull()
     expect(screen.queryByText('Local')).toBeNull()
     const shownLocal = e.calls.some((c) => c.method === 'showUrl' && c.args[0] === LOCAL)
-    expect(shownLocal, 'the local URL must not be shown while a deploy is running').toBe(false)
+    expect(shownLocal, 'the local URL must not be shown under the deploy screen').toBe(false)
+  })
+
+  it('loads the deployed app when a redeploy watched on the deploy screen ends and its local preview closes', async () => {
+    const project = makeProject('p1')
+    const deploy: DeployUiState = { running: true, log: [], startedAt: Date.now() }
+    const { rerender } = render(
+      <Harnessed project={project} suppressed={false} deploy={deploy} localPreviewUrl={LOCAL} />
+    )
+    await settle(e)
+    await act(async () => {
+      e.emitNav({ url: LOCAL, loading: false })
+    })
+    await settle(e)
+
+    // Watched on the deploy screen: the surface is hidden, still holding the local page.
+    rerender(<Harnessed project={project} suppressed={false} deploy={deploy} localPreviewUrl={LOCAL} watching />)
+    await settle(e)
+    const mark = e.calls.length
+
+    rerender(
+      <Harnessed
+        project={project}
+        suppressed={false}
+        deploy={{ running: false, log: [], result: { ok: true, outcome: 'success' } }}
+        localPreviewUrl={null}
+      />
+    )
+    await settle(e)
+
+    expect(e.methodsAfter(mark), 'the stopped local page is not reloaded').not.toContain('reload')
+    const nav = e.calls.slice(mark).find((c) => c.method === 'navigate')
+    expect(nav?.args[0]).toBe('https://p1.example.app/')
+  })
+
+  it('loads the deployed app, without reloading the closed local preview, when a redeploy ends', async () => {
+    const project = makeProject('p1')
+    const { rerender } = render(
+      <Harnessed
+        project={project}
+        suppressed={false}
+        deploy={{ running: true, log: [], startedAt: Date.now() }}
+        localPreviewUrl={LOCAL}
+      />
+    )
+    await settle(e)
+    await act(async () => {
+      e.emitNav({ url: LOCAL, loading: false })
+    })
+    await settle(e)
+    const mark = e.calls.length
+
+    // The deploy succeeds and the local preview kept through it closes with it.
+    rerender(
+      <Harnessed
+        project={project}
+        suppressed={false}
+        deploy={{ running: false, log: [], result: { ok: true, outcome: 'success' } }}
+        localPreviewUrl={null}
+      />
+    )
+    await settle(e)
+
+    const after = e.methodsAfter(mark)
+    expect(after, 'the stopped local page is not reloaded').not.toContain('reload')
+    const nav = e.calls.slice(mark).find((c) => c.method === 'navigate')
+    expect(nav?.args[0]).toBe('https://p1.example.app/')
+    expect(screen.queryByText('Deploying to Production')).toBeNull()
   })
 
   it('returns to the deployed app when the dev server stops (turn ends)', async () => {

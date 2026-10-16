@@ -325,6 +325,7 @@ export const api: RayfinStudioApi = {
       invoke('deploy_set_name', { projectId, workspaceKey, name }),
     status: (projectId: string) => invoke('deploy_status', { projectId }),
     hasChanges: (projectId: string) => invoke('deploy_has_changes', { projectId }),
+    pending: (projectId: string) => invoke('deploy_pending', { projectId }),
     reconcile: (projectId: string) => invoke('deploy_reconcile', { projectId })
   },
 

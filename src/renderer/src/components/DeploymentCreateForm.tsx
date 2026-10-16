@@ -364,7 +364,11 @@ export default function DeploymentCreateForm({
               onChange={(e) => setNewWsName(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void submitNewWs()
-                else if (e.key === 'Escape') setCreatingWs(false)
+                else if (e.key === 'Escape') {
+                  // Escape leaves this inline form, not the panel around it.
+                  e.stopPropagation()
+                  setCreatingWs(false)
+                }
               }}
             />
             {loadingCaps ? (

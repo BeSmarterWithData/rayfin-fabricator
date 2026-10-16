@@ -42,6 +42,8 @@ import SkillsView from './components/SkillsView'
 import SecretsView from './components/SecretsView'
 import DeployStage from './components/DeployStage'
 import PreviewPane from './components/PreviewPane'
+import DeploymentsControl from './components/DeploymentsControl'
+import AccountMenu from './components/AccountMenu'
 import BlueprintTab from './components/blueprint/BlueprintTab'
 import './components/chat/chat.css'
 
@@ -560,6 +562,21 @@ function installApi(): void {
       listWorkspaceModels: (workspaceId: string) =>
         Promise.resolve({ ok: true, models: workspaceModels[workspaceId.toLowerCase()] ?? [] })
     },
+    deploy: {
+      // The sample app's one deployment, deployed a couple of hours ago.
+      list: () =>
+        Promise.resolve([
+          {
+            workspaceName: 'Contoso Apps',
+            name: 'Development',
+            active: true,
+            workspaceId: APPS_WS,
+            itemId: EXPENSES_ITEM,
+            hostingUrl: EXPENSES_URL,
+            deployedAt: new Date(Date.now() - 2 * 3_600_000).toISOString()
+          }
+        ])
+    },
     team: {
       map: ok(sampleMap()),
       resources: (_id: string, requests: TeamResourceRequest[]) =>
@@ -908,6 +925,103 @@ const expensesApp: StudioProject = {
 }
 
 /**
+ * The app bar's deployment control, its panel open on the sample app's Development
+ * deployment: live, nothing waiting, signed in.
+ */
+function Deployments(): JSX.Element {
+  const app: StudioProject = { ...expensesApp, deploymentNames: { [APPS_WS]: 'Development' } }
+  return (
+    <header className="app-bar">
+      <div className="app-bar-row">
+        <div className="app-bar-start" />
+        <div className="app-bar-center" />
+        <div className="app-bar-end">
+          <Open selector=".dep-select">
+            <DeploymentsControl
+              project={app}
+              running={false}
+              pending={{ changed: false, files: 0 }}
+              onCreate={noop}
+              onRedeploy={noop}
+              onSwitch={() => Promise.resolve({ ok: true, outcome: 'success' })}
+              onChanged={noop}
+              account={{ user: 'avery.chen@contoso.com', tenant: 'Contoso' }}
+              onManageAccounts={noop}
+              onSignIn={noop}
+            />
+          </Open>
+          <div className="app-bar-global">
+            <AccountMenu
+              signedIn
+              user="avery.chen@contoso.com"
+              tenant="Contoso"
+              busy={false}
+              signingIn={false}
+              signingOut={false}
+              refreshing={false}
+              canRefresh
+              onSignIn={noop}
+              onSignOut={noop}
+              onRefresh={noop}
+              onManageAccounts={noop}
+              onOpenSettings={noop}
+            />
+          </div>
+        </div>
+      </div>
+    </header>
+  )
+}
+
+/**
+ * The account menu, open from the avatar beside the sample app's deployment control: the
+ * signed-in Fabric account, its actions and Settings. Opening it focuses its first item, which
+ * a mouse click wouldn't show, so the shot hides the focus styling.
+ */
+function AccountMenuShot(): JSX.Element {
+  const app: StudioProject = { ...expensesApp, deploymentNames: { [APPS_WS]: 'Development' } }
+  return (
+    <header className="app-bar">
+      <style>{'.account-pop .account-item:focus-visible { outline: none; background: transparent; }'}</style>
+      <div className="app-bar-row">
+        <div className="app-bar-start" />
+        <div className="app-bar-center" />
+        <div className="app-bar-end">
+          <DeploymentsControl
+            project={app}
+            running={false}
+            pending={{ changed: false, files: 0 }}
+            onCreate={noop}
+            onRedeploy={noop}
+            onSwitch={() => Promise.resolve({ ok: true, outcome: 'success' })}
+            onChanged={noop}
+          />
+          <div className="app-bar-global">
+            <Open selector=".account-trigger">
+              <AccountMenu
+                signedIn
+                user="avery.chen@contoso.com"
+                tenant="Contoso"
+                busy={false}
+                signingIn={false}
+                signingOut={false}
+                refreshing={false}
+                canRefresh
+                onSignIn={noop}
+                onSignOut={noop}
+                onRefresh={noop}
+                onManageAccounts={noop}
+                onOpenSettings={noop}
+              />
+            </Open>
+          </div>
+        </div>
+      </div>
+    </header>
+  )
+}
+
+/**
  * Blueprint, filling the window as it fills the Build area: the Architecture view of the sample
  * app, or with `view="data"` its Data model view.
  */
@@ -1057,6 +1171,10 @@ function Shot({ id }: { id: string | null }): JSX.Element {
       return <Deploying />
     case 'deploy-error':
       return <DeployFailed />
+    case 'deployments':
+      return <Deployments />
+    case 'account-menu':
+      return <AccountMenuShot />
     case 'blueprint':
       return <Blueprint />
     case 'model-relations':

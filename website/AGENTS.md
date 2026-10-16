@@ -129,7 +129,7 @@ one that matches the reader's theme, and `npm run check:docs` fails when a light
 missing. The alt text describes what the image shows for someone who can't see it:
 
 ```md
-![The deployments panel listing the active Development deployment, with a New deployment link](/screenshots/deployments.webp)
+![The deployment panel for the Development deployment, with its address, workspace and account, and New deployment](/screenshots/deployments.webp)
 ```
 
 When a page needs a screenshot that doesn't exist yet, mark the spot with an MDX comment on
@@ -165,14 +165,14 @@ in `.md`.
 | `model-access` | The same Data model view with one entity left without a permission decorator: its amber access dot and **Harden** (sample data) | `/docs/build/data-model` |
 | `skills` | The Skills view | `/docs/build/skills` |
 | `secrets` | The Secrets view with a secret selected | `/docs/build/secrets` |
-| `deployments` | The deployments panel | `/docs/ship/deploy` |
+| `deployments` | The deployment panel, open on the sample app's deployment (sample data) | `/docs/ship/deploy` |
 | `share` | The share dialog | `/docs/ship/share` |
 | `advisor` | The Advisor: grade, check strip, summary and issues | `/docs/ship/advisor` |
 | `advisor-finding` | An open Advisor issue with its fix actions | `/docs/ship/advisor` |
 | `rayfin-version` | The Rayfin version control with an update available | `/docs/ship/rayfin-versions` |
 | `settings` | The Settings dialog | `/docs/reference/settings` |
 | `settings-experiments` | Settings' Experiments section with **Team workspaces** | `/docs/team` |
-| `account-menu` | The account menu with **Refresh Fabric authentication** | `/docs/start/tour`, `/docs/troubleshooting/deploy` |
+| `account-menu` | The account menu with **Refresh Fabric authentication** and **Settings** (sample data) | `/docs/start/tour`, `/docs/troubleshooting/deploy` |
 | `deploy-error` | Ray above the preview after a failed deploy, offering **Find out why** and **View logs** (sample data) | `/docs/troubleshooting/deploy` |
 | `port-conflict` | The dialog shown when the preview's port is in use | `/docs/troubleshooting/preview` |
 | `team-home` | Home's team workspaces section | `/docs/team` |

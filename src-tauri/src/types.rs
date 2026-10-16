@@ -637,6 +637,17 @@ pub struct FabricDeployment {
   pub deployed_at: Option<String>,
 }
 
+/// What a deploy would ship right now (`deploy_pending`).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PendingChanges {
+  /// Something differs from the deployed version (or there's no known one).
+  pub changed: bool,
+  /// How many files differ, when the deployed version is known.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  pub files: Option<u32>,
+}
+
 /* ----------------------------- projects ----------------------------- */
 
 #[derive(Serialize, Deserialize, Clone)]

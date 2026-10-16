@@ -79,6 +79,6 @@ Fabricator runs the project's Rayfin CLI with `rayfin login --select` outside th
 4. If the sign-in button returns with an error, copy the exact message.
 5. In the project folder, run `npx rayfin login` only to reveal the full Rayfin CLI error. Return to Fabricator after sign-in succeeds.
 6. In Fabricator, open the account menu and choose **Refresh Fabric authentication**. The dialog runs `rayfin logout`, then `rayfin login`, and verifies the credential. It does not clear Copilot, Azure CLI, or preview-browser sessions.
-7. After a successful refresh, select **Redeploy**. Fabricator does not redeploy automatically after a credential refresh.
+7. After a successful refresh, deploy again from the app bar, where the button says **Try again** after a failed deploy. Fabricator does not redeploy automatically after a credential refresh.
 
 If you are using a client tenant, confirm that your account can access the target Fabric workspace and capacity. If sign-in still does nothing, [Report a problem](/docs/troubleshooting/report-a-problem) with diagnostics.

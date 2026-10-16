@@ -71,7 +71,7 @@ The project's `node_modules` folder is incomplete. A package install that stops 
 
 Fabricator checks for missing or incomplete packages when you open a project and before it deploys or signs in to Fabric, and reinstalls them. When a Rayfin CLI command fails because a package is missing a file, the log says "Some of this project's packages didn't install completely", and Fabricator reinstalls that package at its next check.
 
-1. Select **Redeploy**, or **Sign in to Fabric** again. Fabricator reinstalls the incomplete packages first.
+1. Deploy again from the app bar, where the button says **Try again** after a failed deploy, or select **Sign in to Fabric** again. Fabricator reinstalls the incomplete packages first.
 2. If the error comes back, close Fabricator and delete the project's `node_modules` folder. Then open Fabricator and the project again, and Fabricator installs all of the project's packages.
 
 If the error keeps coming back, [Report a problem](/docs/troubleshooting/report-a-problem) and include the exact error.

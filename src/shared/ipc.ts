@@ -1257,6 +1257,14 @@ export interface DeployStatus {
   portalUrl?: string
 }
 
+/** What the next deploy would ship (`deploy.pending`). */
+export interface PendingChanges {
+  /** Something differs from the deployed version (or there's no known one). */
+  changed: boolean
+  /** How many files differ, when the deployed version is known. */
+  files?: number
+}
+
 /**
  * Result of starting a project's Vite dev server for the live local preview.
  * `outcome` is `running` (started, or already up), `unsupported`
@@ -2576,6 +2584,7 @@ export const IpcChannels = {
   deployRun: 'deploy:run',
   deployStatus: 'deploy:status',
   deployHasChanges: 'deploy:hasChanges',
+  deployPending: 'deploy:pending',
   deployList: 'deploy:list',
   deploySwitch: 'deploy:switch',
   deploySetName: 'deploy:setName',
@@ -3154,7 +3163,12 @@ export interface RayfinStudioApi {
      * An unknown deployment baseline also needs a deploy; Git failures reject.
      */
     hasChanges: (projectId: string) => Promise<boolean>
-    /** List the Fabric deployments recorded for this project (`rayfin up list`). */
+    /**
+     * What the next deploy would ship: whether anything differs from the deployed
+     * version and, when that version is known, how many files. Read-only.
+     */
+    pending: (projectId: string) => Promise<PendingChanges>
+    /** List the Fabric deployments recorded for this project (its `rayfin/.deployments.json`, as `rayfin up list` reports it). */
     list: (projectId: string) => Promise<FabricDeployment[]>
     /**
      * Switch the active Fabric deployment (`rayfin up switch`). `workspace` is a

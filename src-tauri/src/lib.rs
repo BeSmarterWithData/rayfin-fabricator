@@ -362,6 +362,7 @@ pub fn run() {
       commands::deploy::deploy_run,
       commands::deploy::deploy_status,
       commands::deploy::deploy_has_changes,
+      commands::deploy::deploy_pending,
       commands::deploy::deploy_list,
       commands::deploy::deploy_switch,
       commands::deploy::deploy_set_name,
