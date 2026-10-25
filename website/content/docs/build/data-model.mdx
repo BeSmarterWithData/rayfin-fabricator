@@ -166,23 +166,45 @@ Use **Search tables, columns & measures**, **Collapse** or **Expand**, focus con
 
 Learn about Rayfin semantic model connectors in the [Rayfin semantic models docs](https://rayfin.ai/docs/connectors/semantic-models).
 
-## Connect a Fabric semantic model
+## Connect Fabric data
 
-You can start connecting a semantic model from the chat composer menu.
+Your app can read data that's already in Microsoft Fabric through Rayfin connectors: semantic
+models, warehouses, SQL databases, and lakehouses, which apps read through their SQL analytics
+endpoint and can't change. You pick the data; Copilot connects it.
 
-1. In the Build chat composer, open the add menu.
-2. Select **Connect a semantic model**.
-3. In **Connect a semantic model**, choose a model from the workspace this app deploys to.
-4. Select **Add to chat**.
-5. Send the prepared request to Copilot.
+1. In the Build chat composer, select **+** (**Add images, files or data**), then
+   **Fabric data**.
+2. Choose a kind of data, such as **Warehouse**, or **Browse all Fabric data…**.
+3. In **Add Fabric data**, choose a workspace. **Recent** lists the workspaces your apps
+   deploy to and the ones you connected data from, newest first. Below it are all the other
+   workspaces you can open.
+4. Tick the data you want. You can pick from several workspaces before you add it.
+5. Select **Add to chat**. The data waits in the message box as chips, one for each item,
+   showing its name and workspace.
+6. Say what to build with it, such as "Chart spending by category", or just press **Enter**
+   to connect it. Fabricator tells Copilot how to connect the data when you send, so you
+   don't have to.
 
-The dialog lists models in the app's deployment workspace. Models already declared in the project are marked **Connected**.
+![Add Fabric data: recent workspaces first, the Finance analytics workspace open with its semantic models, warehouse, SQL database and lakehouses, three already connected and two picked](/screenshots/connect-data.webp)
 
-If the app is not deployed yet, the dialog says: "Deploy this app to a Fabric workspace first — then you can connect the semantic models in that workspace."
+![The message box with two Fabric data chips, Ledger and Raw transactions from Finance analytics, above the placeholder "Say what to build with this data, or just press Enter to connect it"](/screenshots/data-chips.webp)
+
+To change the data before you send, select a chip to reopen **Add Fabric data**, or select
+its **×** to remove it. The chips stay on your message in the chat, so you can see what
+each request connected.
+
+Copilot adds each one with `rayfin connector add` and wires it into the app. Data the app
+already connects to is marked **Connected**. The dialog starts in the workspace this app
+deploys to, when it has one, but the app doesn't need to be deployed to connect data.
+
+Fabricator doesn't offer KQL databases: Rayfin 1.36 can't add new KQL database connectors.
+Learn more in the [Rayfin connectors docs](https://rayfin.ai/docs/connectors).
 
 ## Sign in and retry
 
-Listing workspace models uses Fabric authentication. If Fabricator cannot list them silently, the dialog says: "Sign in to Fabric to list this workspace's models. The preview uses a separate sign-in." Select **Sign in & retry**.
+Listing your workspaces and their data uses Fabric authentication. If Fabricator can't list
+them silently, the dialog says: "Sign in to Fabric to see your workspaces and their data."
+Select **Sign in & retry**.
 
 Reading a semantic model schema can also require sign-in:
 

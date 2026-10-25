@@ -12,6 +12,8 @@ import { measurePreviewBounds, watchPreviewPixelRatio } from '../previewBounds'
 import { DEVICES, deviceHostWidth, type DeviceId } from '../design/devices'
 import { readFabricatorTheme } from '../design/hostTheme'
 import type { DesignSession, DesignSurface } from '../design/useDesignSession'
+import type { ModelSelection } from '../modelSelection'
+import { ModelPicker } from './models/ModelPicker'
 import {
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -120,13 +122,19 @@ interface Props {
   /** Design mode ("visual chat"). The session lives in the Workbench, which
    *  shares its queue with the chat composer. */
   design?: DesignSession
+  /** The Design bar's model picker. Auto lets Design pick a fast model itself. */
+  designModel?: {
+    value: ModelSelection
+    onChange: (next: ModelSelection) => void
+    onManageKeys: () => void
+  }
   /** Why sending the queued design changes is blocked right now (a turn is
    *  running, the first deploy is pending…), or null when it can go. */
   designSendBlocked?: string | null
   /** Send the queued design changes to chat (the composer text is the note). */
   onDesignSend?: () => void
   /** Report the surface Design can run on — the deployed app, directly or
-   *  embedded in Fabric, or the local preview Deploy manually keeps between
+   *  embedded in Fabric, or the local preview manual deploy keeps between
    *  turns — or null while it can't (deploying, loading, local mid-turn). */
   onDesignSurface?: (surface: DesignSurface | null) => void
   /** Report the project-load overlay state so the parent can render a centered
@@ -139,8 +147,8 @@ interface Props {
    *  running), the preview surface shows this instead of the deployed app, with a
    *  "Local" badge. See {@link RayfinStudioApi.dev}. */
   localPreviewUrl?: string | null
-  /** Deploy manually (experimental): the local preview runs whenever the app is
-   *  open, instead of only during turns. */
+  /** Chat turns don't deploy (the user turned off "Deploy after each chat turn"):
+   *  the local preview runs whenever the app is open, instead of only during turns. */
   manualDeploy?: boolean
   /** A chat turn is running for this app, so its local preview changes as
    *  Copilot works. */
@@ -254,6 +262,7 @@ export default function PreviewPane({
   onToggleFocus,
   onPreviewModeChanged,
   design,
+  designModel,
   designSendBlocked = null,
   onDesignSend,
   onDesignSurface,
@@ -859,7 +868,7 @@ export default function PreviewPane({
   // The session (queue, polling, AI requests, capture) lives in the Workbench so
   // the chat composer can show and send the queue; this pane reports the surface
   // Design can run on — the deployed app, direct or embedded in Fabric, or the
-  // local preview Deploy manually keeps between turns — and renders the design
+  // local preview manual deploy keeps between turns — and renders the design
   // toolbar + device width. See `useDesignSession` and the injected
   // `design_agent.js`.
   const designActive = Boolean(design?.active)
@@ -969,7 +978,7 @@ export default function PreviewPane({
                             : "It uses your preview's data."
                       } It stays until the team pipeline has deployed your latest change. Click to open it in your browser.`
                     : manualDeploy
-                      ? `Your app, running on this computer at ${localPreviewUrl}. With Deploy manually on, it shows your latest changes whenever the app is open. Click to open it in your browser.`
+                      ? `Your app, running on this computer at ${localPreviewUrl}. While chat turns don't deploy, it shows your latest changes whenever the app is open. Click to open it in your browser.`
                       : `Your app, running on this computer at ${localPreviewUrl} while Copilot works, so its changes show as it makes them. Click to open it in your browser.`
                   : shownUrl
               }
@@ -1049,6 +1058,17 @@ export default function PreviewPane({
               : 'Click anything in your app to change it'}
           </span>
           <div className="design-bar-actions">
+            {designModel && (
+              <ModelPicker
+                value={designModel.value}
+                disabled={false}
+                onChange={designModel.onChange}
+                placement="down"
+                onManageKeys={designModel.onManageKeys}
+                autoHint="Fabricator picks a fast model for Options and Polish."
+                label="Design model"
+              />
+            )}
             <div className="seg seg--toolbar" role="group" aria-label="Preview width">
               {DEVICES.map((d) => {
                 const Glyph = DEVICE_ICONS[d.id]

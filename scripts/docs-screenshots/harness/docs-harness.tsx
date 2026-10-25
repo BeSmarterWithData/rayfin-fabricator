@@ -9,7 +9,10 @@ import { useEffect, useState, type ReactNode } from 'react'
 import ReactDOM from 'react-dom/client'
 import type {
   AuthStatus,
+  ByokModelInfo,
+  ByokStatus,
   ChatPlanArtifact,
+  CopilotModel,
   DoctorReport,
   FabricCapacitiesResult,
   FabricWorkspace,
@@ -24,6 +27,7 @@ import type {
   TeamResourceRequest,
   TeamSessionStatus,
   ToolStatus,
+  WorkspaceDataItem,
   WorkspaceModel
 } from '@shared/ipc'
 import { OverlayProvider } from './overlay'
@@ -44,10 +48,149 @@ import DeployStage from './components/DeployStage'
 import PreviewPane from './components/PreviewPane'
 import DeploymentsControl from './components/DeploymentsControl'
 import AccountMenu from './components/AccountMenu'
+import AccountsModal from './components/AccountsModal'
+import SettingsModal from './components/SettingsModal'
 import BlueprintTab from './components/blueprint/BlueprintTab'
+import { ModelPicker } from './components/models/ModelPicker'
+import { AddMenu } from './components/chat/ComposerMenus'
+import { DataTray } from './components/chat/DataTray'
+import ConnectDataModal from './components/ConnectDataModal'
+import type { DataSource } from './fabricData'
+import type { ModelSelection } from './modelSelection'
 import './components/chat/chat.css'
 
 const ok = <T,>(value: T) => (): Promise<T> => Promise.resolve(value)
+
+/** A Copilot model for the pickers. */
+const copilotModel = (
+  id: string,
+  name: string,
+  vendor: string,
+  more: Partial<CopilotModel> = {}
+): CopilotModel => ({
+  id,
+  name,
+  vendor,
+  supportedReasoningEfforts: ['low', 'medium', 'high'],
+  defaultReasoningEffort: 'medium',
+  category: 'versatile',
+  vision: true,
+  ...more
+})
+
+/** A model on the user's own API key, as the pickers list it. */
+const keyModel = (provider: string, providerName: string, id: string, name: string, vendor: string): CopilotModel => ({
+  id: `${provider}/${id}`,
+  name,
+  vendor,
+  supportedReasoningEfforts: ['low', 'medium', 'high'],
+  defaultReasoningEffort: 'medium',
+  vision: true,
+  byok: { provider, providerName, ready: true }
+})
+
+/** Copilot's models in its order, then the sample user's Anthropic and OpenAI models. */
+const sampleModels: CopilotModel[] = [
+  copilotModel('claude-sonnet-5.5', 'Claude Sonnet 5.5', 'Anthropic', {
+    supportedReasoningEfforts: ['low', 'medium', 'high', 'max'],
+    contextTiers: [
+      { tier: 'default', tokens: 200_000 },
+      { tier: 'long_context', tokens: 1_000_000 }
+    ]
+  }),
+  copilotModel('gpt-6.1-sol', 'GPT-6.1 Sol', 'OpenAI', {
+    supportedReasoningEfforts: ['low', 'medium', 'high', 'xhigh'],
+    contextTiers: [
+      { tier: 'default', tokens: 400_000 },
+      { tier: 'long_context', tokens: 1_050_000 }
+    ]
+  }),
+  copilotModel('claude-opus-5.5', 'Claude Opus 5.5', 'Anthropic', {
+    category: 'powerful',
+    supportedReasoningEfforts: ['low', 'medium', 'high', 'max'],
+    defaultReasoningEffort: 'high'
+  }),
+  copilotModel('gpt-6-astra', 'GPT-6 Astra', 'OpenAI', { category: 'powerful' }),
+  copilotModel('gemini-4-argon', 'Gemini 4 Argon', 'Google'),
+  copilotModel('claude-haiku-5.5', 'Claude Haiku 5.5', 'Anthropic', { category: 'lightweight' }),
+  copilotModel('gpt-6-luna', 'GPT-6 Luna', 'OpenAI', { category: 'lightweight' }),
+  copilotModel('grok-4.7', 'Grok 4.7', 'xAI'),
+  copilotModel('mai-code-2-flash', 'MAI Code 2 Flash', 'Microsoft', { category: 'lightweight' }),
+  copilotModel('gemini-3.8-flash', 'Gemini 3.8 Flash', 'Google', { category: 'lightweight' }),
+  copilotModel('gpt-6-sol', 'GPT-6 Sol', 'OpenAI'),
+  copilotModel('claude-sonnet-5', 'Claude Sonnet 5', 'Anthropic'),
+  keyModel('anthropic', 'Anthropic', 'claude-opus-5-5', 'Claude Opus 5.5', 'Anthropic'),
+  keyModel('anthropic', 'Anthropic', 'claude-sonnet-5-5', 'Claude Sonnet 5.5', 'Anthropic'),
+  keyModel('openai', 'OpenAI', 'gpt-6-astra', 'GPT-6 Astra', 'OpenAI')
+]
+
+/** A model an Anthropic key can use, as Accounts lists it. */
+const anthropicModel = (id: string, name: string, recommended: boolean, created: number): ByokModelInfo => ({
+  id,
+  name,
+  contextWindow: id.includes('haiku') ? 200_000 : 1_000_000,
+  maxOutput: 64_000,
+  vision: true,
+  efforts: ['low', 'medium', 'high', 'max'],
+  deprecated: false,
+  recommended,
+  created
+})
+
+/** The sample user's providers: an Anthropic key saved, no OpenAI, xAI or Google key yet. */
+const sampleByok: ByokStatus = {
+  supported: true,
+  store: 'Windows Credential Manager',
+  providers: [
+    {
+      id: 'anthropic',
+      name: 'Anthropic',
+      description: 'Claude models',
+      keyUrl: 'https://platform.claude.com/settings/keys',
+      keyPrefix: 'sk-ant-',
+      hasKey: true,
+      models: [
+        anthropicModel('claude-opus-5-5', 'Claude Opus 5.5', true, 5),
+        anthropicModel('claude-sonnet-5-5', 'Claude Sonnet 5.5', true, 4),
+        anthropicModel('claude-haiku-5-5', 'Claude Haiku 5.5', true, 3),
+        anthropicModel('claude-opus-5', 'Claude Opus 5', false, 2),
+        anthropicModel('claude-sonnet-5', 'Claude Sonnet 5', false, 1)
+      ],
+      enabled: ['claude-opus-5-5', 'claude-sonnet-5-5'],
+      checkedAt: new Date().toISOString()
+    },
+    {
+      id: 'openai',
+      name: 'OpenAI',
+      description: 'GPT models',
+      keyUrl: 'https://platform.openai.com/settings/organization/api-keys',
+      keyPrefix: 'sk-',
+      hasKey: false,
+      models: [],
+      enabled: []
+    },
+    {
+      id: 'xai',
+      name: 'xAI',
+      description: 'Grok models',
+      keyUrl: 'https://console.x.ai/team/default/api-keys',
+      keyPrefix: 'xai-',
+      hasKey: false,
+      models: [],
+      enabled: []
+    },
+    {
+      id: 'google',
+      name: 'Google',
+      description: 'Gemini and Gemma models',
+      keyUrl: 'https://aistudio.google.com/apikey',
+      keyPrefix: 'AIza',
+      hasKey: false,
+      models: [],
+      enabled: []
+    }
+  ]
+}
 
 const tool = (id: string, name: string, version: string): ToolStatus => ({
   id: id as ToolStatus['id'],
@@ -475,6 +618,34 @@ const workspaceModels: Record<string, WorkspaceModel[]> = {
   ]
 }
 
+/** What Add Fabric data finds in each workspace, by name (the Finance warehouse and both
+ *  semantic models are already connected to the sample app). */
+const workspaceData: Record<string, WorkspaceDataItem[]> = {
+  [FINANCE_WS]: [
+    { id: BUDGETS_MODEL, name: 'Budgets 2026', type: 'SemanticModel' },
+    { id: FINANCE_WAREHOUSE, name: 'Finance warehouse', type: 'Warehouse' },
+    { id: 'a1111111-1111-4111-8111-111111111111', name: 'Ledger', type: 'SQLDatabase' },
+    { id: 'a2222222-2222-4222-8222-222222222222', name: 'Raw transactions', type: 'Lakehouse' },
+    { id: SPEND_MODEL, name: 'Spend analysis', type: 'SemanticModel' },
+    { id: 'a3333333-3333-4333-8333-333333333333', name: 'Vendor payments', type: 'Lakehouse' }
+  ],
+  [APPS_WS]: [{ id: 'a4444444-4444-4444-8444-444444444444', name: 'Contoso Expenses', type: 'SQLDatabase' }]
+}
+
+/** Every workspace the sample user can open, for Add Fabric data. */
+const dataWorkspaces: FabricWorkspace[] = [
+  ...expensesWorkspaces,
+  { id: 'b1111111-1111-4111-8111-111111111111', displayName: 'Marketing', type: 'Workspace', sku: 'F8', region: 'West US', capacityKind: 'fabric', eligible: true },
+  { id: 'b2222222-2222-4222-8222-222222222222', displayName: 'Operations', type: 'Workspace', sku: 'F16', region: 'West US', capacityKind: 'fabric', eligible: true },
+  { id: 'b3333333-3333-4333-8333-333333333333', displayName: 'Sales insights', type: 'Workspace', sku: 'F64', region: 'West US 2', capacityKind: 'fabric', eligible: true }
+]
+
+/** What the connect-data shot picks, as chips in the composer waiting for the next message. */
+const pickedData: DataSource[] = [
+  { workspaceId: FINANCE_WS, workspaceName: 'Finance analytics', item: workspaceData[FINANCE_WS][2] },
+  { workspaceId: FINANCE_WS, workspaceName: 'Finance analytics', item: workspaceData[FINANCE_WS][3] }
+]
+
 /** Creating a team workspace: one GitHub account with every permission it needs, and Azure signed in. */
 const teamEnv: TeamEnvStatus = {
   enabled: true,
@@ -532,6 +703,37 @@ const teamCapacities: FabricCapacitiesResult = {
 function installApi(): void {
   const api = {
     openExternal: ok(undefined),
+    // The model pickers' lists: Copilot's models, then the ones on your own API keys.
+    chat: {
+      listModels: ok(sampleModels),
+      // Auto's "Optimized for" choices come from Copilot, per account; the sample has none.
+      autoTiers: ok(null)
+    },
+    byok: {
+      status: ok(sampleByok)
+    },
+    // Accounts: the sample user's one account in each service.
+    github: {
+      accounts: ok({ ghInstalled: true, accounts: [{ login: 'averychen', active: true, signedIn: true }] })
+    },
+    accounts: {
+      fabric: ok({
+        accounts: [{ id: 'a1', user: 'avery.chen@contoso.com', tenant: 'contoso.com', active: true, shared: true }],
+        sharedTokenStore: false
+      }),
+      azure: ok({
+        azInstalled: true,
+        accounts: [
+          {
+            user: 'avery.chen@contoso.com',
+            tenant: 'contoso.com',
+            tenantName: 'Contoso',
+            subscription: 'Contoso Apps',
+            active: true
+          }
+        ]
+      })
+    },
     // The native preview surface: every call is a no-op, so a pane renders without one.
     preview: {},
     skills: {
@@ -547,6 +749,8 @@ function installApi(): void {
       list: ok(secrets)
     },
     projects: {
+      // Settings shows where new projects go.
+      state: ok({ workspaceRoot: 'C:\\Users\\avery\\RayfinProjects', activeProjectId: null, projects: [] }),
       files: {
         read: (_project: string, path: string) =>
           Promise.resolve(
@@ -560,7 +764,13 @@ function installApi(): void {
     fabric: {
       listWorkspaces: ok({ ok: true, workspaces: expensesWorkspaces }),
       listWorkspaceModels: (workspaceId: string) =>
-        Promise.resolve({ ok: true, models: workspaceModels[workspaceId.toLowerCase()] ?? [] })
+        Promise.resolve({ ok: true, models: workspaceModels[workspaceId.toLowerCase()] ?? [] }),
+      listWorkspaceData: (workspaceId: string) =>
+        Promise.resolve({ ok: true, items: workspaceData[workspaceId.toLowerCase()] ?? [] }),
+      projectSemanticModels: ok([
+        { alias: 'spend', workspaceId: FINANCE_WS, itemId: SPEND_MODEL },
+        { alias: 'budgets', workspaceId: FINANCE_WS, itemId: BUDGETS_MODEL }
+      ])
     },
     deploy: {
       // The sample app's one deployment, deployed a couple of hours ago.
@@ -786,6 +996,163 @@ function Open({ selector, children }: { selector: string; children: ReactNode })
 }
 
 /**
+ * Clicks each selector in turn once the shot has rendered (a menu, then a list in it), then
+ * takes the focus off, so the capture shows no caret or focus ring.
+ */
+function Steps({ clicks, children }: { clicks: string[]; children: ReactNode }): JSX.Element {
+  const key = clicks.join('|')
+  useEffect(() => {
+    const selectors = key.split('|')
+    const timers = selectors.map((selector, i) =>
+      window.setTimeout(() => {
+        document.querySelector<HTMLElement>(selector)?.click()
+        if (i === selectors.length - 1) {
+          window.setTimeout(() => (document.activeElement as HTMLElement | null)?.blur(), 250)
+        }
+      }, 300 + i * 400)
+    )
+    return () => timers.forEach((t) => window.clearTimeout(t))
+  }, [key])
+  return <>{children}</>
+}
+
+/** The Build chat's composer, chat-wide beside an empty preview, with its model picker
+ *  (and any Fabric data waiting to go with the next message). */
+function ComposerPicker({ value, data }: { value: ModelSelection; data?: DataSource[] }): JSX.Element {
+  const [selection, setSelection] = useState(value)
+  return (
+    <div style={{ flex: 1, display: 'grid', gridTemplateColumns: '720px 1fr' }}>
+      <div className="chat" style={{ justifyContent: 'flex-end' }}>
+        <div className="composer">
+          <div className="composer-box">
+            {data && <DataTray sources={data} onOpen={noop} onRemove={noop} />}
+            <div className="composer-input-sizer" data-replicated-value="">
+              <textarea
+                className="composer-input"
+                rows={1}
+                placeholder={
+                  data
+                    ? 'Say what to build with this data, or just press Enter to connect it'
+                    : 'Message Fabricator about Contoso Expenses…'
+                }
+                readOnly
+              />
+            </div>
+            <div className="composer-actions">
+              <div className="composer-left">
+                <AddMenu
+                  locked={false}
+                  attaching={false}
+                  onImage={noop}
+                  onConnectData={noop}
+                  onReferenceFile={noop}
+                />
+                <ModelPicker value={selection} disabled={false} onChange={setSelection} tiers onManageKeys={noop} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--bg-elev)' }} />
+    </div>
+  )
+}
+
+/**
+ * Add Fabric data: the sample app deploys to Contoso Apps and connected data from Finance
+ * analytics an hour ago, so both are recent. The shot opens Finance analytics, where the app
+ * already connects three items, and picks a SQL database and a lakehouse.
+ */
+function ConnectDataShot(): JSX.Element {
+  useState(() => {
+    localStorage.setItem('fabricator.data.workspaces', JSON.stringify([{ id: FINANCE_WS, at: Date.now() - 3_600_000 }]))
+    const api = window.api as unknown as { fabric: Record<string, unknown> }
+    api.fabric.listWorkspaces = ok({ ok: true, workspaces: dataWorkspaces })
+    return null
+  })
+  return (
+    <Steps clicks={['.cd-ws-list button:nth-of-type(1)', '.cd-items li:nth-child(3) input', '.cd-items li:nth-child(4) input']}>
+      <ConnectDataModal
+        project={expensesApp}
+        appWorkspaces={[{ workspace: APPS_WS, at: Date.now() - 2 * 3_600_000 }]}
+        onClose={noop}
+        onAdd={noop}
+      />
+    </Steps>
+  )
+}
+
+/**
+ * Settings, with its Theme set to the capture's theme. `experiments` opens Experiments and
+ * scrolls it into view, the way the Team workspaces docs show it.
+ */
+function SettingsShot({ experiments = false }: { experiments?: boolean }): JSX.Element {
+  useEffect(() => {
+    const body = (): HTMLElement | null => document.querySelector<HTMLElement>('.settings-body')
+    // Experiments ends at the bottom of the dialog's body, with Diagnostics above it. Placed
+    // again when the body resizes: headless Edge sizes the window for the capture afterwards.
+    const place = (): void => {
+      const card = document.querySelector<HTMLElement>('.set-expander')
+      const b = body()
+      if (experiments && b && card) {
+        b.scrollTop += card.getBoundingClientRect().bottom - (b.getBoundingClientRect().bottom - 20)
+      }
+    }
+    const resized = new ResizeObserver(place)
+    const open = window.setTimeout(() => {
+      if (experiments) document.querySelector<HTMLElement>('.set-expander-head')?.click()
+    }, 300)
+    const settle = window.setTimeout(() => {
+      place()
+      const b = body()
+      if (b) resized.observe(b)
+      ;(document.activeElement as HTMLElement | null)?.blur()
+    }, 900)
+    return () => {
+      window.clearTimeout(open)
+      window.clearTimeout(settle)
+      resized.disconnect()
+    }
+  }, [experiments])
+  const theme = new URLSearchParams(location.search).get('theme') === 'light' ? 'light' : 'dark'
+  return (
+    <SettingsModal
+      settings={{ theme, experiments: { teamWorkspaces: false } }}
+      versions={{ app: '1.21.0', tauri: '2.11.3', webview2: '154.0.4258.62', copilot: '1.0.96' }}
+      onChange={noop}
+      onClose={noop}
+      onManageAccounts={noop}
+      onManageKeys={noop}
+      onReviewSetup={noop}
+    />
+  )
+}
+
+/** Accounts, scrolled to Model providers: an Anthropic key saved, OpenAI's key being added. */
+function ModelProvidersShot(): JSX.Element {
+  return (
+    <Steps clicks={['[aria-label="Add your OpenAI API key"]']}>
+      <AccountsModal
+        auth={setupAuth}
+        onAuthChanged={noop}
+        fabric={{
+          busy: false,
+          signingIn: false,
+          signingOut: false,
+          canRefresh: false,
+          onSignIn: noop,
+          onSignOut: noop,
+          onRefresh: noop
+        }}
+        modelProviders={{ focus: true }}
+        onReviewSetup={noop}
+        onClose={noop}
+      />
+    </Steps>
+  )
+}
+
+/**
  * Types `text` into the input that shows `placeholder` once it renders, then takes the focus
  * off it, so the capture shows no caret or focus ring.
  */
@@ -948,6 +1315,7 @@ function Deployments(): JSX.Element {
               account={{ user: 'avery.chen@contoso.com', tenant: 'Contoso' }}
               onManageAccounts={noop}
               onSignIn={noop}
+              autoDeploy={{ on: true, onChange: noop }}
             />
           </Open>
           <div className="app-bar-global">
@@ -1180,6 +1548,33 @@ function Shot({ id }: { id: string | null }): JSX.Element {
     case 'model-relations':
     case 'model-access':
       return <Blueprint view="data" />
+    case 'model-picker':
+      return (
+        <Steps clicks={['.mp-pill', '[data-sub="model"]']}>
+          <ComposerPicker value={{ model: 'claude-opus-5.5', effort: 'high', autoTier: '', contextTier: '' }} />
+        </Steps>
+      )
+    case 'model-providers':
+      return <ModelProvidersShot />
+    case 'add-menu':
+      return (
+        <Steps clicks={['.add-menu .composer-icon-btn', '[data-sub="data"]']}>
+          <ComposerPicker value={{ model: 'claude-opus-5.5', effort: 'high', autoTier: '', contextTier: '' }} />
+        </Steps>
+      )
+    case 'connect-data':
+      return <ConnectDataShot />
+    case 'data-chips':
+      return (
+        <ComposerPicker
+          value={{ model: 'claude-opus-5.5', effort: 'high', autoTier: '', contextTier: '' }}
+          data={pickedData}
+        />
+      )
+    case 'settings':
+      return <SettingsShot />
+    case 'settings-experiments':
+      return <SettingsShot experiments />
     default:
       return <p style={{ padding: 24 }}>Unknown shot: {String(id)}</p>
   }

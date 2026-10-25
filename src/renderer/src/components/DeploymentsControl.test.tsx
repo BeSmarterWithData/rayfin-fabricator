@@ -378,7 +378,7 @@ describe('DeploymentsControl chip', () => {
       expect(onShowChanges).toHaveBeenCalledTimes(1)
     })
 
-    it('turns deploying after each chat turn on and off, and says which on the control', () => {
+    it('turns deploying after each chat turn on and off, and says so on the control only when it is off', () => {
       installApi()
       const onChange = vi.fn()
       const { rerender } = render(control({ autoDeploy: { on: false, onChange } }))
@@ -391,9 +391,10 @@ describe('DeploymentsControl chip', () => {
       fireEvent.click(toggle)
       expect(onChange).toHaveBeenCalledWith(true)
 
+      // Auto is the default, so the chip doesn't call it out.
       rerender(control({ autoDeploy: { on: true, onChange } }))
       expect(screen.getByRole<HTMLInputElement>('checkbox', { name: /Deploy after each chat turn/ }).checked).toBe(true)
-      const auto = screen.getByRole('button', { name: /^Deployment:\s*Production\s*· Auto$/ })
+      const auto = screen.getByRole('button', { name: /^Deployment:\s*Production$/ })
       expect(auto.title).toContain('Auto deploy is on')
 
       // A failed deploy says so instead.
@@ -406,7 +407,7 @@ describe('DeploymentsControl chip', () => {
       expect(screen.getByRole('button', { name: /^Deployment:\s*Production\s*· Failed$/ })).toBeTruthy()
     })
 
-    it('says nothing about auto deploy without the Deploy manually experiment', () => {
+    it('says nothing about auto deploy without the switch', () => {
       render(control())
       const chip = screen.getByRole('button', { name: /^Deployment:\s*Production$/ })
       expect(chip.title).not.toContain('Auto deploy')

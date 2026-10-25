@@ -59,7 +59,7 @@ interface Props {
   onShareRequestHandled?: (nonce: number) => void
   /** The workspaces your apps use, most recent first; New deployment lists them first. */
   recentWorkspaces?: readonly string[]
-  /** Deploy manually (experiment): whether chat turns deploy the app as they finish. */
+  /** Whether chat turns deploy the app as they finish (off: the user deploys manually). */
   autoDeploy?: { on: boolean; onChange: (on: boolean) => void }
   /** Open Help about why the last deploy failed. */
   onDiagnose?: () => void
@@ -389,9 +389,9 @@ export default function DeploymentsControl({
       : failed
         ? `The last deploy to ${name} didn't finish. Click for details.`
         : `${name} is live${workspaceName && workspaceName !== name ? ` in ${workspaceName}` : ''}. Click for details, or to switch or add a deployment.`
-  // With Deploy manually on, the chip also says which way chat changes deploy,
-  // so it shows without opening the panel: "· Auto" or "· Manual".
-  const modeNote = autoDeploy && hasDeployment ? (autoDeploy.on ? 'Auto' : 'Manual') : null
+  // With deploying after each turn off, the chip says so without opening the
+  // panel: "· Manual". Auto is the default, so it goes unsaid.
+  const modeNote = autoDeploy && !autoDeploy.on && hasDeployment ? 'Manual' : null
   const chipTitle = autoDeploy
     ? `${chipState}\n${autoDeploy.on ? 'Auto deploy is on: chat changes deploy after each turn.' : 'Auto deploy is off: chat changes wait for you to deploy them.'}`
     : chipState
