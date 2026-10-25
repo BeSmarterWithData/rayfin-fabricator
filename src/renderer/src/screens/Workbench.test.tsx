@@ -1501,6 +1501,22 @@ describe('Workbench chat history', () => {
     const saved = api.chat.saveHistory.mock.lastCall?.[1] as { data?: unknown; prompt?: string }[]
     expect(saved[0]).toMatchObject({ data, prompt: 'Chart spending + how to connect' })
   })
+
+  it('keeps the migration chip a message carried when it saves the transcript', async () => {
+    const api = installApi(true)
+    render(<Workbench {...makeProps()} />, { wrapper: Wrapper })
+    await screen.findByLabelText('Chat draft')
+    const migration = { reportName: 'Sales', foundation: true, page: { index: 0, count: 3, name: 'Overview' } }
+    act(() =>
+      chatProps.mock.lastCall![0].onChange(() => [
+        { id: 'u1', role: 'user', text: 'Migrate “Sales” from Power BI', tools: [], pending: false, migration, prompt: 'Migrate…' },
+        { id: 'a1', role: 'assistant', text: 'Done.', tools: [], pending: false }
+      ])
+    )
+    await act(async () => completeTurn())
+    const saved = api.chat.saveHistory.mock.lastCall?.[1] as { migration?: unknown }[]
+    expect(saved[0]).toMatchObject({ migration })
+  })
 })
 
 describe('Workbench team workspaces', () => {

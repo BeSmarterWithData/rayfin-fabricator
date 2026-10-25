@@ -86,6 +86,8 @@ After the first successful deployment, the deployment control in the app bar nam
 | **Try again** | The last deploy didn't finish, and the deployment control says **Failed**. Open it to see what went wrong, and select **Find out why** to ask Help. |
 | **Deploying…** | A deploy is running, with how far it has got. Select it to see the step in progress. |
 
+While Copilot is working on a turn, the button is turned off: a deploy then would publish a half-finished change. Its tooltip says "Copilot is working on this app. Deploys wait until the turn finishes."
+
 Fabricator also redeploys automatically after a successful Copilot turn when the project has undeployed changes. This includes edits that Copilot already committed to the project's git history. It does not redeploy when:
 
 - the Copilot turn failed or was cancelled,
